@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { configuredBasePath } from '../routing/basePath';
 
 export const apiClient = axios.create({
-    baseURL: '/api/v1',
+    baseURL: `${configuredBasePath()}/api/v1`,
     headers: {
         Accept: 'application/json',
         'X-Requested-With': 'XMLHttpRequest',

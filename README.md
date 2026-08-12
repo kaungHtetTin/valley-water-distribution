@@ -36,6 +36,8 @@ The Laravel API serves four React applications from one shared codebase:
 
 The local runtime and `.env.example` use the `valley_water` MySQL database. XAMPP's MySQL service is supported for local development; the PHPUnit configuration intentionally uses isolated SQLite so automated tests cannot alter development data.
 
+Set `APP_URL` to the complete public application URL for each environment, including any subdirectory (for example `http://127.0.0.1/valley-water/public`). The server redirect, SPA router, navigation links, API client, and Vite asset URLs derive their deployment prefix from this value; no source changes are required when moving the application.
+
 ## Setup
 
 ```bash

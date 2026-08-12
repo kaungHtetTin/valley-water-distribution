@@ -8,7 +8,7 @@ class PlatformFoundationTest extends TestCase
 {
     public function test_root_redirects_to_the_office_application(): void
     {
-        $this->get('/')->assertRedirect('/office');
+        $this->get('/')->assertRedirect('office');
     }
 
     public function test_each_application_shell_is_served_by_the_spa_view(): void
@@ -19,6 +19,7 @@ class PlatformFoundationTest extends TestCase
             $response
                 ->assertOk()
                 ->assertSee('id="app"', false)
+                ->assertSee('name="app-base-path"', false)
                 ->assertHeader('X-Content-Type-Options', 'nosniff')
                 ->assertHeader('X-Frame-Options', 'SAMEORIGIN');
 
