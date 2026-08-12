@@ -86,7 +86,7 @@ return new class extends Migration
             $table->string('status', 24)->default('active');
             $table->timestamps();
             $table->unique(['sku_id', 'uom_id', 'version']);
-            $table->index(['organization_id', 'sku_id', 'status', 'effective_from']);
+            $table->index(['organization_id', 'sku_id', 'status', 'effective_from'], 'sku_conversion_lookup');
         });
 
         Schema::create('price_types', function (Blueprint $table): void {

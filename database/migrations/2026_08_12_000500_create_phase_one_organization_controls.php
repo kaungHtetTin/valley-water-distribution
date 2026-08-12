@@ -46,7 +46,7 @@ return new class extends Migration
             $table->string('name_en', 160);
             $table->string('name_my', 160)->nullable();
             $table->timestamps();
-            $table->unique(['business_calendar_id', 'calendar_date']);
+            $table->unique(['business_calendar_id', 'calendar_date'], 'calendar_date_unique');
             $table->index(['organization_id', 'calendar_date']);
         });
 
@@ -82,7 +82,7 @@ return new class extends Migration
             $table->unsignedInteger('lock_version')->default(1);
             $table->string('status', 24)->default('active');
             $table->timestamps();
-            $table->unique(['organization_id', 'scope_key', 'document_type']);
+            $table->unique(['organization_id', 'scope_key', 'document_type'], 'document_sequence_scope_unique');
             $table->index(['organization_id', 'branch_id', 'status']);
         });
     }

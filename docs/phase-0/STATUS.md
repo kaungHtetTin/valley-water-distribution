@@ -28,7 +28,7 @@ Started: 2026-08-12
 
 ## Local environment observations
 
-- XAMPP provides PHP 8.2.12 and MariaDB 10.4.32; the specification calls for MySQL. MySQL 8 compatibility and the development database topology remain to be approved.
+- The local runtime now uses Laravel's MySQL driver with XAMPP MariaDB 10.4.32 and the `valley_water` database. Production MySQL 8 compatibility and topology remain to be approved.
 - The XAMPP MySQL client exists at `D:\xampp\mysql\bin\mysql.exe` but is not on `PATH`.
 - The local PHP build does not currently load the Redis extension; Redis-backed cache and queues remain an environment setup task.
 - Local HTTPS package access is inspected by AVG. A temporary project-local CA/Composer bootstrap was used under ignored `.tools`; no TLS verification was disabled.

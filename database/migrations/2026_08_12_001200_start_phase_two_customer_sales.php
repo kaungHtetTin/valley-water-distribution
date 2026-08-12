@@ -83,7 +83,7 @@ return new class extends Migration
             $table->boolean('is_primary')->default(false);
             $table->string('status', 24)->default('active');
             $table->timestamps();
-            $table->index(['organization_id', 'client_outlet_id', 'status']);
+            $table->index(['organization_id', 'client_outlet_id', 'status'], 'client_address_lookup');
         });
 
         Schema::create('outlet_way_assignments', function (Blueprint $table): void {
@@ -99,7 +99,7 @@ return new class extends Migration
             $table->string('status', 24)->default('active');
             $table->timestamps();
             $table->index(['organization_id', 'client_outlet_id', 'role', 'effective_from'], 'outlet_way_history_lookup');
-            $table->index(['organization_id', 'way_id', 'status', 'effective_from']);
+            $table->index(['organization_id', 'way_id', 'status', 'effective_from'], 'outlet_way_active_lookup');
         });
     }
 

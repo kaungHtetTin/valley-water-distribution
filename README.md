@@ -34,7 +34,7 @@ The Laravel API serves four React applications from one shared codebase:
 - Node.js 22+
 - MySQL 8 and Redis for the target runtime
 
-The generated local `.env` currently uses SQLite so foundation tests run without business data. Copy `.env.example` when configuring the required MySQL/Redis development environment.
+The local runtime and `.env.example` use the `valley_water` MySQL database. XAMPP's MySQL service is supported for local development; the PHPUnit configuration intentionally uses isolated SQLite so automated tests cannot alter development data.
 
 ## Setup
 
