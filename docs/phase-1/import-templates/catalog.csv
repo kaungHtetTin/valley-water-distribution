@@ -1,0 +1,2 @@
+product_code,sku_code,name_en,name_my,base_uom_code,size_label,barcode,track_lot,track_expiry,status
+REPLACE-ME,REPLACE-ME,Replace with approved English name,,BTL,,,,false,active

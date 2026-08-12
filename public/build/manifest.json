@@ -1,0 +1,29 @@
+{
+  "_http-vendor-CzApALvg.js": {
+    "file": "assets/http-vendor-CzApALvg.js",
+    "name": "http-vendor"
+  },
+  "_react-vendor-BvT14cI9.js": {
+    "file": "assets/react-vendor-BvT14cI9.js",
+    "name": "react-vendor"
+  },
+  "resources/css/app.css": {
+    "file": "assets/app-BvRmkvTU.css",
+    "src": "resources/css/app.css",
+    "isEntry": true,
+    "name": "app",
+    "names": [
+      "app.css"
+    ]
+  },
+  "resources/js/app.tsx": {
+    "file": "assets/app-Y6oGp2Hl.js",
+    "name": "app",
+    "src": "resources/js/app.tsx",
+    "isEntry": true,
+    "imports": [
+      "_http-vendor-CzApALvg.js",
+      "_react-vendor-BvT14cI9.js"
+    ]
+  }
+}
