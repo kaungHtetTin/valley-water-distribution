@@ -17,6 +17,7 @@ return [
     'features' => [
         'authentication' => env('FEATURE_AUTHENTICATION', false),
         'master_data' => env('FEATURE_MASTER_DATA', false),
+        'customer_sales' => env('FEATURE_CUSTOMER_SALES', false),
         'ordering' => env('FEATURE_ORDERING', false),
         'warehouse' => env('FEATURE_WAREHOUSE', false),
         'finance' => env('FEATURE_FINANCE', false),

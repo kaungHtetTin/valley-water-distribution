@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CustomerSales\CustomerController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\MasterData\AccessControlController;
 use App\Http\Controllers\Api\V1\MasterData\AreaController;
@@ -19,6 +20,19 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
     Route::get('/health', HealthController::class)->name('api.v1.health');
+
+    Route::middleware(['feature:customer_sales', 'organization'])
+        ->prefix('customer-sales')
+        ->name('api.v1.customer-sales.')
+        ->group(function (): void {
+            Route::middleware('master.permission:customers.view')->get('customers/options', [CustomerController::class, 'options'])->name('customers.options');
+            Route::middleware('master.permission:customers.view')->get('customers', [CustomerController::class, 'index'])->name('customers.index');
+            Route::middleware('master.permission:customers.manage')->group(function (): void {
+                Route::post('customers', [CustomerController::class, 'store'])->name('customers.store');
+                Route::put('customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
+                Route::patch('customers/{customer}/archive', [CustomerController::class, 'archive'])->name('customers.archive');
+            });
+        });
 
     Route::middleware(['feature:master_data', 'organization', 'master.access'])
         ->prefix('master-data')

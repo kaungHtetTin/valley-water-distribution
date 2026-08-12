@@ -181,7 +181,7 @@ Phase 5 can begin when Phase 4's Cash/Bank, chart-of-accounts, advances, and jou
 
 **Indicative duration:** 6 weeks
 
-**Implementation status:** In progress since 2026-08-11. The first Customer/territory/Order/phone-auth vertical slice is implemented with automated coverage; remaining identity, approval, offline, and UAT work is tracked in `docs/PHASE_2_IMPLEMENTATION.md`.
+**Implementation status:** In progress since 2026-08-12. The first Customer/Outlet register and effective-dated Outlet-to-Way membership slice is implemented with automated coverage; remaining assignment, identity, ordering, approval, offline, and UAT work is tracked in `docs/PHASE_2_IMPLEMENTATION.md`.
 
 ### Phase 2 objectives
 

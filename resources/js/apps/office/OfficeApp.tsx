@@ -14,6 +14,7 @@ import { ControlledLocationsPage } from './master-data/ControlledLocationsPage';
 import { RouteTemplatePage } from './master-data/RouteTemplatePage';
 import { FoundationMastersPage } from './master-data/FoundationMastersPage';
 import { GovernancePage } from './master-data/GovernancePage';
+import { CustomerPage } from './customer-sales/CustomerPage';
 
 interface NavigationItem {
     label: MessageKey;
@@ -44,6 +45,7 @@ export function OfficeApp() {
     const [rail, setRail] = useState(false);
     const location = useLocation();
     const isMasterData = location.pathname.startsWith('/office/master-data');
+    const isCustomers = location.pathname.startsWith('/office/customers');
     const isCatalogSetup = location.pathname.startsWith('/office/master-data/catalog-setup');
     const isCatalog = location.pathname.startsWith('/office/master-data/catalog') && !isCatalogSetup;
     const isWays = location.pathname.startsWith('/office/master-data/ways');
@@ -91,7 +93,7 @@ export function OfficeApp() {
 
                 <div className="sidebar-footer">
                     <span className="status-dot status-dot--success" />
-                    <span>{t('phaseOne')}</span>
+                    <span>{isCustomers ? t('phaseTwo') : t('phaseOne')}</span>
                 </div>
             </aside>
 
@@ -104,7 +106,7 @@ export function OfficeApp() {
                         <button className="icon-button rail-toggle" type="button" aria-label={rail ? t('expandMenu') : t('collapseMenu')} onClick={() => setRail((current) => !current)}>
                             <Icon name="chevron" />
                         </button>
-                        <span className="workspace-label">{isGovernance ? t('governanceAndPricing') : isFoundation ? t('foundationMasters') : isCatalogSetup ? t('catalogSetup') : isCatalog ? t('catalogAndPricing') : isWays ? t('wayRegister') : isRouteTemplates ? t('routeTemplateRegister') : isLocations ? t('locationRegister') : isControls ? t('organizationControls') : isStorage ? t('storageAndCash') : isMasterData ? t('areaRegister') : t('commandDashboard')}</span>
+                        <span className="workspace-label">{isCustomers ? t('customerRegister') : isGovernance ? t('governanceAndPricing') : isFoundation ? t('foundationMasters') : isCatalogSetup ? t('catalogSetup') : isCatalog ? t('catalogAndPricing') : isWays ? t('wayRegister') : isRouteTemplates ? t('routeTemplateRegister') : isLocations ? t('locationRegister') : isControls ? t('organizationControls') : isStorage ? t('storageAndCash') : isMasterData ? t('areaRegister') : t('commandDashboard')}</span>
                     </div>
 
                     <div className="topbar-actions">
@@ -123,7 +125,7 @@ export function OfficeApp() {
                 </header>
 
                 <main className="admin-content">
-                    {isMasterData ? (isGovernance ? <GovernancePage /> : isFoundation ? <FoundationMastersPage /> : isCatalogSetup ? <CatalogSetupPage /> : isCatalog ? <CatalogPage /> : isWays ? <WayPage /> : isRouteTemplates ? <RouteTemplatePage /> : isLocations ? <LocationPage /> : isControls ? <OrganizationControlsPage /> : isStorage ? <ControlledLocationsPage /> : <MasterDataPage />) : <>
+                    {isCustomers ? <CustomerPage /> : isMasterData ? (isGovernance ? <GovernancePage /> : isFoundation ? <FoundationMastersPage /> : isCatalogSetup ? <CatalogSetupPage /> : isCatalog ? <CatalogPage /> : isWays ? <WayPage /> : isRouteTemplates ? <RouteTemplatePage /> : isLocations ? <LocationPage /> : isControls ? <OrganizationControlsPage /> : isStorage ? <ControlledLocationsPage /> : <MasterDataPage />) : <>
                     <section className="page-heading">
                         <div>
                             <p className="eyebrow">{t('phaseZero')}</p>
