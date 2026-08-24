@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Support\AppAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AppAuthTest extends TestCase
@@ -26,7 +28,10 @@ class AppAuthTest extends TestCase
             ->assertJsonPath('data.user.email', 'driver@valley.test')
             ->assertJsonPath('data.user.default_app', 'driver')
             ->assertJsonPath('data.user.allowed_apps.0', 'driver')
-            ->assertJsonPath('data.user.permissions.0', 'driver.confirm.update');
+            ->assertJsonFragment(['driver.attendance.view'])
+            ->assertJsonFragment(['driver.confirm.update'])
+            ->assertJsonFragment(['driver.collections.create'])
+            ->assertJsonFragment(['driver.expenses.create']);
 
         $this->assertAuthenticated();
     }
@@ -80,5 +85,35 @@ class AppAuthTest extends TestCase
         $this->postJson('/api/auth/logout')->assertOk();
 
         $this->assertGuest();
+    }
+
+    public function test_user_can_persist_locale_preference()
+    {
+        $this->seed();
+        $user = User::where('email', 'sales@valley.test')->firstOrFail();
+
+        $this->actingAs($user)
+            ->putJson('/api/auth/preferences', ['locale' => 'my'])
+            ->assertOk()
+            ->assertJsonPath('data.user.locale', 'my');
+
+        $this->assertDatabaseHas('users', ['id' => $user->id, 'locale' => 'my']);
+    }
+
+    public function test_custom_role_app_access_is_data_driven()
+    {
+        $this->seed();
+
+        DB::table('roles')->insert([
+            'name' => 'Field Supervisor',
+            'guard_name' => 'web',
+            'allowed_apps' => json_encode(['sales', 'driver']),
+            'description' => 'Cross-app field supervisor.',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertSame(['sales', 'driver'], AppAccess::allowedAppsForRole('Field Supervisor'));
     }
 }

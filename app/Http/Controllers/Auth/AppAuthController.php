@@ -63,4 +63,17 @@ class AppAuthController extends Controller
 
         return ApiResponse::success('Signed out successfully.');
     }
+
+    public function preferences(Request $request)
+    {
+        $validated = $request->validate([
+            'locale' => ['required', 'in:en,my'],
+        ]);
+
+        $request->user()->update($validated);
+
+        return ApiResponse::success('Preferences saved.', [
+            'user' => AppAccess::userPayload($request->user()->fresh()),
+        ]);
+    }
 }

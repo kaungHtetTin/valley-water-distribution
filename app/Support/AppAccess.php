@@ -11,13 +11,23 @@ class AppAccess
 
     public static function allowedAppsForRole(?string $role): array
     {
-        return match ($role) {
-            'Owner', 'Office Staff' => ['office'],
-            'Customer' => ['client'],
-            'Sales Representative' => ['sales'],
-            'Driver' => ['driver'],
-            default => [],
-        };
+        if (! $role) {
+            return [];
+        }
+
+        $configuredRole = DB::table('roles')
+            ->where('name', $role)
+            ->first(['allowed_apps', 'is_active']);
+
+        if (! $configuredRole || ! $configuredRole->is_active) {
+            return [];
+        }
+
+        $apps = is_array($configuredRole->allowed_apps)
+            ? $configuredRole->allowed_apps
+            : json_decode($configuredRole->allowed_apps ?? '[]', true);
+
+        return array_values(array_intersect(self::APPS, is_array($apps) ? $apps : []));
     }
 
     public static function defaultAppForRole(?string $role): ?string
@@ -59,6 +69,8 @@ class AppAccess
             ->join('permission_role', 'roles.id', '=', 'permission_role.role_id')
             ->join('permissions', 'permission_role.permission_id', '=', 'permissions.id')
             ->where('roles.name', $role)
+            ->where('roles.is_active', true)
+            ->where('permissions.is_active', true)
             ->orderBy('permissions.name')
             ->pluck('permissions.name')
             ->all();

@@ -1,0 +1,368 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Order;
+use App\Support\ApiResponse;
+use App\Support\AppAccess;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class MobileOrderController extends Controller
+{
+    public function meta(Request $request)
+    {
+        $scope = $this->scope($request, 'view');
+
+        $customers = $scope['app'] === 'client'
+            ? DB::table('customers')->where('id', $scope['customer_id'])->get(['id', 'code', 'shop_name', 'price_type_id', 'credit_limit'])
+            : DB::table('customers')
+                ->where('route_id', $scope['route_id'])
+                ->where('is_active', true)
+                ->orderBy('shop_name')
+                ->get(['id', 'code', 'shop_name', 'price_type_id', 'credit_limit']);
+
+        $customers = $customers->map(function ($customer) {
+            $customer->label = "{$customer->code} - {$customer->shop_name}";
+            $customer->credit_limit = (float) ($customer->credit_limit ?? 0);
+            $customer->outstanding_balance = $this->outstandingBalance((int) $customer->id);
+            $customer->available_credit = $customer->credit_limit > 0
+                ? $customer->credit_limit - $customer->outstanding_balance
+                : null;
+            $customer->credit_status = $customer->available_credit !== null && $customer->available_credit < 0 ? 'over_limit' : 'ok';
+
+            return $customer;
+        });
+
+        $products = DB::table('products')
+            ->where('products.is_active', true)
+            ->orderBy('products.name')
+            ->get(['products.id', 'products.sku', 'products.name', 'products.unit'])
+            ->map(function ($product) {
+                $product->label = "{$product->sku} - {$product->name}";
+                $product->prices = DB::table('product_prices')
+                    ->where('product_id', $product->id)
+                    ->where('is_active', true)
+                    ->orderByDesc('effective_from')
+                    ->get(['price_type_id', 'amount']);
+
+                return $product;
+            });
+
+        return ApiResponse::success('Mobile order setup loaded.', [
+            'app' => $scope['app'],
+            'customers' => $customers,
+            'products' => $products,
+        ]);
+    }
+
+    public function index(Request $request)
+    {
+        $scope = $this->scope($request, 'view');
+        $query = $this->scopedQuery($scope)->latest('orders.order_date')->latest('orders.id');
+
+        if ($request->filled('status')) {
+            $query->where('orders.status', $request->query('status'));
+        }
+
+        if ($request->filled('customer_id') && $scope['app'] === 'sales') {
+            $query->where('orders.customer_id', $request->query('customer_id'));
+        }
+
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($query) use ($search) {
+                $query->where('orders.code', 'like', "%{$search}%")
+                    ->orWhere('customers.shop_name', 'like', "%{$search}%")
+                    ->orWhere('customers.code', 'like', "%{$search}%");
+            });
+        }
+
+        $summary = (clone $query)->reorder()
+            ->selectRaw("COUNT(*) as orders_count, COALESCE(SUM(orders.total), 0) as total_amount, SUM(CASE WHEN orders.status = 'pending' THEN 1 ELSE 0 END) as pending_count")
+            ->first();
+
+        $paginator = $query->select($this->columns())
+            ->paginate(min(max((int) $request->query('per_page', 12), 1), 50));
+
+        return ApiResponse::success('Mobile orders loaded.', [
+            'items' => collect($paginator->items())->map(fn ($order) => $this->payload($order)),
+            'summary' => [
+                'orders_count' => (int) ($summary->orders_count ?? 0),
+                'pending_count' => (int) ($summary->pending_count ?? 0),
+                'total_amount' => (float) ($summary->total_amount ?? 0),
+            ],
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'total' => $paginator->total(),
+            ],
+        ]);
+    }
+
+    public function show(Request $request, Order $order)
+    {
+        $scope = $this->scope($request, 'view');
+        abort_unless($this->orderInScope($order, $scope), 404);
+
+        $orderPayload = $this->baseQuery()->select($this->columns())->where('orders.id', $order->id)->first();
+        abort_unless($orderPayload, 404);
+
+        return ApiResponse::success('Mobile order loaded.', [
+            'order' => $this->payload($orderPayload),
+            'items' => $order->items()->orderBy('id')->get()->map(fn ($item) => $this->itemPayload($item)),
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $scope = $this->scope($request, 'create');
+        $validated = $request->validate($this->rules($scope['app']));
+        $customerId = $scope['app'] === 'client' ? $scope['customer_id'] : $validated['customer_id'];
+        $customer = DB::table('customers')->where('is_active', true)->find($customerId);
+
+        abort_unless($customer, 422, 'Active customer is required.');
+        abort_if($scope['app'] === 'sales' && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
+
+        $orderDate = Carbon::parse($validated['order_date'] ?? now());
+        $priceTypeId = $customer->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
+        $items = $this->normalizeItems($validated['items'], $priceTypeId, $orderDate);
+
+        $order = DB::transaction(function () use ($customer, $items, $orderDate, $priceTypeId, $request, $scope, $validated) {
+            $totals = $this->totals($items);
+            $order = Order::create([
+                'code' => $this->nextCode($orderDate),
+                'customer_id' => $customer->id,
+                'route_id' => $customer->route_id,
+                'price_type_id' => $priceTypeId,
+                'source_app' => $scope['app'],
+                'order_date' => $orderDate->toDateString(),
+                'requested_delivery_date' => $validated['requested_delivery_date'] ?? null,
+                'payment_type' => $validated['payment_type'],
+                'status' => 'pending',
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'tax_total' => 0,
+                'total' => $totals['total'],
+                'created_by' => $request->user()?->id,
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            foreach ($items as $item) {
+                $order->items()->create($item);
+            }
+
+            return $order;
+        });
+
+        $orderPayload = $this->baseQuery()->select($this->columns())->where('orders.id', $order->id)->first();
+        abort_unless($orderPayload, 404);
+
+        return ApiResponse::success('Mobile order created.', [
+            'order' => $this->payload($orderPayload),
+            'items' => $order->items()->orderBy('id')->get()->map(fn ($item) => $this->itemPayload($item)),
+        ], 201);
+    }
+
+    private function scope(Request $request, string $action): array
+    {
+        $user = $request->user();
+
+        if ($user->role === 'Customer') {
+            $this->authorizePermission($request, "client.orders.{$action}");
+            abort_unless($user->customer_id, 404);
+
+            return ['app' => 'client', 'customer_id' => $user->customer_id, 'route_id' => null];
+        }
+
+        $this->authorizePermission($request, "sales.orders.{$action}");
+        $routeId = DB::table('employees')->where('id', $user->employee_id)->value('assigned_route_id');
+        abort_unless($routeId, 422, 'A route must be assigned before creating orders.');
+
+        return ['app' => 'sales', 'customer_id' => null, 'route_id' => $routeId];
+    }
+
+    private function rules(string $app): array
+    {
+        return [
+            'customer_id' => [$app === 'sales' ? 'required' : 'nullable', 'integer', 'exists:customers,id'],
+            'order_date' => ['nullable', 'date'],
+            'requested_delivery_date' => ['nullable', 'date'],
+            'payment_type' => ['required', Rule::in(['cash', 'credit'])],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+            'items.*.item_type' => ['nullable', Rule::in(['sale', 'foc'])],
+            'items.*.remarks' => ['nullable', 'string', 'max:150'],
+        ];
+    }
+
+    private function normalizeItems(array $items, ?int $priceTypeId, Carbon $orderDate): array
+    {
+        return collect($items)->map(function ($item) use ($orderDate, $priceTypeId) {
+            $product = DB::table('products')->where('is_active', true)->find($item['product_id']);
+            abort_unless($product, 422, 'Active product is required.');
+            $quantity = (float) $item['quantity'];
+            $itemType = $item['item_type'] ?? 'sale';
+            $unitPrice = $itemType === 'foc' ? 0 : $this->priceForProduct($product->id, $priceTypeId, $orderDate);
+            $lineTotal = $quantity * $unitPrice;
+
+            return [
+                'product_id' => $product->id,
+                'product_sku' => $product->sku,
+                'product_name' => $product->name,
+                'unit' => $product->unit,
+                'item_type' => $itemType,
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'discount_amount' => 0,
+                'line_total' => $lineTotal,
+                'remarks' => $item['remarks'] ?? null,
+            ];
+        })->all();
+    }
+
+    private function priceForProduct(int $productId, ?int $priceTypeId, Carbon $orderDate): float
+    {
+        $price = DB::table('product_prices')
+            ->where('product_id', $productId)
+            ->when($priceTypeId, fn ($query) => $query->where('price_type_id', $priceTypeId))
+            ->where('is_active', true)
+            ->where(function ($query) use ($orderDate) {
+                $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', $orderDate->toDateString());
+            })
+            ->orderByDesc('effective_from')
+            ->value('amount');
+
+        abort_unless($price !== null, 422, 'Product price is required.');
+
+        return (float) $price;
+    }
+
+    private function outstandingBalance(int $customerId): float
+    {
+        return (float) DB::table('invoices')
+            ->where('customer_id', $customerId)
+            ->where('status', '!=', 'cancelled')
+            ->sum('total');
+    }
+
+    private function totals(array $items): array
+    {
+        $subtotal = collect($items)->sum(fn ($item) => $item['quantity'] * $item['unit_price']);
+        $discount = collect($items)->sum('discount_amount');
+
+        return [
+            'subtotal' => $subtotal,
+            'discount_total' => $discount,
+            'total' => max($subtotal - $discount, 0),
+        ];
+    }
+
+    private function scopedQuery(array $scope)
+    {
+        return $this->baseQuery()
+            ->when($scope['app'] === 'client', fn ($query) => $query->where('orders.customer_id', $scope['customer_id']))
+            ->when($scope['app'] === 'sales', fn ($query) => $query->where('orders.route_id', $scope['route_id']));
+    }
+
+    private function baseQuery()
+    {
+        return DB::table('orders')
+            ->leftJoin('customers', 'orders.customer_id', '=', 'customers.id')
+            ->leftJoin('routes', 'orders.route_id', '=', 'routes.id')
+            ->leftJoin('invoices', function ($join) {
+                $join->on('orders.id', '=', 'invoices.order_id')
+                    ->where('invoices.status', '!=', 'cancelled');
+            })
+            ->whereExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('order_items')
+                    ->whereColumn('order_items.order_id', 'orders.id')
+                    ->whereIn('order_items.item_type', ['sale', 'foc']);
+            });
+    }
+
+    private function columns(): array
+    {
+        return [
+            'orders.*',
+            'customers.code as customer_code',
+            'customers.shop_name',
+            'routes.name as route',
+            'invoices.code as invoice_code',
+            'invoices.invoice_date',
+            'invoices.due_date',
+            'invoices.status as invoice_status',
+        ];
+    }
+
+    private function orderInScope(Order $order, array $scope): bool
+    {
+        if ($scope['app'] === 'client') {
+            return (int) $order->customer_id === (int) $scope['customer_id'];
+        }
+
+        return (int) $order->route_id === (int) $scope['route_id'];
+    }
+
+    private function payload($order): array
+    {
+        return [
+            'id' => $order->id,
+            'code' => $order->code,
+            'customer_id' => $order->customer_id,
+            'customer_code' => $order->customer_code,
+            'shop_name' => $order->shop_name,
+            'route' => $order->route,
+            'source_app' => $order->source_app,
+            'order_date' => Carbon::parse($order->order_date)->toDateString(),
+            'requested_delivery_date' => $order->requested_delivery_date ? Carbon::parse($order->requested_delivery_date)->toDateString() : null,
+            'payment_type' => $order->payment_type,
+            'status' => $order->status,
+            'subtotal' => (float) $order->subtotal,
+            'discount_total' => (float) $order->discount_total,
+            'tax_total' => (float) $order->tax_total,
+            'total' => (float) $order->total,
+            'confirmed_at' => $order->confirmed_at ? Carbon::parse($order->confirmed_at)->toDateTimeString() : null,
+            'invoice_code' => $order->invoice_code,
+            'invoice_date' => $order->invoice_date ? Carbon::parse($order->invoice_date)->toDateString() : null,
+            'due_date' => $order->due_date ? Carbon::parse($order->due_date)->toDateString() : null,
+            'invoice_status' => $order->invoice_status,
+            'notes' => $order->notes,
+            'updated_at' => Carbon::parse($order->updated_at)->toDateTimeString(),
+        ];
+    }
+
+    private function itemPayload($item): array
+    {
+        return [
+            'id' => $item->id,
+            'product_id' => $item->product_id,
+            'product_sku' => $item->product_sku,
+            'product_name' => $item->product_name,
+            'unit' => $item->unit,
+            'item_type' => $item->item_type,
+            'quantity' => (float) $item->quantity,
+            'unit_price' => (float) $item->unit_price,
+            'line_total' => (float) $item->line_total,
+            'remarks' => $item->remarks,
+        ];
+    }
+
+    private function nextCode(Carbon $orderDate): string
+    {
+        $prefix = 'ORD-'.$orderDate->format('Ym').'-';
+        $next = ((int) Order::query()->where('code', 'like', "{$prefix}%")->count()) + 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function authorizePermission(Request $request, string $permission): void
+    {
+        abort_unless(in_array($permission, AppAccess::permissionsForRole($request->user()->role), true), 403);
+    }
+}

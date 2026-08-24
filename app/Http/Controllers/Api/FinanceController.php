@@ -1,0 +1,464 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Collection;
+use App\Models\Expense;
+use App\Models\FinancialTransaction;
+use App\Models\SupplierLedgerEntry;
+use App\Support\ApiResponse;
+use App\Support\AppAccess;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class FinanceController extends Controller
+{
+    private const VIEW_PERMISSION = 'office.finance.view';
+
+    private const MANAGE_PERMISSION = 'office.finance.manage';
+
+    public function meta(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        return ApiResponse::success('Finance setup loaded.', [
+            'customers' => DB::table('customers')->where('is_active', true)->orderBy('shop_name')->get(['id', 'code', 'shop_name'])->map(fn ($item) => $this->customerMeta($item)),
+            'invoices' => DB::table('invoices')->join('customers', 'invoices.customer_id', '=', 'customers.id')->where('invoices.status', '!=', 'cancelled')->orderByDesc('invoice_date')->get(['invoices.id', 'invoices.code', 'invoices.customer_id', 'invoices.total', 'customers.shop_name'])->map(function ($invoice) {
+                $invoice->outstanding = $this->invoiceOutstanding((int) $invoice->id);
+                $invoice->label = "{$invoice->code} - {$invoice->shop_name}";
+
+                return $invoice;
+            })->filter(fn ($invoice) => $invoice->outstanding > 0)->values(),
+            'employees' => DB::table('employees')->where('is_active', true)->whereIn('employee_type', ['sales', 'driver'])->orderBy('name')->get(['id', 'code', 'name', 'employee_type'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->name}";
+
+                return $item;
+            }),
+            'suppliers' => DB::table('suppliers')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->name}";
+
+                return $item;
+            }),
+            'expense_categories' => ['utilities', 'office_supplies', 'meals', 'travel', 'fuel', 'vehicle_cost', 'communication', 'other'],
+        ]);
+    }
+
+    public function collections(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        $query = $this->collectionQuery()->latest('collections.collection_date')->latest('collections.id');
+        $this->applyCommonFilters($query, $request, 'collections', 'collection_date');
+        foreach (['customer_id', 'employee_id', 'status', 'payment_method'] as $filter) {
+            if ($request->filled($filter)) {
+                $query->where("collections.{$filter}", $request->query($filter));
+            }
+        }
+        if ($request->boolean('outdoor')) {
+            $query->whereNotNull('collections.employee_id');
+        }
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(fn ($q) => $q->where('collections.code', 'like', "%{$search}%")->orWhere('customers.shop_name', 'like', "%{$search}%")->orWhere('employees.name', 'like', "%{$search}%"));
+        }
+        $summary = (clone $query)->reorder()->selectRaw("COUNT(*) records_count, COALESCE(SUM(collections.amount),0) total_amount, COALESCE(SUM(CASE WHEN collections.status='submitted' THEN collections.amount ELSE 0 END),0) submitted_amount, COALESCE(SUM(CASE WHEN collections.status='approved' THEN collections.amount ELSE 0 END),0) approved_amount")->first();
+        $paginator = $query->select($this->collectionColumns())->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+
+        return ApiResponse::success('Collections loaded.', ['items' => collect($paginator->items())->map(fn ($item) => $this->collectionPayload($item)), 'summary' => $this->amountSummary($summary), 'meta' => $this->pagination($paginator)]);
+    }
+
+    public function storeCollection(Request $request)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        $validated = $this->collectionRules($request);
+        $this->validateCollectionScope($validated);
+        $collection = DB::transaction(function () use ($request, $validated) {
+            $collection = Collection::create($validated + ['code' => $this->nextCode('COL', 'collections', 'collection_date', Carbon::parse($validated['collection_date'])), 'source_app' => 'office', 'status' => 'approved', 'submitted_by' => $request->user()->id, 'reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
+            $this->postCollection($collection, $request->user()->id);
+
+            return $collection;
+        });
+
+        return ApiResponse::success('Collection recorded.', ['collection' => $this->collectionPayload($this->collectionQuery()->select($this->collectionColumns())->where('collections.id', $collection->id)->first())], 201);
+    }
+
+    public function reviewCollection(Request $request, Collection $collection)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        abort_unless($collection->status === 'submitted', 409, 'Only submitted collections can be reviewed.');
+        $validated = $request->validate(['status' => ['required', Rule::in(['approved', 'rejected'])], 'notes' => ['nullable', 'string', 'max:500']]);
+        DB::transaction(function () use ($collection, $request, $validated) {
+            $locked = Collection::lockForUpdate()->findOrFail($collection->id);
+            abort_unless($locked->status === 'submitted', 409, 'This collection was already reviewed.');
+            if ($validated['status'] === 'approved') {
+                $this->validateCollectionScope($locked->toArray());
+            }
+            $locked->update(['status' => $validated['status'], 'notes' => $validated['notes'] ?? $locked->notes, 'reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
+            if ($validated['status'] === 'approved') {
+                $this->postCollection($locked, $request->user()->id);
+            }
+        });
+
+        return ApiResponse::success('Collection review saved.', ['collection' => $this->collectionPayload($this->collectionQuery()->select($this->collectionColumns())->where('collections.id', $collection->id)->first())]);
+    }
+
+    public function receivables(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        $invoiceTotals = DB::table('invoices')->where('status', '!=', 'cancelled')->groupBy('customer_id')->selectRaw('customer_id, SUM(total) invoiced_amount');
+        $collectionTotals = DB::table('collections')->where('status', 'approved')->groupBy('customer_id')->selectRaw('customer_id, SUM(amount) collected_amount');
+        $query = DB::table('customers')->leftJoinSub($invoiceTotals, 'invoice_totals', 'customers.id', '=', 'invoice_totals.customer_id')->leftJoinSub($collectionTotals, 'collection_totals', 'customers.id', '=', 'collection_totals.customer_id')->leftJoin('routes', 'customers.route_id', '=', 'routes.id')->where('customers.is_active', true);
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(fn ($q) => $q->where('customers.code', 'like', "%{$search}%")->orWhere('customers.shop_name', 'like', "%{$search}%"));
+        }
+        $items = $query->orderBy('customers.shop_name')->get(['customers.id', 'customers.code', 'customers.shop_name', 'customers.credit_limit', 'routes.name as route_name', DB::raw('COALESCE(invoice_totals.invoiced_amount,0) invoiced_amount'), DB::raw('COALESCE(collection_totals.collected_amount,0) collected_amount')])->map(function ($item) {
+            $item->credit_limit = (float) $item->credit_limit;
+            $item->invoiced_amount = (float) $item->invoiced_amount;
+            $item->collected_amount = (float) $item->collected_amount;
+            $item->outstanding_amount = $item->invoiced_amount - $item->collected_amount;
+            $item->available_credit = $item->credit_limit > 0 ? $item->credit_limit - $item->outstanding_amount : null;
+
+            return $item;
+        });
+
+        return ApiResponse::success('Customer receivables loaded.', ['items' => $items, 'summary' => ['customers_count' => $items->count(), 'invoiced_amount' => (float) $items->sum('invoiced_amount'), 'collected_amount' => (float) $items->sum('collected_amount'), 'outstanding_amount' => (float) $items->sum('outstanding_amount')]]);
+    }
+
+    public function customerLedger(Request $request, int $customerId)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        abort_unless(DB::table('customers')->where('id', $customerId)->exists(), 404);
+
+        return ApiResponse::success('Customer ledger loaded.', $this->customerLedgerData($customerId));
+    }
+
+    public function expenses(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        $query = $this->expenseQuery()->latest('expenses.expense_date')->latest('expenses.id');
+        $this->applyCommonFilters($query, $request, 'expenses', 'expense_date');
+        foreach (['employee_id', 'status', 'expense_type', 'category', 'payment_method'] as $filter) {
+            if ($request->filled($filter)) {
+                $query->where("expenses.{$filter}", $request->query($filter));
+            }
+        }
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(fn ($q) => $q->where('expenses.code', 'like', "%{$search}%")->orWhere('expenses.description', 'like', "%{$search}%")->orWhere('employees.name', 'like', "%{$search}%"));
+        }
+        $summary = (clone $query)->reorder()->selectRaw("COUNT(*) records_count, COALESCE(SUM(expenses.amount),0) total_amount, COALESCE(SUM(CASE WHEN expenses.status='submitted' THEN expenses.amount ELSE 0 END),0) submitted_amount, COALESCE(SUM(CASE WHEN expenses.status='approved' THEN expenses.amount ELSE 0 END),0) approved_amount")->first();
+        $paginator = $query->select($this->expenseColumns())->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+
+        return ApiResponse::success('Expenses loaded.', ['items' => collect($paginator->items())->map(fn ($item) => $this->expensePayload($item)), 'summary' => $this->amountSummary($summary), 'meta' => $this->pagination($paginator)]);
+    }
+
+    public function storeExpense(Request $request)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        $validated = $this->expenseRules($request, true);
+        $expense = DB::transaction(function () use ($request, $validated) {
+            $expense = Expense::create($validated + ['code' => $this->nextCode('EXP', 'expenses', 'expense_date', Carbon::parse($validated['expense_date'])), 'source_app' => 'office', 'status' => 'approved', 'submitted_by' => $request->user()->id, 'reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
+            $this->postExpense($expense, $request->user()->id);
+
+            return $expense;
+        });
+
+        return ApiResponse::success('Expense recorded.', ['expense' => $this->expensePayload($this->expenseQuery()->select($this->expenseColumns())->where('expenses.id', $expense->id)->first())], 201);
+    }
+
+    public function reviewExpense(Request $request, Expense $expense)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        abort_unless($expense->status === 'submitted', 409, 'Only submitted expenses can be reviewed.');
+        $validated = $request->validate(['status' => ['required', Rule::in(['approved', 'rejected'])], 'notes' => ['nullable', 'string', 'max:500']]);
+        DB::transaction(function () use ($expense, $request, $validated) {
+            $locked = Expense::lockForUpdate()->findOrFail($expense->id);
+            abort_unless($locked->status === 'submitted', 409, 'This expense was already reviewed.');
+            $locked->update(['status' => $validated['status'], 'notes' => $validated['notes'] ?? $locked->notes, 'reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
+            if ($validated['status'] === 'approved') {
+                $this->postExpense($locked, $request->user()->id);
+            }
+        });
+
+        return ApiResponse::success('Expense review saved.', ['expense' => $this->expensePayload($this->expenseQuery()->select($this->expenseColumns())->where('expenses.id', $expense->id)->first())]);
+    }
+
+    public function book(Request $request, string $book)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        abort_unless(in_array($book, ['cash', 'bank'], true), 404);
+        $query = FinancialTransaction::where('book_type', $book)->orderBy('transaction_date')->orderBy('id');
+        if ($request->filled('date_from')) {
+            $query->whereDate('transaction_date', '>=', $request->query('date_from'));
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('transaction_date', '<=', $request->query('date_to'));
+        }
+        $items = $query->get()->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'transaction_date' => $item->transaction_date->toDateString(), 'direction' => $item->direction, 'category' => $item->category, 'amount' => (float) $item->amount, 'reference_code' => $item->reference_code, 'description' => $item->description]);
+        $balance = 0;
+        $items = $items->map(function ($item) use (&$balance) {
+            $balance += $item['direction'] === 'in' ? $item['amount'] : -$item['amount'];
+            $item['balance'] = $balance;
+
+            return $item;
+        });
+
+        return ApiResponse::success(ucfirst($book).' book loaded.', ['items' => $items->reverse()->values(), 'summary' => ['inflow' => (float) $items->where('direction', 'in')->sum('amount'), 'outflow' => (float) $items->where('direction', 'out')->sum('amount'), 'balance' => (float) $balance]]);
+    }
+
+    public function suppliers(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        $items = DB::table('suppliers')->leftJoin('supplier_ledger_entries', 'suppliers.id', '=', 'supplier_ledger_entries.supplier_id')->groupBy('suppliers.id', 'suppliers.code', 'suppliers.name', 'suppliers.phone')->orderBy('suppliers.name')->get(['suppliers.id', 'suppliers.code', 'suppliers.name', 'suppliers.phone', DB::raw('COALESCE(SUM(supplier_ledger_entries.credit - supplier_ledger_entries.debit),0) balance')])->map(function ($item) {
+            $item->balance = (float) $item->balance;
+
+            return $item;
+        });
+
+        return ApiResponse::success('Supplier balances loaded.', ['items' => $items, 'summary' => ['suppliers_count' => $items->count(), 'payable_amount' => (float) $items->sum('balance')]]);
+    }
+
+    public function supplierLedger(Request $request, int $supplierId)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        $supplier = DB::table('suppliers')->find($supplierId);
+        abort_unless($supplier, 404);
+        $balance = 0;
+        $items = SupplierLedgerEntry::where('supplier_id', $supplierId)->orderBy('entry_date')->orderBy('id')->get()->map(function ($item) use (&$balance) {
+            $balance += (float) $item->credit - (float) $item->debit;
+
+            return ['id' => $item->id, 'entry_date' => $item->entry_date->toDateString(), 'entry_type' => $item->entry_type, 'reference_no' => $item->reference_no, 'description' => $item->description, 'debit' => (float) $item->debit, 'credit' => (float) $item->credit, 'balance' => $balance];
+        });
+
+        return ApiResponse::success('Supplier ledger loaded.', ['supplier' => $supplier, 'items' => $items->reverse()->values(), 'summary' => ['balance' => (float) $balance]]);
+    }
+
+    public function storeSupplierEntry(Request $request, int $supplierId)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        abort_unless(DB::table('suppliers')->where('id', $supplierId)->exists(), 404);
+        $validated = $request->validate(['entry_date' => ['required', 'date'], 'entry_type' => ['required', Rule::in(['purchase', 'payment', 'adjustment'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'description' => ['required', 'string', 'max:255'], 'amount' => ['required', 'numeric', 'gt:0']]);
+        $purchase = $validated['entry_type'] === 'purchase';
+        $entry = SupplierLedgerEntry::create(['supplier_id' => $supplierId, 'entry_date' => $validated['entry_date'], 'entry_type' => $validated['entry_type'], 'reference_no' => $validated['reference_no'] ?? null, 'description' => $validated['description'], 'debit' => $purchase ? 0 : $validated['amount'], 'credit' => $purchase ? $validated['amount'] : 0, 'created_by' => $request->user()->id]);
+
+        return ApiResponse::success('Supplier ledger entry recorded.', ['entry_id' => $entry->id], 201);
+    }
+
+    public function profitLoss(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+        $from = Carbon::parse($request->query('date_from', now()->startOfYear()->toDateString()))->toDateString();
+        $to = Carbon::parse($request->query('date_to', now()->toDateString()))->toDateString();
+        $revenue = (float) DB::table('invoices')->where('status', '!=', 'cancelled')->whereBetween('invoice_date', [$from, $to])->sum('total');
+        $payroll = (float) DB::table('payrolls')->whereIn('status', ['approved', 'paid'])->whereDate('period_end', '>=', $from)->whereDate('period_start', '<=', $to)->sum('total_net');
+        $approvedExpenses = DB::table('expenses')->where('status', 'approved')->whereBetween('expense_date', [$from, $to]);
+        $legacyVehicle = (float) (clone $approvedExpenses)->where('category', 'vehicle_cost')->sum('amount');
+        $vehicle = $legacyVehicle + (float) DB::table('vehicle_costs')->where('status', 'approved')->where('record_type', 'cost')->whereBetween('cost_date', [$from, $to])->sum('amount');
+        $outdoor = (float) (clone $approvedExpenses)->where('expense_type', 'outdoor')->where('category', '!=', 'vehicle_cost')->sum('amount');
+        $daily = (float) (clone $approvedExpenses)->where('expense_type', 'daily')->where('category', '!=', 'vehicle_cost')->sum('amount');
+        $expenses = $payroll + $vehicle + $outdoor + $daily;
+
+        return ApiResponse::success('Profit and loss loaded.', ['period' => ['date_from' => $from, 'date_to' => $to], 'revenue' => $revenue, 'costs' => ['payroll' => $payroll, 'vehicle' => $vehicle, 'outdoor_employee' => $outdoor, 'daily_expense' => $daily, 'total' => $expenses], 'net_profit' => $revenue - $expenses]);
+    }
+
+    public function mobileIndex(Request $request)
+    {
+        $scope = $this->mobileScope($request, 'view');
+        if ($scope['app'] === 'client') {
+            return ApiResponse::success('Customer finance loaded.', $this->customerLedgerData($scope['customer_id']));
+        }
+        $collections = $this->collectionQuery()->where('collections.employee_id', $scope['employee_id'])->latest('collections.collection_date')->select($this->collectionColumns())->get()->map(fn ($item) => $this->collectionPayload($item));
+        $expenses = $this->expenseQuery()->where('expenses.employee_id', $scope['employee_id'])->latest('expenses.expense_date')->select($this->expenseColumns())->get()->map(fn ($item) => $this->expensePayload($item));
+
+        return ApiResponse::success('Field finance loaded.', ['app' => $scope['app'], 'collections' => $collections, 'expenses' => $expenses, 'summary' => ['collections_amount' => (float) $collections->sum('amount'), 'expenses_amount' => (float) $expenses->sum('amount'), 'pending_count' => $collections->where('status', 'submitted')->count() + $expenses->where('status', 'submitted')->count()]]);
+    }
+
+    public function mobileMeta(Request $request)
+    {
+        $scope = $this->mobileScope($request, 'view');
+        abort_if($scope['app'] === 'client', 403);
+        $customers = $scope['app'] === 'sales'
+            ? DB::table('customers')->where('route_id', $scope['route_id'])->where('is_active', true)->orderBy('shop_name')->get(['id', 'code', 'shop_name'])
+            : DB::table('deliveries')->join('customers', 'deliveries.customer_id', '=', 'customers.id')->where('deliveries.driver_id', $scope['employee_id'])->whereIn('deliveries.status', ['assigned', 'loading', 'on_route'])->distinct()->get(['customers.id', 'customers.code', 'customers.shop_name']);
+        $deliveries = $scope['app'] === 'driver' ? DB::table('deliveries')->join('customers', 'deliveries.customer_id', '=', 'customers.id')->where('deliveries.driver_id', $scope['employee_id'])->whereIn('deliveries.status', ['assigned', 'loading', 'on_route'])->get(['deliveries.id', 'deliveries.code', 'deliveries.customer_id', 'customers.shop_name']) : collect();
+
+        return ApiResponse::success('Field finance setup loaded.', ['app' => $scope['app'], 'customers' => $customers, 'deliveries' => $deliveries, 'expense_categories' => ['meals', 'travel', 'fuel', 'communication', 'other']]);
+    }
+
+    public function mobileStoreCollection(Request $request)
+    {
+        $scope = $this->mobileScope($request, 'create', 'collections');
+        $validated = $request->validate(['customer_id' => ['required', 'integer', 'exists:customers,id'], 'delivery_id' => [$scope['app'] === 'driver' ? 'required' : 'nullable', 'integer', 'exists:deliveries,id'], 'collection_date' => ['required', 'date'], 'amount' => ['required', 'numeric', 'gt:0'], 'payment_method' => ['required', Rule::in(['cash', 'bank'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:500']]);
+        if ($scope['app'] === 'sales') {
+            abort_unless(DB::table('customers')->where('id', $validated['customer_id'])->where('route_id', $scope['route_id'])->exists(), 403, 'Customer is outside the assigned route.');
+        }
+        if ($scope['app'] === 'driver') {
+            abort_unless(DB::table('deliveries')->where('id', $validated['delivery_id'])->where('driver_id', $scope['employee_id'])->where('customer_id', $validated['customer_id'])->whereIn('status', ['assigned', 'loading', 'on_route'])->exists(), 403, 'Delivery is outside the assigned route.');
+        }
+        abort_if((float) $validated['amount'] > $this->customerOutstanding((int) $validated['customer_id']), 422, 'Collection cannot exceed customer outstanding.');
+        $collection = Collection::create($validated + ['code' => $this->nextCode('COL', 'collections', 'collection_date', Carbon::parse($validated['collection_date'])), 'employee_id' => $scope['employee_id'], 'source_app' => $scope['app'], 'status' => 'submitted', 'submitted_by' => $request->user()->id]);
+
+        return ApiResponse::success('Field collection submitted for review.', ['collection_id' => $collection->id, 'code' => $collection->code], 201);
+    }
+
+    public function mobileStoreExpense(Request $request)
+    {
+        $scope = $this->mobileScope($request, 'create', 'expenses');
+        $validated = $this->expenseRules($request, false);
+        $expense = Expense::create($validated + ['code' => $this->nextCode('EXP', 'expenses', 'expense_date', Carbon::parse($validated['expense_date'])), 'expense_type' => 'outdoor', 'employee_id' => $scope['employee_id'], 'source_app' => $scope['app'], 'status' => 'submitted', 'submitted_by' => $request->user()->id]);
+
+        return ApiResponse::success('Outdoor expense submitted for review.', ['expense_id' => $expense->id, 'code' => $expense->code], 201);
+    }
+
+    private function collectionRules(Request $request): array
+    {
+        return $request->validate(['customer_id' => ['required', 'integer', 'exists:customers,id'], 'invoice_id' => ['nullable', 'integer', 'exists:invoices,id'], 'delivery_id' => ['nullable', 'integer', 'exists:deliveries,id'], 'employee_id' => ['nullable', 'integer', 'exists:employees,id'], 'collection_date' => ['required', 'date'], 'amount' => ['required', 'numeric', 'gt:0'], 'payment_method' => ['required', Rule::in(['cash', 'bank'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:500']]);
+    }
+
+    private function expenseRules(Request $request, bool $office): array
+    {
+        return $request->validate(['employee_id' => [$office ? 'nullable' : 'prohibited', 'integer', 'exists:employees,id'], 'expense_date' => ['required', 'date'], 'expense_type' => [$office ? 'required' : 'nullable', Rule::in(['daily', 'outdoor'])], 'category' => ['required', Rule::in(['utilities', 'office_supplies', 'meals', 'travel', 'fuel', 'vehicle_cost', 'communication', 'other'])], 'description' => ['required', 'string', 'max:255'], 'amount' => ['required', 'numeric', 'gt:0'], 'payment_method' => ['required', Rule::in(['cash', 'bank'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:500']]);
+    }
+
+    private function validateCollectionScope(array $data): void
+    {
+        if (! empty($data['invoice_id'])) {
+            abort_unless(DB::table('invoices')->where('id', $data['invoice_id'])->where('customer_id', $data['customer_id'])->exists(), 422, 'Invoice does not belong to the selected customer.');
+        }
+        $available = ! empty($data['invoice_id']) ? $this->invoiceOutstanding((int) $data['invoice_id']) : $this->customerOutstanding((int) $data['customer_id']);
+        abort_if((float) $data['amount'] > $available, 422, 'Collection cannot exceed outstanding balance.');
+    }
+
+    private function postCollection(Collection $collection, ?int $userId): void
+    {
+        $this->postTransaction('collection', $collection->id, $collection->code, $collection->collection_date, $collection->payment_method, 'in', 'collection', $collection->amount, "Customer collection {$collection->code}", $userId);
+    }
+
+    private function postExpense(Expense $expense, ?int $userId): void
+    {
+        $this->postTransaction('expense', $expense->id, $expense->code, $expense->expense_date, $expense->payment_method, 'out', $expense->category, $expense->amount, $expense->description, $userId);
+    }
+
+    private function postTransaction(string $type, int $id, string $referenceCode, $date, string $book, string $direction, string $category, $amount, string $description, ?int $userId): void
+    {
+        FinancialTransaction::updateOrCreate(['reference_type' => $type, 'reference_id' => $id], ['code' => 'TXN-'.str_pad((string) (FinancialTransaction::max('id') + 1), 7, '0', STR_PAD_LEFT), 'transaction_date' => $date, 'book_type' => $book, 'direction' => $direction, 'category' => $category, 'amount' => $amount, 'reference_code' => $referenceCode, 'description' => $description, 'created_by' => $userId]);
+    }
+
+    private function customerLedgerData(int $customerId): array
+    {
+        $customer = DB::table('customers')->find($customerId);
+        abort_unless($customer, 404);
+        $entries = collect();
+        DB::table('invoices')->where('customer_id', $customerId)->where('status', '!=', 'cancelled')->get()->each(fn ($item) => $entries->push(['key' => "I{$item->id}", 'date' => $item->invoice_date, 'type' => 'invoice', 'reference' => $item->code, 'description' => 'Invoice charge', 'debit' => (float) $item->total, 'credit' => 0]));
+        DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->get()->each(fn ($item) => $entries->push(['key' => "C{$item->id}", 'date' => $item->collection_date, 'type' => 'collection', 'reference' => $item->code, 'description' => 'Payment received', 'debit' => 0, 'credit' => (float) $item->amount]));
+        $balance = 0;
+        $entries = $entries->sortBy(fn ($item) => $item['date'].($item['type'] === 'invoice' ? '0' : '1').str_pad(substr($item['key'], 1), 10, '0', STR_PAD_LEFT))->values()->map(function ($item) use (&$balance) {
+            $balance += $item['debit'] - $item['credit'];
+            $item['balance'] = $balance;
+
+            return $item;
+        });
+
+        return ['customer' => ['id' => $customer->id, 'code' => $customer->code, 'shop_name' => $customer->shop_name, 'credit_limit' => (float) $customer->credit_limit], 'entries' => $entries->reverse()->values(), 'summary' => ['invoiced_amount' => (float) $entries->sum('debit'), 'collected_amount' => (float) $entries->sum('credit'), 'outstanding_amount' => (float) $balance]];
+    }
+
+    private function customerOutstanding(int $customerId): float
+    {
+        return (float) DB::table('invoices')->where('customer_id', $customerId)->where('status', '!=', 'cancelled')->sum('total') - (float) DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->sum('amount');
+    }
+
+    private function invoiceOutstanding(int $invoiceId): float
+    {
+        return (float) DB::table('invoices')->where('id', $invoiceId)->where('status', '!=', 'cancelled')->value('total') - (float) DB::table('collections')->where('invoice_id', $invoiceId)->where('status', 'approved')->sum('amount');
+    }
+
+    private function customerMeta($item)
+    {
+        $item->outstanding = $this->customerOutstanding((int) $item->id);
+        $item->label = "{$item->code} - {$item->shop_name}";
+
+        return $item;
+    }
+
+    private function mobileScope(Request $request, string $action, ?string $resource = null): array
+    {
+        $user = $request->user();
+        if ($user->role === 'Customer') {
+            $this->authorizePermission($request, 'client.finance.view');
+            abort_unless($action === 'view' && $resource === null, 403);
+            abort_unless($user->customer_id, 404);
+
+            return ['app' => 'client', 'customer_id' => $user->customer_id, 'employee_id' => null, 'route_id' => null];
+        }
+        $app = $user->role === 'Sales Representative' ? 'sales' : 'driver';
+        $permissionResource = $resource ?? 'finance';
+        $this->authorizePermission($request, "{$app}.{$permissionResource}.{$action}");
+        abort_unless($user->employee_id, 403);
+        $routeId = DB::table('employees')->where('id', $user->employee_id)->value('assigned_route_id');
+
+        return ['app' => $app, 'customer_id' => null, 'employee_id' => $user->employee_id, 'route_id' => $routeId];
+    }
+
+    private function collectionQuery()
+    {
+        return DB::table('collections')->join('customers', 'collections.customer_id', '=', 'customers.id')->leftJoin('invoices', 'collections.invoice_id', '=', 'invoices.id')->leftJoin('employees', 'collections.employee_id', '=', 'employees.id');
+    }
+
+    private function collectionColumns(): array
+    {
+        return ['collections.*', 'customers.code as customer_code', 'customers.shop_name', 'invoices.code as invoice_code', 'employees.code as employee_code', 'employees.name as employee_name'];
+    }
+
+    private function collectionPayload($item): array
+    {
+        return ['id' => $item->id, 'code' => $item->code, 'customer_id' => $item->customer_id, 'customer_code' => $item->customer_code, 'shop_name' => $item->shop_name, 'invoice_id' => $item->invoice_id, 'invoice_code' => $item->invoice_code, 'delivery_id' => $item->delivery_id, 'employee_id' => $item->employee_id, 'employee_code' => $item->employee_code, 'employee_name' => $item->employee_name, 'collection_date' => Carbon::parse($item->collection_date)->toDateString(), 'amount' => (float) $item->amount, 'payment_method' => $item->payment_method, 'reference_no' => $item->reference_no, 'source_app' => $item->source_app, 'status' => $item->status, 'notes' => $item->notes];
+    }
+
+    private function expenseQuery()
+    {
+        return DB::table('expenses')->leftJoin('employees', 'expenses.employee_id', '=', 'employees.id');
+    }
+
+    private function expenseColumns(): array
+    {
+        return ['expenses.*', 'employees.code as employee_code', 'employees.name as employee_name'];
+    }
+
+    private function expensePayload($item): array
+    {
+        return ['id' => $item->id, 'code' => $item->code, 'employee_id' => $item->employee_id, 'employee_code' => $item->employee_code, 'employee_name' => $item->employee_name, 'expense_date' => Carbon::parse($item->expense_date)->toDateString(), 'expense_type' => $item->expense_type, 'category' => $item->category, 'description' => $item->description, 'amount' => (float) $item->amount, 'payment_method' => $item->payment_method, 'reference_no' => $item->reference_no, 'source_app' => $item->source_app, 'status' => $item->status, 'notes' => $item->notes];
+    }
+
+    private function applyCommonFilters($query, Request $request, string $table, string $dateColumn): void
+    {
+        if ($request->filled('date_from')) {
+            $query->whereDate("{$table}.{$dateColumn}", '>=', $request->query('date_from'));
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate("{$table}.{$dateColumn}", '<=', $request->query('date_to'));
+        }
+    }
+
+    private function amountSummary($summary): array
+    {
+        return ['records_count' => (int) ($summary->records_count ?? 0), 'total_amount' => (float) ($summary->total_amount ?? 0), 'submitted_amount' => (float) ($summary->submitted_amount ?? 0), 'approved_amount' => (float) ($summary->approved_amount ?? 0)];
+    }
+
+    private function pagination($paginator): array
+    {
+        return ['current_page' => $paginator->currentPage(), 'last_page' => $paginator->lastPage(), 'per_page' => $paginator->perPage(), 'total' => $paginator->total()];
+    }
+
+    private function nextCode(string $prefix, string $table, string $dateColumn, Carbon $date): string
+    {
+        $base = $prefix.'-'.$date->format('Ym').'-';
+        $next = DB::table($table)->where($dateColumn, '>=', $date->copy()->startOfMonth())->where($dateColumn, '<=', $date->copy()->endOfMonth())->count() + 1;
+
+        return $base.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function authorizePermission(Request $request, string $permission): void
+    {
+        abort_unless(in_array($permission, AppAccess::permissionsForRole($request->user()?->role), true), 403);
+    }
+}

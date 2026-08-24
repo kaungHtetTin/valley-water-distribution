@@ -3,8 +3,11 @@
 namespace App\Exceptions;
 
 use App\Support\ApiResponse;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Validation\ValidationException;
+use Psr\Log\LogLevel;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -12,7 +15,7 @@ class Handler extends ExceptionHandler
     /**
      * A list of exception types with their corresponding custom log levels.
      *
-     * @var array<class-string<\Throwable>, \Psr\Log\LogLevel::*>
+     * @var array<class-string<Throwable>, LogLevel::*>
      */
     protected $levels = [
         //
@@ -21,7 +24,7 @@ class Handler extends ExceptionHandler
     /**
      * A list of the exception types that are not reported.
      *
-     * @var array<int, class-string<\Throwable>>
+     * @var array<int, class-string<Throwable>>
      */
     protected $dontReport = [
         //
@@ -47,6 +50,22 @@ class Handler extends ExceptionHandler
     {
         $this->reportable(function (Throwable $e) {
             //
+        });
+
+        $this->renderable(function (AuthenticationException $exception, $request) {
+            if ($request->expectsJson()) {
+                return ApiResponse::error('Authentication is required.', [], 401);
+            }
+        });
+
+        $this->renderable(function (HttpExceptionInterface $exception, $request) {
+            if ($request->expectsJson()) {
+                return ApiResponse::error(
+                    $exception->getMessage() ?: 'The requested action could not be completed.',
+                    [],
+                    $exception->getStatusCode()
+                );
+            }
         });
     }
 

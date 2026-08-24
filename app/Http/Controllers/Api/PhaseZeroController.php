@@ -7,12 +7,15 @@ use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class PhaseZeroController extends Controller
 {
     public function show()
     {
+        abort_unless(config('valley.demo_endpoints'), 404);
+
         return ApiResponse::success(__('phase0.api_ready'), [
             'apps' => ['office', 'client', 'sales', 'driver'],
             'locales' => ['en', 'my'],
@@ -38,24 +41,25 @@ class PhaseZeroController extends Controller
 
     public function validateDemoLogin(Request $request)
     {
+        abort_unless(config('valley.demo_endpoints'), 404);
         $validated = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string', 'min:8'],
         ]);
 
         $user = DB::table('users')
-            ->select('name', 'email', 'role', 'locale')
+            ->select('name', 'email', 'role', 'locale', 'password')
             ->where('email', $validated['email'])
             ->first();
 
-        if (! $user) {
+        if (! $user || ! Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => [__('auth.failed')],
             ]);
         }
 
         return ApiResponse::success(__('phase0.login_valid'), [
-            'user' => $user,
+            'user' => collect((array) $user)->except('password'),
             'token_type' => 'demo',
         ]);
     }
