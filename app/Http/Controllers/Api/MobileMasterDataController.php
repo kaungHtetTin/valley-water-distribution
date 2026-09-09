@@ -7,6 +7,7 @@ use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class MobileMasterDataController extends Controller
 {
@@ -90,7 +91,136 @@ class MobileMasterDataController extends Controller
             ->first();
         abort_unless($customer, 404);
 
-        return ApiResponse::success('Customer loaded.', ['customer' => $customer]);
+        $ordersQuery = DB::table('orders')
+            ->leftJoin('invoices', function ($join) {
+                $join->on('orders.id', '=', 'invoices.order_id')
+                    ->where('invoices.status', '!=', 'cancelled');
+            })
+            ->where('orders.customer_id', $customer->id)
+            ->where('orders.route_id', $routeId);
+
+        $orderSummary = (clone $ordersQuery)
+            ->selectRaw("COUNT(*) as orders_count, COALESCE(SUM(orders.total), 0) as total_amount, SUM(CASE WHEN orders.status = 'pending' THEN 1 ELSE 0 END) as pending_count")
+            ->first();
+
+        $orders = $ordersQuery
+            ->select('orders.id', 'orders.code', 'orders.order_date', 'orders.requested_delivery_date', 'orders.payment_type', 'orders.status', 'orders.total', 'invoices.code as invoice_code')
+            ->orderByDesc('orders.order_date')
+            ->orderByDesc('orders.id')
+            ->limit(25)
+            ->get()
+            ->map(function ($order) {
+                $order->total = (float) $order->total;
+                return $order;
+            });
+
+        return ApiResponse::success('Customer loaded.', [
+            'customer' => $customer,
+            'orders' => $orders,
+            'order_summary' => [
+                'orders_count' => (int) ($orderSummary->orders_count ?? 0),
+                'pending_count' => (int) ($orderSummary->pending_count ?? 0),
+                'total_amount' => (float) ($orderSummary->total_amount ?? 0),
+            ],
+        ]);
+    }
+
+    public function salesRoute(Request $request)
+    {
+        $this->authorizePermission($request, 'sales.route.view');
+        $employee = DB::table('employees')->find($request->user()->employee_id);
+        abort_unless($employee && $employee->employee_type === 'sales' && $employee->assigned_route_id, 422, 'A sales territory must be assigned before opening customer visits.');
+
+        $date = now()->toDateString();
+        $route = DB::table('routes')->leftJoin('areas', 'routes.area_id', '=', 'areas.id')
+            ->where('routes.id', $employee->assigned_route_id)
+            ->first(['routes.*', 'areas.name as area_name']);
+
+        $orders = DB::table('orders')->whereDate('order_date', $date)
+            ->where('source_app', 'sales')
+            ->where('created_by', $request->user()->id)
+            ->selectRaw('customer_id, COUNT(*) as orders_count, COALESCE(SUM(total), 0) as order_amount')
+            ->groupBy('customer_id');
+        $collections = DB::table('collections')->whereDate('collection_date', $date)
+            ->where('employee_id', $employee->id)
+            ->where('source_app', 'sales')
+            ->where('status', '!=', 'rejected')
+            ->selectRaw('customer_id, COUNT(*) as collections_count, COALESCE(SUM(amount), 0) as collection_amount')
+            ->groupBy('customer_id');
+
+        $customers = DB::table('customers')
+            ->leftJoin('areas', 'customers.area_id', '=', 'areas.id')
+            ->leftJoin('sales_route_visits', function ($join) use ($employee, $date) {
+                $join->on('customers.id', '=', 'sales_route_visits.customer_id')
+                    ->where('sales_route_visits.employee_id', '=', $employee->id)
+                    ->where('sales_route_visits.visit_date', '=', $date);
+            })
+            ->leftJoinSub($orders, 'today_orders', 'customers.id', '=', 'today_orders.customer_id')
+            ->leftJoinSub($collections, 'today_collections', 'customers.id', '=', 'today_collections.customer_id')
+            ->where('customers.route_id', $employee->assigned_route_id)
+            ->where('customers.is_active', true)
+            ->orderBy('customers.shop_name')
+            ->get([
+                'customers.id', 'customers.code', 'customers.shop_name', 'customers.contact_name', 'customers.phone', 'customers.address',
+                'areas.name as area', 'sales_route_visits.status as visit_status', 'sales_route_visits.started_at', 'sales_route_visits.completed_at',
+                DB::raw('COALESCE(today_orders.orders_count, 0) as orders_count'), DB::raw('COALESCE(today_orders.order_amount, 0) as order_amount'),
+                DB::raw('COALESCE(today_collections.collections_count, 0) as collections_count'), DB::raw('COALESCE(today_collections.collection_amount, 0) as collection_amount'),
+            ])->map(function ($customer) {
+                $customer->visit_status = $customer->visit_status ?: 'planned';
+                $customer->orders_count = (int) $customer->orders_count;
+                $customer->order_amount = (float) $customer->order_amount;
+                $customer->collections_count = (int) $customer->collections_count;
+                $customer->collection_amount = (float) $customer->collection_amount;
+                return $customer;
+            });
+
+        return ApiResponse::success('Sales customer visits loaded.', [
+            'route' => $route,
+            'date' => $date,
+            'customers' => $customers,
+            'summary' => [
+                'total' => $customers->count(),
+                'completed' => $customers->where('visit_status', 'completed')->count(),
+                'in_progress' => $customers->where('visit_status', 'in_progress')->count(),
+                'skipped' => $customers->where('visit_status', 'skipped')->count(),
+                'orders_count' => $customers->sum('orders_count'),
+                'order_amount' => (float) $customers->sum('order_amount'),
+                'collection_amount' => (float) $customers->sum('collection_amount'),
+            ],
+        ]);
+    }
+
+    public function updateSalesRouteVisit(Request $request, int $customerId)
+    {
+        $this->authorizePermission($request, 'sales.route.view');
+        $employee = DB::table('employees')->find($request->user()->employee_id);
+        abort_unless($employee && $employee->employee_type === 'sales' && $employee->assigned_route_id, 422, 'A sales territory must be assigned before recording customer visits.');
+        abort_unless(DB::table('customers')->where('id', $customerId)->where('route_id', $employee->assigned_route_id)->where('is_active', true)->exists(), 404);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(['in_progress', 'completed', 'skipped'])],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+        $date = now()->toDateString();
+        $existing = DB::table('sales_route_visits')->where('employee_id', $employee->id)->where('customer_id', $customerId)->where('visit_date', $date)->first();
+        $now = now();
+
+        DB::table('sales_route_visits')->updateOrInsert(
+            ['employee_id' => $employee->id, 'customer_id' => $customerId, 'visit_date' => $date],
+            [
+                'route_id' => $employee->assigned_route_id,
+                'status' => $validated['status'],
+                'started_at' => $existing?->started_at ?: $now,
+                'completed_at' => in_array($validated['status'], ['completed', 'skipped'], true) ? $now : null,
+                'notes' => $validated['notes'] ?? $existing?->notes,
+                'created_at' => $existing?->created_at ?: $now,
+                'updated_at' => $now,
+            ]
+        );
+
+        return ApiResponse::success('Customer visit updated.', [
+            'visit' => DB::table('sales_route_visits')->where('employee_id', $employee->id)->where('customer_id', $customerId)->where('visit_date', $date)->first(),
+        ]);
     }
 
     public function storeCustomer(Request $request)

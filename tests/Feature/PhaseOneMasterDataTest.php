@@ -7,6 +7,8 @@ use App\Support\AppAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class PhaseOneMasterDataTest extends TestCase
@@ -56,6 +58,33 @@ class PhaseOneMasterDataTest extends TestCase
         $this->assertDatabaseCount('companies', 1);
         $this->postJson('/api/master-data/companies', [])->assertNotFound();
         $this->deleteJson('/api/master-data/companies/1')->assertNotFound();
+    }
+
+    public function test_company_branding_can_be_updated()
+    {
+        Storage::fake('public');
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->first());
+
+        $response = $this->post('/api/settings/company', [
+            '_method' => 'PUT',
+            'code' => 'VALLEY',
+            'name' => 'Valley Springs',
+            'primary_color' => '#087f74',
+            'default_theme' => 'dark',
+            'logo' => UploadedFile::fake()->createWithContent(
+                'logo.png',
+                base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+            ),
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.company.name', 'Valley Springs')
+            ->assertJsonPath('data.company.primary_color', '#087f74')
+            ->assertJsonPath('data.company.default_theme', 'dark');
+
+        $logoPath = $response->json('data.company.logo_path');
+        Storage::disk('public')->assertExists($logoPath);
     }
 
     public function test_empty_active_filter_does_not_hide_seeded_master_data()
@@ -313,6 +342,12 @@ class PhaseOneMasterDataTest extends TestCase
             ->assertJsonPath('data.items.0.shop_name', 'Cherry Mini Mart')
             ->assertJsonPath('data.meta.total', 1);
 
+        $customerId = DB::table('customers')->where('shop_name', 'Cherry Mini Mart')->value('id');
+        $this->getJson("/api/mobile/master/customers/{$customerId}")
+            ->assertOk()
+            ->assertJsonPath('data.customer.shop_name', 'Cherry Mini Mart')
+            ->assertJsonStructure(['data' => ['orders', 'order_summary' => ['orders_count', 'pending_count', 'total_amount']]]);
+
         $this->postJson('/api/mobile/master/customers', [
             'shop_name' => 'Blue Lake Store',
             'contact_name' => 'Ma Su',
@@ -323,5 +358,64 @@ class PhaseOneMasterDataTest extends TestCase
             ->assertJsonPath('data.customer.route_id', DB::table('routes')->where('code', 'TGI-N')->value('id'));
 
         $this->assertDatabaseHas('customers', ['shop_name' => 'Blue Lake Store']);
+    }
+
+    public function test_sales_user_can_run_their_daily_route()
+    {
+        $this->seed();
+        $salesUser = User::where('email', 'sales@valley.test')->firstOrFail();
+        $clientUser = User::where('email', 'client@valley.test')->firstOrFail();
+        $salesEmployeeId = $salesUser->employee_id;
+        $today = now()->toDateString();
+        $this->actingAs($salesUser);
+        $customerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
+
+        DB::table('orders')->where('code', 'ORD-202608-0001')->update([
+            'order_date' => $today,
+            'source_app' => 'client',
+            'created_by' => $clientUser->id,
+        ]);
+        DB::table('orders')->where('code', 'ORD-202608-0002')->update([
+            'order_date' => $today,
+            'source_app' => 'sales',
+            'created_by' => $salesUser->id,
+        ]);
+        DB::table('collections')->whereIn('code', ['COL-202608-0002', 'COL-202608-0003'])->update([
+            'collection_date' => $today,
+        ]);
+
+        $this->getJson('/api/mobile/sales-route')
+            ->assertOk()
+            ->assertJsonPath('data.route.code', 'TGI-N')
+            ->assertJsonPath('data.customers.0.visit_status', 'planned')
+            ->assertJsonPath('data.summary.orders_count', 1)
+            ->assertJsonPath('data.summary.order_amount', 36000)
+            ->assertJsonPath('data.summary.collection_amount', 12000)
+            ->assertJsonStructure(['data' => ['summary' => ['total', 'completed', 'in_progress', 'skipped', 'orders_count', 'order_amount', 'collection_amount']]]);
+
+        $this->assertDatabaseHas('collections', [
+            'code' => 'COL-202608-0003',
+            'source_app' => 'driver',
+        ]);
+        $this->assertDatabaseHas('collections', [
+            'code' => 'COL-202608-0002',
+            'employee_id' => $salesEmployeeId,
+            'source_app' => 'sales',
+        ]);
+
+        $this->postJson("/api/mobile/sales-route/customers/{$customerId}/visit", ['status' => 'in_progress'])
+            ->assertOk()
+            ->assertJsonPath('data.visit.status', 'in_progress');
+
+        $this->postJson("/api/mobile/sales-route/customers/{$customerId}/visit", ['status' => 'completed'])
+            ->assertOk()
+            ->assertJsonPath('data.visit.status', 'completed');
+
+        $this->getJson('/api/mobile/sales-route')
+            ->assertOk()
+            ->assertJsonPath('data.summary.completed', 1);
+
+        $outsideCustomerId = DB::table('customers')->where('code', 'CUS-0004')->value('id');
+        $this->postJson("/api/mobile/sales-route/customers/{$outsideCustomerId}/visit", ['status' => 'completed'])->assertNotFound();
     }
 }

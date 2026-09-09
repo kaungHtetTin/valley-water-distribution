@@ -38,7 +38,7 @@ Mobile-first app for sales representatives. A sales representative is an employe
 
 Main responsibilities:
 
-- View assigned route/way and assigned customers
+- View the assigned sales territory and manage independent daily customer visits
 - Create customer orders
 - Register new customers
 - View monthly sales target and sales KPI
@@ -109,7 +109,15 @@ Stores company name, logo, address, phone, default currency, default language, a
 
 ### Area / Route / Way Master
 
-Areas are treated as delivery/sales routes. Example areas include Taunggyi, Aye Thar Yar, and Nam San.
+The route master defines geography and service coverage only. Example territories include Taunggyi, Aye Thar Yar, and Nam San. Sharing a route record does not mean that a sales representative and delivery driver travel together or share one workflow.
+
+Sales, marketing, and delivery operations are independent:
+
+- Sales representatives use the territory to plan and record customer visits, orders, and collections.
+- Marketing owns campaigns, promotions, merchandising programs, and market research as a separate process. Marketing activity must not start or complete a sales visit or delivery.
+- Delivery drivers receive separate invoice-based delivery assignments with their own warehouse, vehicle, schedule, status, quantities, and GPS history.
+- A sales visit never starts or completes a delivery, and a delivery never starts or completes a sales visit.
+- Sales visits are owned by the assigned sales employee and visit date; delivery runs are owned by the assigned driver through the delivery record.
 
 Each route should support:
 
@@ -244,7 +252,7 @@ Required views:
 
 ## 9. Delivery Module
 
-Office assigns deliveries to a warehouse, driver, vehicle, and route.
+Office assigns deliveries to a warehouse, driver, vehicle, and geographic route. This driver workflow is independent from sales representatives' customer-visit plans.
 
 Delivery fields:
 

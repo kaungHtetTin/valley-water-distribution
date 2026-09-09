@@ -96,6 +96,11 @@ class PhaseFourMobileOrderTest extends TestCase
         $this->getJson('/api/mobile/orders?customer_id='.$customerId)
             ->assertOk()
             ->assertJsonPath('data.items.0.customer_id', $customerId);
+
+        $this->getJson('/api/mobile/orders?search=Cherry')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.customer_id', $customerId)
+            ->assertJsonPath('data.items.0.shop_name', 'Cherry Mini Mart');
     }
 
     public function test_client_can_view_invoiced_order_status_details()

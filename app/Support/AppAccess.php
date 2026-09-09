@@ -46,6 +46,9 @@ class AppAccess
             'name' => $user->name,
             'email' => $user->email,
             'phone' => $user->phone,
+            'profile_photo_url' => $user->profile_photo_path
+                ? url('/'.trim(config('uploads.profile_photos_url'), '/').'/'.rawurlencode(basename($user->profile_photo_path)))
+                : null,
             'role' => $user->role,
             'locale' => $user->locale,
             'allowed_apps' => self::allowedAppsForRole($user->role),

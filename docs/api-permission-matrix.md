@@ -11,7 +11,7 @@ All business APIs are behind session authentication. Public exceptions are limit
 | Delivery | `office.deliveries.view` | `office.deliveries.manage` | Office app; driver endpoints require assigned driver |
 | Attendance | `office.attendance.view` | `office.attendance.manage` | Public scan is token/radius throttled; mobile history is employee-scoped |
 | Payroll | `office.payroll.view` | `office.payroll.manage` | Mobile salary history is employee-scoped |
-| Finance | `office.finance.view` | `office.finance.manage` | Sales route, driver delivery, and client customer scope |
+| Finance | `office.finance.view` | `office.finance.manage` | Sales visits, driver delivery, and client customer scope |
 | Vehicle costs | `office.vehicle-costs.view` | `office.vehicle-costs.manage` | Driver submission requires assigned vehicle |
 | Dashboards | `office.dashboard.view` | None | Client/Sales/Driver home permissions and identity scope |
 | UAT and audit | `office.uat.view` | `office.uat.manage` | Owner/Office only; audit log is read-only |

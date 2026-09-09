@@ -1,5 +1,5 @@
-import { AlertCircle, BadgeCheck, Ban, CalendarDays, Eye, FileText, Plus, RefreshCw, RotateCcw, Save, Search, ShoppingCart, Trash2, TriangleAlert, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, ArrowLeft, BadgeCheck, Ban, CalendarDays, Eye, FileText, Plus, RefreshCw, RotateCcw, Save, Search, ShoppingCart, Trash2, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 const copy = {
     en: {
@@ -59,7 +59,7 @@ const copy = {
         saveMobileOrder: 'Place order',
         save: 'Save order',
         searchInvoices: 'Search invoice, order, shop, route',
-        searchOrders: 'Search code, shop, route',
+        searchOrders: 'Search order or customer',
         status: 'Status',
         subtotal: 'Subtotal',
         total: 'Total',
@@ -106,7 +106,7 @@ const copy = {
         remove: 'Remove',
     },
     my: {
-        actions: 'လုပ်ဆောင်ချက်များ', addItem: 'ပစ္စည်းထပ်ထည့်ရန်', allCustomers: 'ဖောက်သည်အားလုံး', allStatuses: 'အခြေအနေအားလုံး', cancel: 'မလုပ်တော့ပါ', cash: 'ငွေသား', confirmed: 'အတည်ပြုပြီး', credit: 'အကြွေး', availableCredit: 'အသုံးပြုနိုင်သော အကြွေး', customer: 'ဖောက်သည်', customers: 'တာဝန်ပေးထားသော ဖောက်သည်များ', date: 'ရက်စွဲ', details: 'အသေးစိတ်', empty: 'ကိုက်ညီသော အော်ဒါမရှိပါ။', foc: 'အခမဲ့', itemType: 'အမျိုးအစား', items: 'ပစ္စည်းများ', loading: 'အော်ဒါများ ရယူနေသည်', notes: 'မှတ်ချက်', newOrder: 'အော်ဒါအသစ်', orderDate: 'အော်ဒါရက်စွဲ', order: 'အော်ဒါ', orders: 'အော်ဒါများ', ordersHint: 'ဖောက်သည်အော်ဒါများကို အတည်ပြုခြင်း၊ invoice နှင့် ပို့ဆောင်ရေးအတွက် စီမံပါ။', mobileOrdersHint: 'ပစ္စည်းနှင့် အရေအတွက်ကို ရွေးပါ။ ပို့ဆောင်ရေးအသေးစိတ်သည် မဖြစ်မနေမဟုတ်ပါ။', paymentType: 'ငွေပေးချေမှု', pending: 'စောင့်ဆိုင်း', price: 'ဈေးနှုန်း', product: 'ပစ္စည်း', quantity: 'အရေအတွက်', requestedDelivery: 'လိုချင်သော ပို့ဆောင်ရက်', retry: 'ပြန်ကြိုးစားရန်', route: 'လမ်းကြောင်း', saveMobileOrder: 'အော်ဒါတင်ရန်', searchOrders: 'အော်ဒါနံပါတ်၊ ဆိုင်၊ လမ်းကြောင်းရှာရန်', status: 'အခြေအနေ', subtotal: 'ပေါင်းလဒ်', total: 'စုစုပေါင်း', totalAmount: 'အော်ဒါတန်ဖိုး', unit: 'ယူနစ်', orderHistory: 'အော်ဒါမှတ်တမ်း', outstandingBalance: 'ပေးရန်ကျန်ငွေ', afterThisOrder: 'ဤအော်ဒါပြီးနောက်', overLimit: 'အကြွေးကန့်သတ်ချက်ကျော်', creditOk: 'အကြွေးရရှိနိုင်', creditLimit: 'အကြွေးကန့်သတ်ချက်', remove: 'ဖယ်ရှားရန်', sale: 'အရောင်း', draft: 'မူကြမ်း', cancelled: 'ပယ်ဖျက်ပြီး', invoiced: 'Invoice ပြီး', assigned: 'တာဝန်ပေးပြီး', delivering: 'ပို့ဆောင်နေသည်', delivered: 'ပို့ဆောင်ပြီး', submitted: 'တင်ပြပြီး', statusTimeline: 'အခြေအနေမှတ်တမ်း', waiting: 'စောင့်ဆိုင်း', current: 'လက်ရှိ', invoice: 'Invoice', delivery: 'ပို့ဆောင်ရေး',
+        actions: 'လုပ်ဆောင်ချက်များ', addItem: 'ပစ္စည်းထပ်ထည့်ရန်', allCustomers: 'ဖောက်သည်အားလုံး', allStatuses: 'အခြေအနေအားလုံး', cancel: 'မလုပ်တော့ပါ', cash: 'ငွေသား', confirmed: 'အတည်ပြုပြီး', credit: 'အကြွေး', availableCredit: 'အသုံးပြုနိုင်သော အကြွေး', customer: 'ဖောက်သည်', customers: 'တာဝန်ပေးထားသော ဖောက်သည်များ', date: 'ရက်စွဲ', details: 'အသေးစိတ်', empty: 'ကိုက်ညီသော အော်ဒါမရှိပါ။', foc: 'အခမဲ့', itemType: 'အမျိုးအစား', items: 'ပစ္စည်းများ', loading: 'အော်ဒါများ ရယူနေသည်', notes: 'မှတ်ချက်', newOrder: 'အော်ဒါအသစ်', orderDate: 'အော်ဒါရက်စွဲ', order: 'အော်ဒါ', orders: 'အော်ဒါများ', ordersHint: 'ဖောက်သည်အော်ဒါများကို အတည်ပြုခြင်း၊ invoice နှင့် ပို့ဆောင်ရေးအတွက် စီမံပါ။', mobileOrdersHint: 'ပစ္စည်းနှင့် အရေအတွက်ကို ရွေးပါ။ ပို့ဆောင်ရေးအသေးစိတ်သည် မဖြစ်မနေမဟုတ်ပါ။', paymentType: 'ငွေပေးချေမှု', pending: 'စောင့်ဆိုင်း', price: 'ဈေးနှုန်း', product: 'ပစ္စည်း', quantity: 'အရေအတွက်', requestedDelivery: 'လိုချင်သော ပို့ဆောင်ရက်', retry: 'ပြန်ကြိုးစားရန်', route: 'လမ်းကြောင်း', saveMobileOrder: 'အော်ဒါတင်ရန်', searchOrders: 'အော်ဒါ သို့မဟုတ် ဖောက်သည်ရှာရန်', status: 'အခြေအနေ', subtotal: 'ပေါင်းလဒ်', total: 'စုစုပေါင်း', totalAmount: 'အော်ဒါတန်ဖိုး', unit: 'ယူနစ်', orderHistory: 'အော်ဒါမှတ်တမ်း', outstandingBalance: 'ပေးရန်ကျန်ငွေ', afterThisOrder: 'ဤအော်ဒါပြီးနောက်', overLimit: 'အကြွေးကန့်သတ်ချက်ကျော်', creditOk: 'အကြွေးရရှိနိုင်', creditLimit: 'အကြွေးကန့်သတ်ချက်', remove: 'ဖယ်ရှားရန်', sale: 'အရောင်း', draft: 'မူကြမ်း', cancelled: 'ပယ်ဖျက်ပြီး', invoiced: 'Invoice ပြီး', assigned: 'တာဝန်ပေးပြီး', delivering: 'ပို့ဆောင်နေသည်', delivered: 'ပို့ဆောင်ပြီး', submitted: 'တင်ပြပြီး', statusTimeline: 'အခြေအနေမှတ်တမ်း', waiting: 'စောင့်ဆိုင်း', current: 'လက်ရှိ', invoice: 'Invoice', delivery: 'ပို့ဆောင်ရေး',
     },
 };
 
@@ -691,13 +691,100 @@ function InvoiceDrawer({ viewing, locale, canManage, processingId, onIssue, onCa
     );
 }
 
-export function MobileOrdersScreen({ appId, locale }) {
+function OrderCustomerCombobox({ customers, value, onChange, locale = 'en' }) {
+    const selected = customers.find((customer) => String(customer.id) === String(value));
+    const displayValue = selected ? `${selected.code} · ${selected.shop_name}` : '';
+    const [query, setQuery] = useState(displayValue);
+    const [open, setOpen] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(0);
+    const rootRef = useRef(null);
+    const inputRef = useRef(null);
+    const optionsId = useId();
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const filtered = customers
+        .filter((customer) => !normalizedQuery || `${customer.code} ${customer.shop_name}`.toLocaleLowerCase().includes(normalizedQuery))
+        .slice(0, 20);
+
+    useEffect(() => {
+        if (!open) setQuery(displayValue);
+    }, [displayValue, open]);
+
+    useEffect(() => {
+        const close = (event) => {
+            if (!rootRef.current?.contains(event.target)) {
+                setOpen(false);
+                setQuery(displayValue);
+            }
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [displayValue]);
+
+    const choose = (customer) => {
+        onChange(String(customer.id));
+        setQuery(`${customer.code} · ${customer.shop_name}`);
+        inputRef.current?.setCustomValidity('');
+        setOpen(false);
+    };
+
+    const keyDown = (event) => {
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) => Math.min(index + 1, Math.max(filtered.length - 1, 0)));
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setActiveIndex((index) => Math.max(index - 1, 0));
+        } else if (event.key === 'Enter' && open && filtered[activeIndex]) {
+            event.preventDefault();
+            choose(filtered[activeIndex]);
+        } else if (event.key === 'Escape') {
+            setQuery(displayValue);
+            setOpen(false);
+        }
+    };
+
+    return <div className="customer-combobox order-customer-combobox" ref={rootRef}>
+        <div className="customer-combobox-input">
+            <Search size={16} />
+            <input
+                ref={inputRef}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls={optionsId}
+                aria-expanded={open}
+                required
+                value={query}
+                placeholder={locale === 'my' ? 'ဖောက်သည်ကုဒ် သို့မဟုတ် ဆိုင်အမည်ရှာရန်' : 'Search customer code or shop name'}
+                onFocus={() => {
+                    setQuery('');
+                    setActiveIndex(0);
+                    setOpen(true);
+                }}
+                onKeyDown={keyDown}
+                onInvalid={(event) => event.currentTarget.setCustomValidity(value ? '' : (locale === 'my' ? 'ရှာဖွေမှုရလဒ်မှ ဖောက်သည်ကို ရွေးပါ။' : 'Select a customer from the search results.'))}
+                onChange={(event) => {
+                    event.currentTarget.setCustomValidity('');
+                    setQuery(event.target.value);
+                    onChange('');
+                    setActiveIndex(0);
+                    setOpen(true);
+                }}
+            />
+        </div>
+        {open && <div className="customer-combobox-options" id={optionsId} role="listbox">
+            {filtered.length ? filtered.map((customer, index) => <button className={index === activeIndex ? 'is-active' : ''} type="button" role="option" aria-selected={String(customer.id) === String(value)} key={customer.id} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(customer)}><span><strong>{customer.shop_name}</strong><small>{customer.code}</small></span>{String(customer.id) === String(value) && <BadgeCheck size={16} />}</button>) : <p>{locale === 'my' ? 'ကိုက်ညီသော ဖောက်သည်မရှိပါ။' : `No customers match “${query}”.`}</p>}
+            {customers.length > 20 && !normalizedQuery && <small className="customer-combobox-hint">{locale === 'my' ? `ဖောက်သည် ${customers.length} ဦးကို ရှာရန် စာရိုက်ပါ` : `Type to search ${customers.length} customers`}</small>}
+        </div>}
+    </div>;
+}
+
+export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
     const today = new Date().toISOString().slice(0, 10);
     const [mode, setMode] = useState('list');
-    const [filters, setFilters] = useState({ search: '', status: '', customer_id: '' });
+    const [filters, setFilters] = useState({ search: '', status: '' });
     const [meta, setMeta] = useState({ loading: true, app: appId, customers: [], products: [], error: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
-    const [selected, setSelected] = useState(null);
     const [saving, setSaving] = useState(false);
     const [showDetails, setShowDetails] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -730,7 +817,6 @@ export function MobileOrdersScreen({ appId, locale }) {
                 params: {
                     search: filters.search || undefined,
                     status: filters.status || undefined,
-                    customer_id: filters.customer_id || undefined,
                     per_page: 12,
                 },
             }).then(({ data }) => {
@@ -778,10 +864,10 @@ export function MobileOrdersScreen({ appId, locale }) {
                 })),
             };
             const { data } = await window.axios.post(apiBase('mobileOrders'), payload);
-            setSelected({ order: data.data.order, items: data.data.items });
             resetForm();
             setMode('list');
             setRefreshKey((key) => key + 1);
+            onViewOrder?.(data.data.order.id);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         } finally {
@@ -811,7 +897,7 @@ export function MobileOrdersScreen({ appId, locale }) {
             {mode === 'form' ? (
                 <form className="mobile-order-form" onSubmit={submit}>
                     {meta.app === 'sales' && (
-                        <label>{t(locale, 'customer')}<select required value={form.customer_id} onChange={(event) => setForm((current) => ({ ...current, customer_id: event.target.value }))}><option value="">{t(locale, 'customer')}</option>{meta.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.label}</option>)}</select></label>
+                        <div className="mobile-order-customer-field"><span>{t(locale, 'customer')}</span><OrderCustomerCombobox customers={meta.customers} value={form.customer_id} locale={locale} onChange={(customerId) => setForm((current) => ({ ...current, customer_id: customerId }))} /></div>
                     )}
                     {selectedCustomer && <MobileCreditCard customer={selectedCustomer} previewTotal={preview.total} locale={locale} />}
                     <div className="mobile-order-lines">
@@ -837,13 +923,11 @@ export function MobileOrdersScreen({ appId, locale }) {
                     <div className="mobile-order-filters">
                         <label className="mobile-search"><Search size={16} /><input value={filters.search} placeholder={t(locale, 'searchOrders')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                         <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">{t(locale, 'allStatuses')}</option>{['pending', 'confirmed', 'invoiced', 'assigned', 'delivering', 'delivered', 'cancelled'].map((status) => <option value={status} key={status}>{t(locale, status)}</option>)}</select>
-                        {meta.app === 'sales' && <select aria-label={t(locale, 'customer')} value={filters.customer_id} onChange={(event) => setFilters((current) => ({ ...current, customer_id: event.target.value }))}><option value="">{t(locale, 'allCustomers')}</option>{meta.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.label}</option>)}</select>}
                     </div>
-                    {meta.app === 'sales' && filters.customer_id && <MobileCreditCard customer={meta.customers.find((customer) => Number(customer.id) === Number(filters.customer_id))} locale={locale} />}
                     {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={ShoppingCart} title={t(locale, 'empty')} compact /> : (
                         <div className="mobile-order-list">
                             {state.items.map((order) => (
-                                <button type="button" key={order.id} onClick={() => setSelected({ order, items: null })}>
+                                <button type="button" key={order.id} onClick={() => onViewOrder?.(order.id)}>
                                     <span className="mobile-order-icon"><ShoppingCart size={17} /></span>
                                     <span><strong>{order.code} · {money(order.total)}</strong><small>{order.shop_name}</small><small>{order.order_date} · {t(locale, order.payment_type)}</small></span>
                                     <StatusBadge status={order.status} locale={locale} />
@@ -854,7 +938,6 @@ export function MobileOrdersScreen({ appId, locale }) {
                 </section>
             )}
 
-            {selected && <MobileOrderDetailSheet viewing={selected} locale={locale} onClose={() => setSelected(null)} />}
         </div>
     );
 }
@@ -916,6 +999,43 @@ function MobileOrderDetailSheet({ viewing, locale, onClose }) {
                     </>
                 )}
             </aside>
+        </div>
+    );
+}
+
+export function MobileOrderDetailPage({ orderId, locale, onBack }) {
+    const [state, setState] = useState({ loading: true, order: null, items: [], error: '' });
+
+    useEffect(() => {
+        let mounted = true;
+        setState({ loading: true, order: null, items: [], error: '' });
+        window.axios.get(`${apiBase('mobileOrders')}/${orderId}`)
+            .then(({ data }) => mounted && setState({ loading: false, order: data.data.order, items: data.data.items, error: '' }))
+            .catch((error) => mounted && setState({ loading: false, order: null, items: [], error: requestMessage(error, locale) }));
+        return () => { mounted = false; };
+    }, [locale, orderId]);
+
+    return (
+        <div className="mobile-master-stack mobile-order-detail-page">
+            <div className="mobile-master-heading">
+                <button className="icon-button" type="button" onClick={onBack} aria-label={t(locale, 'cancel')}><ArrowLeft size={18} /></button>
+                <div><p className="eyebrow">{t(locale, 'details')}</p><h1>{state.order?.code || t(locale, 'order')}</h1></div>
+            </div>
+            <section className="mobile-master-section mobile-order-detail-content">
+                {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={onBack} actionLabel={t(locale, 'cancel')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : (
+                    <div>
+                        <section className="mobile-order-detail-total"><small>{state.order.shop_name}</small><strong>{money(state.order.total)}</strong><span>{state.order.order_date} · <StatusBadge status={state.order.status} locale={locale} /></span></section>
+                        <MobileOrderTimeline order={state.order} locale={locale} />
+                        <div className="mobile-order-detail-items">{state.items.map((item) => <div key={item.id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></span><span>{Number(item.quantity).toLocaleString()} × {money(item.unit_price)}</span></div>)}</div>
+                        <dl className="mobile-info-list">
+                            <div><dt>{t(locale, 'requestedDelivery')}</dt><dd>{state.order.requested_delivery_date || '-'}</dd></div>
+                            <div><dt>{t(locale, 'paymentType')}</dt><dd>{t(locale, state.order.payment_type)}</dd></div>
+                            <div><dt>{t(locale, 'invoice')}</dt><dd>{state.order.invoice_code || '-'}</dd></div>
+                            <div><dt>{t(locale, 'notes')}</dt><dd>{state.order.notes || '-'}</dd></div>
+                        </dl>
+                    </div>
+                )}
+            </section>
         </div>
     );
 }

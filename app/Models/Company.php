@@ -11,5 +11,12 @@ class Company extends Model
 
     protected $guarded = [];
 
+    protected $appends = ['logo_url'];
+
     protected $casts = ['is_active' => 'boolean'];
+
+    public function getLogoUrlAttribute(): ?string
+    {
+        return $this->logo_path ? asset('storage/'.$this->logo_path) : null;
+    }
 }

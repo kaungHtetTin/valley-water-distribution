@@ -672,7 +672,7 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                     <h1>{t(locale, 'attendanceHistory')}</h1>
                     <span className="muted">{t(locale, 'attendanceHistoryHint')}</span>
                 </div>
-                <button className="icon-button primary-icon" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
+                <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
             </div>
 
             <section className="mobile-attendance-summary" aria-label={t(locale, 'attendanceHistory')}>

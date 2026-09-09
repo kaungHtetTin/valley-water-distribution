@@ -28,7 +28,7 @@ Run on at least one business Android device at normal browser zoom:
 - Touch targets can be activated without accidental adjacent taps.
 - Myanmar labels wrap without hiding amounts, status, or actions.
 - Client order entry can be completed without opening optional details.
-- Sales collection and expense entry can be completed during a route stop.
+- Sales collection and expense entry can be completed during a customer visit.
 - Driver QR attendance requests GPS clearly.
 - GPS sharing occurs only for the assigned active route and stops after completion.
 - Delivery completion and expense submission survive a temporary network interruption by retaining entered form data and allowing retry after reconnection.

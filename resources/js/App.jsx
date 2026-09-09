@@ -1,7 +1,6 @@
 import './bootstrap';
 import { createRoot } from 'react-dom/client';
 import {
-    Bell,
     Building2,
     CalendarDays,
     CheckCircle2,
@@ -35,8 +34,8 @@ import {
     WalletCards,
 } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
-import { ClientMasterScreen, CompanySettingsScreen, DriverMasterScreen, MasterDataWorkspace, SalesMasterScreen } from './phaseOne';
-import { DamageEntryScreen, InvoicesScreen, MobileOrdersScreen, OrdersScreen, SalesReturnScreen } from './phaseFour';
+import { ClientMasterScreen, CompanySettingsScreen, DriverMasterScreen, MasterDataWorkspace, SalesCustomerDetailPage, SalesMasterScreen, SalesRouteScreen } from './phaseOne';
+import { DamageEntryScreen, InvoicesScreen, MobileOrderDetailPage, MobileOrdersScreen, OrdersScreen, SalesReturnScreen } from './phaseFour';
 import { ClosingStockScreen, StockBalanceScreen, StockCardScreen, StockDamageScreen, StockIssueScreen, StockReceiveScreen, StockTransferScreen, StockValueScreen } from './phaseFive';
 import { DeliveryLiveMapScreen, DeliveryPlanningScreen, MobileDeliveryStatusScreen, MobileDriverDeliveriesScreen, MobileDriverExecutionScreen } from './phaseSix';
 import { FinanceBookScreen, FinanceCollectionsScreen, FinanceExpensesScreen, FinanceReceivablesScreen, MobileFinanceScreen, ProfitLossScreen, SupplierLedgerScreen } from './phaseSeven';
@@ -45,6 +44,7 @@ import { MobileHomeDashboard, OfficeKpiDashboard } from './phaseTen';
 import { UatReadinessScreen } from './phaseEleven';
 import { MobilePayrollHistoryScreen, PayrollAdjustmentsScreen, PayrollDraftsScreen, SalaryHistoryScreen } from './phaseThree';
 import { AttendanceLocationsScreen, AttendanceRecordsScreen, AttendanceSummaryScreen, MobileAttendanceHistoryScreen, PublicAttendanceScreen } from './phaseTwo';
+import { ProfileSettingsScreen } from './ProfileSettings';
 
 const copy = {
     en: {
@@ -58,15 +58,12 @@ const copy = {
         login: 'Login',
         language: 'Language',
         theme: 'Theme',
-        density: 'Density',
-        compact: 'Compact',
-        comfortable: 'Comfortable',
         preview: 'Module preview',
         plannedPhase: 'This workflow is reserved for a later roadmap phase.',
         overview: 'Foundation and UI Shell',
         officeHint: 'Compact operations console for owner, admin, and office staff.',
         clientHint: 'Customer app shell for orders, delivery status, and account balance.',
-        salesHint: 'Sales route app shell for daily shop visits and field orders.',
+        salesHint: 'Sales territory app for customer visits, field orders, and collections.',
         driverHint: 'Driver app shell for assigned loads, delivery route, and status updates.',
         search: 'Search screens, customers, routes',
         newDemoOrder: 'New demo order',
@@ -92,8 +89,12 @@ const copy = {
         orders: 'Orders',
         deliveries: 'Deliveries',
         profile: 'Profile',
+        menu: 'Menu',
+        moreOperations: 'More operations',
+        close: 'Close',
         profileMenu: 'Profile menu',
         route: 'Route',
+        visits: 'Visits',
         customers: 'Customers',
         collections: 'Collections',
         expenses: 'Expenses',
@@ -102,7 +103,7 @@ const copy = {
         load: 'Load',
         confirm: 'Confirm',
         clientWelcome: 'Morning delivery to Shwe Family Store is being prepared.',
-        salesWelcome: 'Route A-03 is ready with today customer visits.',
+        salesWelcome: 'Today’s customer visit plan is ready.',
         driverWelcome: 'Warehouse load WY-204 is assigned for delivery.',
         officeApiNote: 'The API response format keeps errors predictable for all apps.',
         authLoading: 'Checking sign in',
@@ -126,7 +127,7 @@ const copy = {
         overview: 'အခြေခံနှင့် UI Shell',
         officeHint: 'ပိုင်ရှင်၊ အက်ဒမင်နှင့် ရုံးဝန်ထမ်းများအတွက် console။',
         clientHint: 'အော်ဒါ၊ ပို့ဆောင်မှုအခြေအနေ နှင့် ငွေလက်ကျန်အတွက် ဖောက်သည် app shell။',
-        salesHint: 'နေ့စဉ်ဆိုင်လည်ပတ်မှုနှင့် field order များအတွက် အရောင်း route app shell။',
+        salesHint: 'ဖောက်သည်လည်ပတ်မှု၊ field order နှင့် ငွေကောက်ခံမှုများအတွက် အရောင်းနယ်မြေ app။',
         driverHint: 'သတ်မှတ်ထားသော load၊ route နှင့် status update များအတွက် driver app shell။',
         search: 'စာမျက်နှာ၊ ဖောက်သည်၊ route ရှာရန်',
         newDemoOrder: 'Demo order အသစ်',
@@ -150,12 +151,13 @@ const copy = {
         profile: 'ပရိုဖိုင်',
         profileMenu: 'Profile menu',
         route: 'Route',
+        visits: 'လည်ပတ်မှု',
         customers: 'ဖောက်သည်များ',
         collections: 'ငွေကောက်ခံမှုများ',
         load: 'Load',
         confirm: 'အတည်ပြု',
         clientWelcome: 'Shwe Family Store အတွက် မနက်ပိုင်းပို့ဆောင်မှု ပြင်ဆင်နေသည်။',
-        salesWelcome: 'Route A-03 အတွက် ယနေ့ဖောက်သည်လည်ပတ်မှုများ အသင့်ဖြစ်သည်။',
+        salesWelcome: 'ယနေ့ဖောက်သည်လည်ပတ်မှုအစီအစဉ် အသင့်ဖြစ်သည်။',
         driverWelcome: 'Warehouse load WY-204 ကို ပို့ဆောင်ရန် သတ်မှတ်ထားသည်။',
         officeApiNote: 'API response format သည် app အားလုံးအတွက် error များကို တူညီစေသည်။',
     },
@@ -357,7 +359,7 @@ const mobileNav = {
     ],
     sales: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'sales.home.view' },
-        { labelKey: 'route', view: 'route', icon: MapPinned, permission: 'sales.route.view' },
+        { labelKey: 'visits', view: 'route', icon: MapPinned, permission: 'sales.route.view' },
         { labelKey: 'orders', view: 'orders', icon: ReceiptText, permission: 'sales.orders.view' },
         { labelKey: 'deliveries', view: 'deliveries', icon: Truck, permission: 'sales.deliveries.view' },
         { labelKey: 'customers', view: 'customers', icon: Users, permission: 'sales.customers.view' },
@@ -408,9 +410,9 @@ const mobileData = {
         ],
     },
     sales: {
-        hero: 'Today route',
-        title: 'Route A-03',
-        meta: '12 shops remaining',
+        hero: 'Today’s visits',
+        title: 'Customer visit plan',
+        meta: '12 customers remaining',
         welcomeKey: 'salesWelcome',
         action: 'Visit customer',
         items: [
@@ -434,20 +436,41 @@ const mobileData = {
 };
 
 function App() {
+    const [pathname, setPathname] = useState(() => window.location.pathname);
     const [online, setOnline] = useState(() => window.navigator.onLine);
     const [theme, setTheme] = useState(() => window.localStorage.getItem('valley-theme') || 'light');
-    const [density, setDensity] = useState(() => window.localStorage.getItem('valley-density') || 'compact');
     const [locale, setLocale] = useState(() => window.localStorage.getItem('valley-locale') || 'en');
     const [auth, setAuth] = useState({ loading: true, user: null, errors: {}, message: '' });
+    const [branding, setBranding] = useState({ name: 'Valley Water', logo_url: null, primary_color: '#0b84a5', default_theme: 'light' });
     const t = { ...copy.en, ...copy[locale] };
-    const activeApp = resolveAppFromPath();
-    const attendanceToken = resolveAttendanceToken();
+    const activeApp = resolveAppFromPath(pathname);
+    const attendanceToken = resolveAttendanceToken(pathname);
     const selectedApp = appConfig[activeApp];
-    const rootStyle = useMemo(() => ({ '--color-primary': selectedApp.accent }), [selectedApp]);
+    const rootStyle = useMemo(() => ({ '--color-primary': activeApp === 'office' ? branding.primary_color : selectedApp.accent }), [activeApp, branding.primary_color, selectedApp.accent]);
 
     useEffect(() => window.localStorage.setItem('valley-theme', theme), [theme]);
-    useEffect(() => window.localStorage.setItem('valley-density', density), [density]);
     useEffect(() => window.localStorage.setItem('valley-locale', locale), [locale]);
+    useEffect(() => {
+        const handlePopState = () => setPathname(window.location.pathname);
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
+    useEffect(() => {
+        if (!auth.user || activeApp !== 'office' || !auth.user.permissions.includes('office.master-data.view')) return undefined;
+        let mounted = true;
+
+        window.axios.get(window.ValleyRuntime?.api?.companySettings || '/api/settings/company')
+            .then(({ data }) => {
+                if (!mounted) return;
+                const company = data.data.company;
+                setBranding(company);
+                if (!window.localStorage.getItem('valley-theme') && company.default_theme) setTheme(company.default_theme);
+            })
+            .catch(() => {});
+
+        return () => { mounted = false; };
+    }, [activeApp, auth.user]);
     useEffect(() => {
         const markOnline = () => setOnline(true);
         const markOffline = () => setOnline(false);
@@ -536,8 +559,25 @@ function App() {
         }
     };
 
+    const navigate = (href) => {
+        const destination = new URL(href, window.location.origin);
+        const nextPath = `${destination.pathname}${destination.search}${destination.hash}`;
+        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+        if (destination.origin !== window.location.origin) {
+            window.location.assign(destination.href);
+            return;
+        }
+
+        if (nextPath !== currentPath) {
+            window.history.pushState({}, '', nextPath);
+            setPathname(destination.pathname);
+            window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+    };
+
     return (
-        <div className="app-root" data-theme={theme} data-density={density} data-app={activeApp} data-locale={locale} style={rootStyle}>
+        <div className="app-root" data-theme={theme} data-density="compact" data-app={activeApp} data-locale={locale} style={rootStyle}>
             {!online && <div className="offline-banner" role="status"><TriangleAlert size={15} />You are offline. Existing screen data remains visible; saving is paused until the connection returns.</div>}
             {attendanceToken ? (
                 <PublicAttendanceScreen token={attendanceToken} locale={locale} setLocale={handleLocaleChange} />
@@ -551,8 +591,6 @@ function App() {
                     setLocale={handleLocaleChange}
                     theme={theme}
                     setTheme={setTheme}
-                    density={density}
-                    setDensity={setDensity}
                     auth={auth}
                     onLogin={handleLogin}
                 />
@@ -565,8 +603,11 @@ function App() {
                     setLocale={handleLocaleChange}
                     theme={theme}
                     setTheme={setTheme}
-                    density={density}
-                    setDensity={setDensity}
+                    pathname={pathname}
+                    navigate={navigate}
+                    onUserUpdated={(user) => setAuth((current) => ({ ...current, user }))}
+                    branding={branding}
+                    onBrandingUpdated={(company) => { setBranding(company); setTheme(company.default_theme); }}
                 />
             ) : (
                 <MobileApp
@@ -578,8 +619,9 @@ function App() {
                     setLocale={handleLocaleChange}
                     theme={theme}
                     setTheme={setTheme}
-                    density={density}
-                    setDensity={setDensity}
+                    pathname={pathname}
+                    navigate={navigate}
+                    onUserUpdated={(user) => setAuth((current) => ({ ...current, user }))}
                 />
             )}
         </div>
@@ -594,16 +636,16 @@ function authRoute(action, fallback) {
     return window.ValleyRuntime?.auth?.[action] || fallback;
 }
 
-function resolveAttendanceToken() {
-    const currentPath = normalizePath(window.location.pathname);
+function resolveAttendanceToken(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
     const attendancePath = normalizePath(new URL(runtimeRoute('attendance', '/attendance'), window.location.origin).pathname);
 
     if (!currentPath.startsWith(`${attendancePath}/`)) return null;
     return currentPath.slice(attendancePath.length).split('/').filter(Boolean)[0] || null;
 }
 
-function resolveAppFromPath() {
-    const currentPath = normalizePath(window.location.pathname);
+function resolveAppFromPath(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
     const matchedApp = appOrder.find((id) => {
         const routePath = normalizePath(new URL(appConfig[id].path, window.location.origin).pathname);
         return currentPath === routePath || currentPath.startsWith(`${routePath}/`);
@@ -613,7 +655,7 @@ function resolveAppFromPath() {
         return matchedApp;
     }
 
-    const matchedSegment = [...window.location.pathname.split('/').filter(Boolean)]
+    const matchedSegment = [...pathname.split('/').filter(Boolean)]
         .reverse()
         .find((segment) => appConfig[segment]);
 
@@ -625,7 +667,7 @@ function normalizePath(path) {
     return normalized === '/' ? normalized : normalized.replace(/\/$/, '');
 }
 
-function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, density, setDensity }) {
+function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, pathname, navigate, onUserUpdated, branding, onBrandingUpdated }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const visibleOfficeNavGroups = officeNavGroups
         .map((group) => ({
@@ -634,8 +676,8 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, dens
         }))
         .filter((group) => group.items.length > 0);
     const visibleOfficeNav = visibleOfficeNavGroups.flatMap((group) => group.items);
-    const activeResource = resolveOfficeResource();
-    const activeView = resolveOfficeView();
+    const activeResource = resolveOfficeResource(pathname);
+    const activeView = resolveOfficeView(pathname);
     const canManageMasterData = hasPermission(user, 'office.master-data.manage');
     const canManageAttendance = hasPermission(user, 'office.attendance.manage');
     const canManagePayroll = hasPermission(user, 'office.payroll.manage');
@@ -650,7 +692,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, dens
     return (
         <>
             <aside className={`sidebar ${drawerOpen ? 'is-open' : ''}`}>
-                <Brand t={t} />
+                <Brand t={t} branding={branding} />
                 <nav className="sidebar-nav" aria-label={t.demoNav}>
                     {visibleOfficeNavGroups.map((group) => (
                         <section className="nav-group" aria-labelledby={`nav-group-${group.id}`} key={group.id}>
@@ -672,6 +714,12 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, dens
                                     <a
                                         className={`nav-item ${isActive ? 'is-active' : ''}`}
                                         href={href}
+                                        onClick={(event) => {
+                                            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                                            event.preventDefault();
+                                            navigate(href);
+                                            setDrawerOpen(false);
+                                        }}
                                         aria-current={isActive ? 'page' : undefined}
                                         key={item.label}
                                     >
@@ -704,13 +752,14 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, dens
                         setLocale={setLocale}
                         theme={theme}
                         setTheme={setTheme}
-                        density={density}
-                        setDensity={setDensity}
+                        onProfile={() => navigate(`${appConfig.office.path}/profile`)}
                     />
                 </header>
 
                 {activeResource ? (
                     <MasterDataWorkspace resourceKey={activeResource} locale={locale} canManage={canManageMasterData} />
+                ) : activeView === 'profile-settings' ? (
+                    <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />
                 ) : activeView === 'dashboard-sales' ? (
                     <OfficeKpiDashboard kind="sales" locale={locale} />
                 ) : activeView === 'dashboard-stock' ? (
@@ -722,7 +771,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, dens
                 ) : activeView === 'uat-readiness' ? (
                     <UatReadinessScreen locale={locale} canManage={canManageUat} />
                 ) : activeView === 'company-settings' ? (
-                    <CompanySettingsScreen locale={locale} canManage={canManageMasterData} />
+                    <CompanySettingsScreen locale={locale} canManage={canManageMasterData} onBrandingUpdated={onBrandingUpdated} />
                 ) : activeView === 'orders' ? (
                     <OrdersScreen locale={locale} canManage={canManageOrders} canManageInvoices={canManageInvoices} />
                 ) : activeView === 'invoices' ? (
@@ -811,9 +860,20 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, dens
     );
 }
 
-function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme, density, setDensity }) {
+function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme, pathname, navigate, onUserUpdated }) {
     const visibleNav = mobileNav[app.id].filter((item) => hasPermission(user, item.permission));
-    const activeView = resolveMobileView(app.id);
+    const activeView = resolveMobileView(app.id, pathname);
+    const compactPrimaryViews = {
+        sales: ['home', 'route', 'orders', 'deliveries'],
+        driver: ['home', 'load', 'route', 'confirm'],
+    };
+    const usesMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
+    const primaryViews = compactPrimaryViews[app.id] || [];
+    const primaryNav = usesMenuNav ? visibleNav.filter((item) => primaryViews.includes(item.view)) : visibleNav;
+    const menuNav = usesMenuNav ? visibleNav.filter((item) => !primaryViews.includes(item.view)) : [];
+    const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
+    const mobileOrderId = ['client', 'sales'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
+    const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
 
     return (
         <main className="mobile-app-shell">
@@ -828,19 +888,25 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                         t={t}
                         locale={locale}
                         setLocale={setLocale}
-                        density={density}
-                        setDensity={setDensity}
                         onLogout={onLogout}
+                        onProfile={() => navigate(`${app.path}/account`)}
                         compact
                     />
                 </div>
             </header>
 
             <section className="mobile-page">
-                {['client', 'sales'].includes(app.id) && activeView === 'orders' && <MobileOrdersScreen appId={app.id} locale={locale} />}
+                {['client', 'sales'].includes(app.id) && activeView === 'orders' && (mobileOrderId
+                    ? <MobileOrderDetailPage orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} />
+                    : <MobileOrdersScreen appId={app.id} locale={locale} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />)}
                 {['client', 'sales'].includes(app.id) && activeView === 'deliveries' && <MobileDeliveryStatusScreen appId={app.id} locale={locale} />}
                 {app.id === 'client' && activeView === 'profile' && <ClientMasterScreen locale={locale} />}
-                {app.id === 'sales' && activeView === 'customers' && <SalesMasterScreen locale={locale} />}
+                {app.id === 'sales' && activeView === 'customers' && (salesCustomerId
+                    ? <SalesCustomerDetailPage customerId={salesCustomerId} locale={locale} onBack={() => navigate(`${app.path}/customers`)} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />
+                    : <SalesMasterScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />)}
+                {app.id === 'sales' && activeView === 'route' && <SalesRouteScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} onOrders={() => navigate(`${app.path}/orders`)} onCollections={() => navigate(`${app.path}/collections`)} />}
+                {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} />}
+                {activeView === 'account' && <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'salary' && <MobilePayrollHistoryScreen locale={locale} />}
                 {app.id === 'driver' && activeView === 'profile' && <DriverMasterScreen locale={locale} />}
@@ -851,30 +917,79 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {['sales', 'driver'].includes(app.id) && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
                 {app.id === 'driver' && activeView === 'vehicle' && <MobileVehicleOperationsScreen locale={locale} />}
-                {activeView === 'home' && <MobileHomeDashboard appId={app.id} locale={locale} />}
-                {!((activeView === 'home') || (['client', 'sales'].includes(app.id) && ['orders', 'deliveries'].includes(activeView)) || (app.id === 'client' && ['profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && activeView === 'customers') || (['sales', 'driver'].includes(app.id) && ['attendance', 'salary', 'collections', 'expenses'].includes(activeView)) || (app.id === 'driver' && ['profile', 'load', 'route', 'confirm', 'vehicle'].includes(activeView))) && (
+                {activeView === 'home' && <MobileHomeDashboard
+                    appId={app.id}
+                    locale={locale}
+                    quickLinks={app.id === 'sales' ? menuNav.filter((item) => ['customers', 'collections', 'expenses', 'attendance'].includes(item.view)).map((item) => ({ ...item, label: t[item.labelKey], href: `${app.path}/${item.view}` })) : []}
+                    onNavigate={(event, href) => navigateAppPage(event, href, navigate)}
+                />}
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (['client', 'sales'].includes(app.id) && ['orders', 'deliveries'].includes(activeView)) || (app.id === 'client' && ['profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['route', 'customers'].includes(activeView)) || (['sales', 'driver'].includes(app.id) && ['attendance', 'salary', 'collections', 'expenses'].includes(activeView)) || (app.id === 'driver' && ['profile', 'load', 'route', 'confirm', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
 
-            <nav className="bottom-nav" aria-label={t.currentRoute} style={{ '--mobile-nav-count': visibleNav.length }}>
-                {visibleNav.map(({ labelKey, view, icon: Icon }) => (
-                    <a className={view === activeView ? 'is-active' : ''} href={`${app.path}/${view}`} aria-current={view === activeView ? 'page' : undefined} key={labelKey}>
+            <nav className="bottom-nav" aria-label={t.currentRoute} style={{ '--mobile-nav-count': usesMenuNav ? primaryNav.length + 1 : primaryNav.length }}>
+                {primaryNav.map(({ labelKey, view, icon: Icon }) => (
+                    <a className={view === activeView ? 'is-active' : ''} href={`${app.path}/${view}`} onClick={(event) => navigateAppPage(event, `${app.path}/${view}`, navigate)} aria-current={view === activeView ? 'page' : undefined} key={labelKey}>
                         <Icon size={17} />
                         <span>{t[labelKey]}</span>
                     </a>
                 ))}
+                {usesMenuNav && (
+                    <a className={menuActive ? 'is-active' : ''} href={`${app.path}/menu`} onClick={(event) => navigateAppPage(event, `${app.path}/menu`, navigate)} aria-current={activeView === 'menu' ? 'page' : undefined}>
+                        <Menu size={17} />
+                        <span>{t.menu}</span>
+                    </a>
+                )}
             </nav>
         </main>
     );
 }
 
-function resolveMobileView(appId) {
-    const currentPath = normalizePath(window.location.pathname);
+function MobileMenuScreen({ app, items, t, navigate }) {
+    return (
+        <div className="mobile-master-stack mobile-menu-page">
+            <div className="mobile-master-heading">
+                <div><p className="eyebrow">{t[app.id]}</p><h1>{t.menu}</h1><span className="muted">{t.moreOperations}</span></div>
+            </div>
+            <nav className="mobile-master-section mobile-menu-list" aria-label={t.moreOperations}>
+                {items.map(({ labelKey, view, icon: Icon }) => (
+                    <a href={`${app.path}/${view}`} onClick={(event) => navigateAppPage(event, `${app.path}/${view}`, navigate)} key={labelKey}>
+                        <span><Icon size={18} /></span><strong>{t[labelKey]}</strong><ChevronRight size={17} />
+                    </a>
+                ))}
+            </nav>
+        </div>
+    );
+}
+
+function navigateAppPage(event, href, navigate) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate(href);
+}
+
+function resolveMobileOrderId(appPath, pathname) {
+    const currentPath = normalizePath(pathname);
+    const rootPath = normalizePath(new URL(appPath, window.location.origin).pathname);
+    const segments = currentPath.slice(rootPath.length).split('/').filter(Boolean);
+    return segments[0] === 'orders' && /^\d+$/.test(segments[1] || '') ? segments[1] : null;
+}
+
+function resolveSalesCustomerId(appPath, pathname) {
+    const currentPath = normalizePath(pathname);
+    const rootPath = normalizePath(new URL(appPath, window.location.origin).pathname);
+    const segments = currentPath.slice(rootPath.length).split('/').filter(Boolean);
+    return segments[0] === 'customers' && /^\d+$/.test(segments[1] || '') ? segments[1] : null;
+}
+
+function resolveMobileView(appId, pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
     const appPath = normalizePath(new URL(appConfig[appId].path, window.location.origin).pathname);
     const requestedView = currentPath.slice(appPath.length).split('/').filter(Boolean)[0];
     const defaultViews = { client: 'home', sales: 'home', driver: 'home' };
 
+    if (requestedView === 'account' || (['sales', 'driver'].includes(appId) && requestedView === 'menu')) return requestedView;
     return mobileNav[appId].some((item) => item.view === requestedView) ? requestedView : defaultViews[appId];
 }
 
@@ -910,97 +1025,58 @@ function MobilePlaceholderScreen({ app, view, t }) {
     );
 }
 
-function resolveOfficeResource() {
-    const currentPath = normalizePath(window.location.pathname);
+function resolveOfficeResource(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
     const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
     const relativePath = currentPath.slice(officePath.length).split('/').filter(Boolean);
     return relativePath[0] === 'master' ? relativePath[1] || null : null;
 }
 
-function resolveOfficeView() {
-    const currentPath = normalizePath(window.location.pathname);
+function resolveOfficeView(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
     const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
-    const relativePath = currentPath.slice(officePath.length).split('/').filter(Boolean);
-    if (relativePath[0] === 'uat') return 'uat-readiness';
-    if (relativePath[0] === 'dashboards' && ['sales', 'stock', 'delivery', 'finance'].includes(relativePath[1])) return `dashboard-${relativePath[1]}`;
-    if (relativePath[0] === 'attendance' && relativePath[1] === 'locations') return 'attendance-locations';
-    if (relativePath[0] === 'attendance' && relativePath[1] === 'records') return 'attendance-records';
-    if (relativePath[0] === 'attendance' && relativePath[1] === 'summary') return 'attendance-summary';
-    if (relativePath[0] === 'orders') return 'orders';
-    if (relativePath[0] === 'invoices') return 'invoices';
-    if (relativePath[0] === 'returns') return 'sales-returns';
-    if (relativePath[0] === 'damage') return 'damage-entries';
-    if (relativePath[0] === 'stock' && relativePath[1] === 'receive') return 'stock-receive';
-    if (relativePath[0] === 'stock' && relativePath[1] === 'issues') return 'stock-issue';
-    if (relativePath[0] === 'stock' && relativePath[1] === 'transfers') return 'stock-transfer';
-    if (relativePath[0] === 'stock' && relativePath[1] === 'damage') return 'stock-damage';
-    if (relativePath[0] === 'stock' && relativePath[1] === 'balances') return 'stock-balance';
-    if (relativePath[0] === 'stock' && relativePath[1] === 'card') return 'stock-card';
-    if (relativePath[0] === 'deliveries' && relativePath[1] === 'live-map') return 'delivery-live-map';
-    if (relativePath[0] === 'deliveries' && relativePath[1] === 'history') return 'delivery-history';
-    if (relativePath[0] === 'deliveries') return 'delivery-planning';
-    if (relativePath[0] === 'payroll' && relativePath[1] === 'drafts') return 'payroll-drafts';
-    if (relativePath[0] === 'payroll' && relativePath[1] === 'adjustments') return 'payroll-adjustments';
-    if (relativePath[0] === 'payroll' && relativePath[1] === 'salary-history') return 'salary-history';
-    if (relativePath[0] === 'finance') {
-        const financeViews = {
-            collections: 'finance-collections',
-            'outdoor-collections': 'finance-outdoor-collections',
-            receivables: 'finance-receivables',
-            suppliers: 'finance-suppliers',
-            'cash-book': 'finance-cash-book',
-            'bank-book': 'finance-bank-book',
-            'daily-expenses': 'finance-daily-expenses',
-            'outdoor-expenses': 'finance-outdoor-expenses',
-            'profit-loss': 'finance-profit-loss',
-        };
-        return financeViews[relativePath[1]] || null;
-    }
-    if (relativePath[0] === 'vehicle-costs') {
-        const costViews = { fuel: 'vehicle-fuel', maintenance: 'vehicle-maintenance', insurance: 'vehicle-insurance', license: 'vehicle-license', 'engine-oil': 'vehicle-engine-oil', tyre: 'vehicle-tyre' };
-        return costViews[relativePath[1]] || null;
-    }
-    if (relativePath[0] === 'vehicle-reports') {
-        const reportViews = { 'monthly-cost': 'vehicle-monthly-cost', 'route-history': 'vehicle-route-history', 'cost-per-km': 'vehicle-cost-per-km', performance: 'vehicle-performance' };
-        return reportViews[relativePath[1]] || null;
-    }
-    return relativePath[0] === 'settings' && relativePath[1] === 'company' ? 'company-settings' : null;
+    const configuredViews = officeNavItems
+        .filter((item) => item.view && item.path)
+        .map((item) => ({ ...item, routePath: normalizePath(`${officePath}${item.path}`) }))
+        .sort((left, right) => right.routePath.length - left.routePath.length);
+    const matchedItem = configuredViews.find((item) => (
+        currentPath === item.routePath || currentPath.startsWith(`${item.routePath}/`)
+    ));
+
+    if (matchedItem) return matchedItem.view;
+    if (currentPath === normalizePath(`${officePath}/profile`)) return 'profile-settings';
+    if (currentPath === normalizePath(`${officePath}/settings/company`)) return 'company-settings';
+    return null;
 }
 
-function Brand({ t, compact = false }) {
+function Brand({ t, compact = false, branding }) {
+    const businessName = branding?.name || t.brand;
     return (
         <div className={`brand ${compact ? 'compact' : ''}`}>
             <div className="brand-mark">
-                <Droplets size={20} />
+                {branding?.logo_url ? <img src={branding.logo_url} alt="" /> : <Droplets size={20} />}
             </div>
             <div>
-                <strong>{t.brand}</strong>
+                <strong>{businessName}</strong>
                 {!compact && <span>{t.roleNav}</span>}
             </div>
         </div>
     );
 }
 
-function AppearanceControls({ t, user, onLogout, locale, setLocale, theme, setTheme, density, setDensity }) {
+function AppearanceControls({ t, user, onLogout, locale, setLocale, theme, setTheme, onProfile }) {
     return (
         <div className="topbar-actions">
             <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
                 {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-            </button>
-            <button className="icon-button" type="button" aria-label={`${t.density}: ${t[density]}`} title={`${t.density}: ${t[density]}`} onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}>
-                <Rows3 size={16} />
-            </button>
-            <button className="icon-button" type="button" aria-label="Notifications" title="Notifications">
-                <Bell size={16} />
             </button>
             <ProfileMenu
                 user={user}
                 t={t}
                 locale={locale}
                 setLocale={setLocale}
-                density={density}
-                setDensity={setDensity}
                 onLogout={onLogout}
+                onProfile={onProfile}
             />
         </div>
     );
@@ -1180,7 +1256,7 @@ function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin 
     );
 }
 
-function ProfileMenu({ user, t, locale, setLocale, density, setDensity, onLogout, compact = false }) {
+function ProfileMenu({ user, t, locale, setLocale, onLogout, onProfile, compact = false }) {
     const [open, setOpen] = useState(false);
     const menuId = useId();
     const initials = user.name
@@ -1215,7 +1291,7 @@ function ProfileMenu({ user, t, locale, setLocale, density, setDensity, onLogout
                 aria-controls={menuId}
                 onClick={() => setOpen((current) => !current)}
             >
-                <span className="profile-avatar" aria-hidden="true">{initials}</span>
+                <span className="profile-avatar" aria-hidden="true">{user.profile_photo_url ? <img src={user.profile_photo_url} alt="" /> : initials}</span>
                 {!compact && (
                     <span className="profile-trigger-copy">
                         <strong>{user.name}</strong>
@@ -1228,7 +1304,7 @@ function ProfileMenu({ user, t, locale, setLocale, density, setDensity, onLogout
             {open && (
                 <div className="profile-dropdown" id={menuId} role="dialog" aria-label={t.account}>
                     <div className="profile-summary">
-                        <span className="profile-avatar large" aria-hidden="true">{initials}</span>
+                        <span className="profile-avatar large" aria-hidden="true">{user.profile_photo_url ? <img src={user.profile_photo_url} alt="" /> : initials}</span>
                         <div>
                             <strong>{user.name}</strong>
                             <span>{user.role}</span>
@@ -1250,25 +1326,8 @@ function ProfileMenu({ user, t, locale, setLocale, density, setDensity, onLogout
                             onChange={setLocale}
                         />
                     </div>
-                    {density && setDensity && (
-                        <div className="profile-setting">
-                            <div className="profile-setting-label">
-                                <Rows3 size={15} aria-hidden="true" />
-                                <span>{t.density}</span>
-                            </div>
-                            <Segmented
-                                label={t.density}
-                                value={density}
-                                options={[
-                                    ['compact', t.compact],
-                                    ['comfortable', t.comfortable],
-                                ]}
-                                onChange={setDensity}
-                            />
-                        </div>
-                    )}
                     <div className="profile-actions">
-                        <button className="profile-action" type="button" onClick={() => setOpen(false)}>
+                        <button className="profile-action" type="button" onClick={() => { setOpen(false); onProfile?.(); }}>
                             <User size={15} aria-hidden="true" />
                             <span>{t.profile}</span>
                             <ChevronRight size={14} aria-hidden="true" />

@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowUpRight, CalendarDays, CheckCircle2, CircleDollarSign, Clock3, Package, RefreshCw, Target, Truck, Users, WalletCards } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, Package, RefreshCw, Target, Truck, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 const dashboardApi = (kind) => window.ValleyRuntime?.api?.dashboards ? `${window.ValleyRuntime.api.dashboards}/${kind}` : `/api/dashboards/${kind}`;
@@ -34,7 +34,9 @@ function BarChart({ title, hint, items = [], valueKey = 'value', secondaryKey, f
 }
 
 function CompactTable({ title, subtitle, columns, items = [], empty = 'No records for this period.' }) {
-    return <section className="phase10-panel phase10-table-panel"><header><div><h2>{title}</h2><span>{subtitle}</span></div><strong>{items.length}</strong></header>{items.length ? <div className="phase10-table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.label}>{column.label}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={item.id || item.employee_id || item.product_id || item.vehicle_id || `${title}-${index}`}>{columns.map((column) => <td key={column.label}>{column.render(item, index)}</td>)}</tr>)}</tbody></table></div> : <p className="phase10-empty">{empty}</p>}</section>;
+    const stockMovementTable = ['Fast moving', 'Slow moving & alerts'].includes(title);
+    const deliveryTable = ['Driver performance', 'Fleet usage'].includes(title);
+    return <section className={`phase10-panel phase10-table-panel ${stockMovementTable ? 'phase10-stock-movement-table' : ''} ${deliveryTable ? 'phase10-delivery-table' : ''}`}><header><div><h2>{title}</h2><span>{subtitle}</span></div><strong>{items.length}</strong></header>{items.length ? <div className="phase10-table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.label}>{column.label}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={item.id || item.employee_id || item.product_id || item.vehicle_id || `${title}-${index}`}>{columns.map((column) => <td key={column.label}>{column.render(item, index)}</td>)}</tr>)}</tbody></table></div> : <p className="phase10-empty">{empty}</p>}</section>;
 }
 
 function OwnerView({ data, charts }) {
@@ -84,7 +86,7 @@ function MobileStat({ label, value, icon: Icon }) {
     return <article><span><Icon size={15} />{label}</span><strong>{value}</strong></article>;
 }
 
-export function MobileHomeDashboard({ appId, locale = 'en' }) {
+export function MobileHomeDashboard({ appId, locale = 'en', quickLinks = [], onNavigate }) {
     const [state, setState] = useState({ loading: true, data: {}, error: '' });
     useEffect(() => { window.axios.get(mobileApi()).then(({ data }) => setState({ loading: false, data: data.data, error: '' })).catch((error) => setState({ loading: false, data: {}, error: errorText(error) })); }, []);
     const summary = state.data.summary || {};
@@ -95,5 +97,5 @@ export function MobileHomeDashboard({ appId, locale = 'en' }) {
     })[appId], [appId, locale, state.data, summary]);
     if (state.loading) return <State loading text="Loading your dashboard" />;
     if (state.error) return <p className="inline-error"><AlertCircle size={15} />{state.error}</p>;
-    return <div className="mobile-kpi-home"><section className={`mobile-kpi-hero ${appId}`}><span>{content.eyebrow}</span><h1>{content.title}</h1><p>{content.meta}</p>{appId === 'sales' && <div className="mobile-target"><i style={{ width: `${Math.min(100, Number(summary.achievement || 0))}%` }} /></div>}</section><div className="mobile-kpi-stats">{content.stats.map(([label, value, icon]) => <MobileStat key={label} label={label} value={value} icon={icon} />)}</div><section className="mobile-kpi-list"><header><div><h2>{appId === 'sales' ? 'Six-month trend' : appId === 'driver' ? 'Recent deliveries' : 'Recent orders'}</h2><span>Updated from office records</span></div><span className="phase10-live">Live</span></header>{content.items.length ? content.items.map((item, index) => <article key={item.id || `${item.label}-${index}`}><span className="mobile-kpi-row-icon">{appId === 'sales' ? <ArrowUpRight size={16} /> : appId === 'driver' ? <Truck size={16} /> : <Package size={16} />}</span><span><strong>{item.code || item.label}</strong><small>{item.route_name || item.date || titleCase(item.status)}</small></span><strong>{appId === 'sales' ? money(item.value) : appId === 'driver' ? number(item.quantity) : money(item.amount)}</strong></article>) : <p className="phase10-empty">No recent activity.</p>}</section></div>;
+    return <div className="mobile-kpi-home"><section className={`mobile-kpi-hero ${appId}`}><span>{content.eyebrow}</span><h1>{content.title}</h1><p>{content.meta}</p>{appId === 'sales' && <div className="mobile-target"><i style={{ width: `${Math.min(100, Number(summary.achievement || 0))}%` }} /></div>}</section><div className="mobile-kpi-stats">{content.stats.map(([label, value, icon]) => <MobileStat key={label} label={label} value={value} icon={icon} />)}</div>{appId === 'sales' && quickLinks.length > 0 && <section className="mobile-home-links"><header><div><h2>{tr(locale, 'Important links', 'အရေးကြီး လုပ်ငန်းများ')}</h2><span>{tr(locale, 'Frequently used operations', 'မကြာခဏ အသုံးပြုသော လုပ်ငန်းများ')}</span></div></header><nav aria-label={tr(locale, 'Important links', 'အရေးကြီး လုပ်ငန်းများ')}>{quickLinks.map(({ view, label, href, icon: Icon }) => <a href={href} onClick={(event) => onNavigate?.(event, href)} key={view}><span><Icon size={17} /></span><strong>{label}</strong><ChevronRight size={15} /></a>)}</nav></section>}<section className="mobile-kpi-list"><header><div><h2>{appId === 'sales' ? 'Six-month trend' : appId === 'driver' ? 'Recent deliveries' : 'Recent orders'}</h2><span>Updated from office records</span></div><span className="phase10-live">Live</span></header>{content.items.length ? content.items.map((item, index) => <article key={item.id || `${item.label}-${index}`}><span className="mobile-kpi-row-icon">{appId === 'sales' ? <ArrowUpRight size={16} /> : appId === 'driver' ? <Truck size={16} /> : <Package size={16} />}</span><span><strong>{item.code || item.label}</strong><small>{item.route_name || item.date || titleCase(item.status)}</small></span><strong>{appId === 'sales' ? money(item.value) : appId === 'driver' ? number(item.quantity) : money(item.amount)}</strong></article>) : <p className="phase10-empty">No recent activity.</p>}</section></div>;
 }

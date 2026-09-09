@@ -558,7 +558,7 @@ export function MobilePayrollHistoryScreen({ locale }) {
                     <h1>{t(locale, 'salaryHistory')}</h1>
                     <span className="muted">{t(locale, 'salaryHistoryHint')}</span>
                 </div>
-                <button className="icon-button primary-icon" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
+                <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
             </div>
 
             <section className="mobile-payroll-summary" aria-label={t(locale, 'salaryHistory')}>

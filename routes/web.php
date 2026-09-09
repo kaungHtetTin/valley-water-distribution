@@ -38,6 +38,8 @@ Route::prefix('api/auth')->group(function () {
     Route::post('/login', [AppAuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('/logout', [AppAuthController::class, 'logout']);
     Route::put('/preferences', [AppAuthController::class, 'preferences'])->middleware('auth');
+    Route::put('/profile', [AppAuthController::class, 'profile'])->middleware(['auth', 'audit.api']);
+    Route::put('/password', [AppAuthController::class, 'password'])->middleware(['auth', 'audit.api', 'throttle:6,1']);
 });
 
 Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
@@ -55,6 +57,8 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/mobile/master/customers', [MobileMasterDataController::class, 'assignedCustomers']);
     Route::post('/mobile/master/customers', [MobileMasterDataController::class, 'storeCustomer']);
     Route::get('/mobile/master/customers/{id}', [MobileMasterDataController::class, 'customer'])->whereNumber('id');
+    Route::get('/mobile/sales-route', [MobileMasterDataController::class, 'salesRoute']);
+    Route::post('/mobile/sales-route/customers/{customerId}/visit', [MobileMasterDataController::class, 'updateSalesRouteVisit'])->whereNumber('customerId');
     Route::get('/mobile/master/vehicle', [MobileMasterDataController::class, 'assignedVehicle']);
     Route::get('/mobile/attendance/records', [MobileMasterDataController::class, 'attendanceRecords']);
     Route::get('/mobile/payroll/history', [MobileMasterDataController::class, 'payrollHistory']);

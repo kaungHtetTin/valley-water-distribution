@@ -1,7 +1,9 @@
 import {
     AlertCircle,
+    ArrowLeft,
     Building2,
     Check,
+    CheckCircle2,
     ChevronLeft,
     ChevronRight,
     Eye,
@@ -11,11 +13,18 @@ import {
     RefreshCw,
     Save,
     Search,
+    ShoppingCart,
     Store,
     Trash2,
     Truck,
     User,
     X,
+    ImagePlus,
+    Palette,
+    Phone,
+    Play,
+    SkipForward,
+    WalletCards,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -393,7 +402,7 @@ function MasterField({ field, value, options = {}, locale, error, onChange, disa
     );
 }
 
-export function CompanySettingsScreen({ locale, canManage = true }) {
+export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpdated }) {
     const [attempt, setAttempt] = useState(0);
     const [state, setState] = useState({ loading: true, error: '' });
     const [values, setValues] = useState({});
@@ -401,6 +410,9 @@ export function CompanySettingsScreen({ locale, canManage = true }) {
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState('');
     const [saving, setSaving] = useState(false);
+    const [logo, setLogo] = useState(null);
+    const [logoPreview, setLogoPreview] = useState('');
+    const [removeLogo, setRemoveLogo] = useState(false);
     const formRef = useRef(null);
 
     useEffect(() => {
@@ -410,6 +422,7 @@ export function CompanySettingsScreen({ locale, canManage = true }) {
             .then(({ data }) => {
                 if (!mounted) return;
                 setValues(data.data.company);
+                setLogoPreview(data.data.company.logo_url || '');
                 setState({ loading: false, error: '' });
             })
             .catch((error) => mounted && setState({ loading: false, error: requestError(error, locale, 'loadCompanyError') }));
@@ -425,8 +438,19 @@ export function CompanySettingsScreen({ locale, canManage = true }) {
         setMessageType('');
         try {
             const payload = normalizePayload(values, companyFields);
-            const { data } = await window.axios.put(apiBase('companySettings'), payload);
+            const formData = new FormData();
+            Object.entries(payload).forEach(([key, value]) => value !== null && formData.append(key, value));
+            formData.append('primary_color', values.primary_color || '#0b84a5');
+            formData.append('default_theme', values.default_theme || 'light');
+            formData.append('remove_logo', removeLogo ? '1' : '0');
+            if (logo) formData.append('logo', logo);
+            formData.append('_method', 'PUT');
+            const { data } = await window.axios.post(apiBase('companySettings'), formData);
             setValues(data.data.company);
+            setLogo(null);
+            setRemoveLogo(false);
+            setLogoPreview(data.data.company.logo_url || '');
+            onBrandingUpdated?.(data.data.company);
             setMessage(text(locale, 'saved'));
             setMessageType('success');
         } catch (error) {
@@ -473,6 +497,47 @@ export function CompanySettingsScreen({ locale, canManage = true }) {
                         />
                     ))}
                 </div>
+                <section className="branding-settings" aria-labelledby="branding-settings-title">
+                    <div className="branding-settings-heading">
+                        <span className="company-settings-icon"><Palette size={17} /></span>
+                        <div><p className="eyebrow">Branding</p><strong id="branding-settings-title">App identity and theme</strong></div>
+                    </div>
+                    <div className="branding-settings-grid">
+                        <div className="branding-logo-field">
+                            <span>Business logo</span>
+                            <div className="branding-logo-row">
+                                <span className="branding-logo-preview">
+                                    {logoPreview && !removeLogo ? <img src={logoPreview} alt="Business logo preview" /> : <Building2 size={24} />}
+                                </span>
+                                {canManage && <div className="branding-logo-actions">
+                                    <label className="button" htmlFor="company-logo"><ImagePlus size={15} />Choose logo</label>
+                                    <input id="company-logo" className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(event) => {
+                                        const file = event.target.files?.[0] || null;
+                                        setLogo(file);
+                                        setRemoveLogo(false);
+                                        if (file) setLogoPreview(URL.createObjectURL(file));
+                                    }} />
+                                    {(logoPreview || values.logo_url) && <button className="button danger-text" type="button" onClick={() => { setLogo(null); setLogoPreview(''); setRemoveLogo(true); }}><Trash2 size={15} />Remove</button>}
+                                    <small>PNG, JPG, WebP or SVG. Maximum 2 MB.</small>
+                                </div>}
+                            </div>
+                            {errors.logo?.[0] && <small className="field-error">{errors.logo[0]}</small>}
+                        </div>
+                        <label className="master-field branding-color-field">
+                            <span>App color</span>
+                            <div><input type="color" disabled={!canManage} value={values.primary_color || '#0b84a5'} onChange={(event) => setValues((current) => ({ ...current, primary_color: event.target.value }))} /><input aria-label="App color hex value" disabled={!canManage} pattern="^#[0-9A-Fa-f]{6}$" value={values.primary_color || '#0b84a5'} onChange={(event) => setValues((current) => ({ ...current, primary_color: event.target.value }))} /></div>
+                            {errors.primary_color?.[0] && <small>{errors.primary_color[0]}</small>}
+                        </label>
+                        <label className="master-field">
+                            <span>Default app theme</span>
+                            <select disabled={!canManage} value={values.default_theme || 'light'} onChange={(event) => setValues((current) => ({ ...current, default_theme: event.target.value }))}>
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                            </select>
+                            <small className="muted">Applied when branding settings are saved.</small>
+                        </label>
+                    </div>
+                </section>
                 <footer>
                     <span className={messageType === 'error' ? 'inline-error' : messageType === 'success' ? 'inline-success' : 'muted'}>
                         {message && (messageType === 'error' ? <AlertCircle size={15} /> : <Check size={15} />)}
@@ -519,11 +584,80 @@ export function DriverMasterScreen({ locale }) {
     );
 }
 
-export function SalesMasterScreen({ locale }) {
+export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders, onCollections }) {
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [search, setSearch] = useState('');
+    const [filter, setFilter] = useState('all');
+    const [updating, setUpdating] = useState(null);
+    const [state, setState] = useState({ loading: true, route: null, date: '', customers: [], summary: {}, error: '' });
+    const routeUrl = window.ValleyRuntime?.api?.mobileSalesRoute || '/api/mobile/sales-route';
+    const localized = (en, my) => locale === 'my' ? my : en;
+
+    useEffect(() => {
+        let mounted = true;
+        setState((current) => ({ ...current, loading: true, error: '' }));
+        window.axios.get(routeUrl)
+            .then(({ data }) => mounted && setState({ loading: false, ...data.data, error: '' }))
+            .catch((error) => mounted && setState({ loading: false, route: null, date: '', customers: [], summary: {}, error: requestError(error, locale, 'loadDataError') }));
+        return () => { mounted = false; };
+    }, [locale, refreshKey, routeUrl]);
+
+    const updateVisit = async (customerId, status) => {
+        setUpdating(customerId);
+        try {
+            await window.axios.post(`${routeUrl}/customers/${customerId}/visit`, { status });
+            setRefreshKey((key) => key + 1);
+        } catch (error) {
+            setState((current) => ({ ...current, error: requestError(error, locale, 'saveError') }));
+        } finally {
+            setUpdating(null);
+        }
+    };
+
+    const query = search.trim().toLocaleLowerCase();
+    const customers = state.customers.filter((customer) => {
+        const matchesSearch = !query || `${customer.code} ${customer.shop_name} ${customer.contact_name || ''} ${customer.address || ''}`.toLocaleLowerCase().includes(query);
+        const matchesStatus = filter === 'all' || (filter === 'pending' ? ['planned', 'in_progress'].includes(customer.visit_status) : customer.visit_status === filter);
+        return matchesSearch && matchesStatus;
+    });
+    const total = Number(state.summary.total || 0);
+    const completed = Number(state.summary.completed || 0);
+    const progress = total ? Math.round((completed / total) * 100) : 0;
+    const visitLabel = (status) => ({ planned: localized('Planned', 'စီစဉ်ထား'), in_progress: localized('In progress', 'လုပ်ဆောင်နေ'), completed: localized('Completed', 'ပြီးဆုံး'), skipped: localized('Skipped', 'ကျော်ခဲ့') })[status] || status;
+    const visitFamily = (status) => status === 'completed' ? 'success' : status === 'in_progress' ? 'warning' : status === 'skipped' ? 'danger' : 'neutral';
+
+    if (state.loading && !state.route) return <WorkspaceState icon={RefreshCw} title={localized('Loading today’s customer visits', 'ယနေ့ ဖောက်သည်လည်ပတ်မှုများကို ရယူနေသည်')} loading compact />;
+    if (state.error && !state.route) return <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={text(locale, 'retry')} compact />;
+
+    return <div className="mobile-master-stack sales-route-page">
+        <div className="mobile-master-heading"><div><p className="eyebrow">{localized('Sales territory · Customer visits', 'အရောင်းနယ်မြေ · ဖောက်သည်လည်ပတ်မှု')}</p><h1>{state.route?.name || localized('No territory assigned', 'အရောင်းနယ်မြေ သတ်မှတ်ထားခြင်းမရှိ')}</h1><span className="muted">{state.route?.code} · {state.route?.service_day} · {state.date}</span></div><button className="icon-button" type="button" aria-label="Refresh customer visits" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={17} /></button></div>
+        {state.error && <p className="inline-error"><AlertCircle size={15} />{state.error}</p>}
+        <section className="sales-route-progress">
+            <div><span>{localized('Customer visit progress', 'ဖောက်သည်လည်ပတ်မှု')}</span><strong>{completed} / {total}</strong></div>
+            <div className="sales-route-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
+            <small>{progress}% {localized('completed', 'ပြီးဆုံး')} · {Number(state.summary.in_progress || 0)} {localized('in progress', 'လုပ်ဆောင်နေ')}</small>
+        </section>
+        <section className="mobile-finance-summary sales-route-summary">
+            <article><span>{localized('Orders today', 'ယနေ့ အော်ဒါ')}</span><strong>{Number(state.summary.orders_count || 0)}</strong><small>{money(state.summary.order_amount)}</small></article>
+            <article><span>{localized('Collections', 'ငွေကောက်ခံ')}</span><strong>{money(state.summary.collection_amount)}</strong><small>{Number(state.summary.skipped || 0)} {localized('skipped visits', 'ကျော်ခဲ့')}</small></article>
+        </section>
+        <div className="sales-route-quick-actions"><button className="button" type="button" onClick={onOrders}><ShoppingCart size={15} />{localized('Orders', 'အော်ဒါ')}</button><button className="button" type="button" onClick={onCollections}><WalletCards size={15} />{localized('Collections', 'ငွေကောက်ခံ')}</button></div>
+        <section className="mobile-master-section sales-route-stops">
+            <div className="sales-route-tools"><label className="mobile-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={localized('Search customer or address', 'ဖောက်သည် သို့မဟုတ် လိပ်စာရှာရန်')} /></label><div className="sales-route-tabs" role="tablist" aria-label="Visit status"><button className={filter === 'all' ? 'is-active' : ''} role="tab" aria-selected={filter === 'all'} type="button" onClick={() => setFilter('all')}><span>{localized('All', 'အားလုံး')}</span><small>{total}</small></button><button className={filter === 'pending' ? 'is-active' : ''} role="tab" aria-selected={filter === 'pending'} type="button" onClick={() => setFilter('pending')}><span>{localized('Pending', 'ကျန်ရှိ')}</span><small>{Math.max(total - completed - Number(state.summary.skipped || 0), 0)}</small></button><button className={filter === 'completed' ? 'is-active' : ''} role="tab" aria-selected={filter === 'completed'} type="button" onClick={() => setFilter('completed')}><span>{localized('Done', 'ပြီး')}</span><small>{completed}</small></button></div></div>
+            <div className="mobile-section-heading"><div><p className="eyebrow">{localized('Visit list', 'လည်ပတ်မှုစာရင်း')}</p><h2>{customers.length} {localized('customers', 'ဖောက်သည်')}</h2></div></div>
+            {customers.length ? <div className="sales-route-stop-list">{customers.map((customer, index) => <article key={customer.id}>
+                <button className="sales-route-customer" type="button" onClick={() => onViewCustomer?.(customer.id)}><span className="sales-route-sequence">{index + 1}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name || customer.phone}</small><small>{customer.address || customer.area || localized('No address', 'လိပ်စာမရှိ')}</small></span><span className={`status ${visitFamily(customer.visit_status)}`}>{visitLabel(customer.visit_status)}</span><ChevronRight size={16} /></button>
+                {(customer.orders_count > 0 || customer.collections_count > 0) && <div className="sales-route-activity"><span>{customer.orders_count} {localized('orders', 'အော်ဒါ')} · {money(customer.order_amount)}</span><span>{money(customer.collection_amount)} {localized('collected', 'ကောက်ခံ')}</span></div>}
+                <div className="sales-route-stop-actions">{customer.phone && <a className="button route-call-action" href={`tel:${customer.phone}`}><Phone size={14} />{localized('Call', 'ဖုန်းခေါ်')}</a>}{['planned', 'skipped'].includes(customer.visit_status) && <button className="button primary route-primary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'in_progress')}><Play size={14} />{customer.visit_status === 'skipped' ? localized('Resume visit', 'ပြန်စတင်') : localized('Start visit', 'စတင်')}</button>}{customer.visit_status === 'in_progress' && <button className="button primary route-primary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'completed')}><CheckCircle2 size={14} />{localized('Complete visit', 'ပြီးဆုံး')}</button>}{customer.visit_status === 'completed' && <span className="route-action-complete"><CheckCircle2 size={14} />{localized('Visit completed', 'ပြီးဆုံးခဲ့')}</span>}{['planned', 'in_progress'].includes(customer.visit_status) && <button className="icon-button route-skip-action" aria-label={localized(`Skip ${customer.shop_name}`, `${customer.shop_name} ကျော်ရန်`)} title={localized('Skip this stop', 'ဤနေရာကို ကျော်ရန်')} disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'skipped')}><SkipForward size={15} /></button>}</div>
+            </article>)}</div> : <WorkspaceState icon={Search} title={localized('No customer visits match this view.', 'ကိုက်ညီသော ဖောက်သည်မရှိပါ။')} compact />}
+        </section>
+    </div>;
+}
+
+export function SalesMasterScreen({ locale, onViewCustomer }) {
     const [mode, setMode] = useState('list');
     const [search, setSearch] = useState('');
     const [state, setState] = useState({ loading: true, items: [], route: null, error: '' });
-    const [selected, setSelected] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
 
     useEffect(() => {
@@ -544,13 +678,46 @@ export function SalesMasterScreen({ locale }) {
                 <>
                     <label className="mobile-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={text(locale, 'search')} /></label>
                     {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={text(locale, 'retry')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={text(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={text(locale, 'empty')} compact /> : (
-                        <div className="customer-mobile-list">{state.items.map((customer) => <button type="button" key={customer.id} onClick={() => setSelected(customer)}><span className="customer-initial">{customer.shop_name.slice(0, 1)}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name}</small><small>{customer.phone}</small></span><ChevronRight size={17} /></button>)}</div>
+                        <div className="customer-mobile-list">{state.items.map((customer) => <button type="button" key={customer.id} onClick={() => onViewCustomer?.(customer.id)}><span className="customer-initial">{customer.shop_name.slice(0, 1)}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name}</small><small>{customer.phone}</small></span><ChevronRight size={17} /></button>)}</div>
                     )}
                 </>
             )}
-            {selected && <MobileDetailSheet customer={selected} locale={locale} onClose={() => setSelected(null)} />}
         </div>
     );
+}
+
+export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrder }) {
+    const [attempt, setAttempt] = useState(0);
+    const [state, setState] = useState({ loading: true, customer: null, orders: [], summary: {}, error: '' });
+
+    useEffect(() => {
+        let mounted = true;
+        setState((current) => ({ ...current, loading: true, error: '' }));
+        window.axios.get(`${apiBase('mobileMaster')}/customers/${customerId}`)
+            .then(({ data }) => mounted && setState({ loading: false, customer: data.data.customer, orders: data.data.orders || [], summary: data.data.order_summary || {}, error: '' }))
+            .catch((error) => mounted && setState({ loading: false, customer: null, orders: [], summary: {}, error: requestError(error, locale, 'loadCustomersError') }));
+        return () => { mounted = false; };
+    }, [attempt, customerId, locale]);
+
+    if (state.loading) return <WorkspaceState icon={RefreshCw} title={text(locale, 'loading')} loading compact />;
+    if (state.error) return <WorkspaceState icon={AlertCircle} title={state.error} action={() => setAttempt((value) => value + 1)} actionLabel={text(locale, 'retry')} compact />;
+
+    const customer = state.customer;
+    return <div className="mobile-master-stack sales-customer-detail-page">
+        <div className="mobile-master-heading customer-detail-heading">
+            <button className="icon-button" type="button" onClick={onBack} aria-label={text(locale, 'cancel')}><ArrowLeft size={18} /></button>
+            <div><p className="eyebrow">{text(locale, 'details')}</p><h1>{customer.shop_name}</h1><span className="muted">{customer.code} · {customer.route}</span></div>
+        </div>
+        <section className="mobile-master-section">
+            <div className="mobile-profile-identity"><span><Store size={22} /></span><div><small>{text(locale, 'shop')}</small><h2>{customer.contact_name}</h2><p>{customer.phone}</p></div><span className={`status ${customer.is_active ? 'success' : 'neutral'}`}>{customer.is_active ? text(locale, 'active') : text(locale, 'inactive')}</span></div>
+            <InfoList record={customer} fields={['email', 'address', 'area', 'route', 'price_type', 'credit_limit']} locale={locale} />
+            {customer.phone && <a className="button primary call-action" href={`tel:${customer.phone}`}>{text(locale, 'contact')}</a>}
+        </section>
+        <section className="mobile-master-section customer-order-history">
+            <div className="mobile-section-heading"><div><p className="eyebrow">Order history</p><h2>{Number(state.summary.orders_count || 0)} orders</h2><small>{Number(state.summary.pending_count || 0)} pending · {money(state.summary.total_amount)}</small></div></div>
+            {state.orders.length ? <div className="customer-order-list">{state.orders.map((order) => <button type="button" key={order.id} onClick={() => onViewOrder?.(order.id)}><span><strong>{order.code}</strong><small>{order.order_date} · {order.invoice_code || 'Not invoiced'}</small></span><span><strong>{money(order.total)}</strong><small className={`customer-order-status ${order.status}`}>{titleCase(order.status)}</small></span><ChevronRight size={16} /></button>)}</div> : <WorkspaceState icon={Store} title="No orders for this customer yet." compact />}
+        </section>
+    </div>;
 }
 
 function SalesCustomerForm({ locale, onSaved }) {
@@ -589,9 +756,7 @@ function InfoList({ record, fields, locale }) {
     return <dl className="mobile-info-list">{fields.map((field) => <div key={field}><dt>{myFieldLabels[field] && locale === 'my' ? myFieldLabels[field] : titleCase(field)}</dt><dd>{renderValue(field, record[field], locale)}</dd></div>)}</dl>;
 }
 
-function MobileDetailSheet({ customer, locale, onClose }) {
-    return <div className="drawer-backdrop mobile" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="mobile-detail-sheet" role="dialog" aria-modal="true"><header><div><p className="eyebrow">{text(locale, 'details')}</p><h2>{customer.shop_name}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={text(locale, 'cancel')}><X size={17} /></button></header><InfoList record={customer} fields={['code', 'contact_name', 'phone', 'email', 'address', 'area', 'route', 'credit_limit']} locale={locale} /><a className="button primary call-action" href={`tel:${customer.phone}`}>{text(locale, 'contact')}</a></aside></div>;
-}
+function money(value) { return `${Number(value || 0).toLocaleString()} MMK`; }
 
 function useEndpoint(url, key, locale) {
     const [attempt, setAttempt] = useState(0);

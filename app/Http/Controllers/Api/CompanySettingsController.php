@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class CompanySettingsController extends Controller
@@ -31,6 +32,10 @@ class CompanySettingsController extends Controller
         $validated = $request->validate([
             'code' => ['nullable', 'string', 'max:30', Rule::unique('companies', 'code')->ignore($company->id)],
             'name' => ['required', 'string', 'max:150'],
+            'logo' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp,svg', 'max:2048'],
+            'remove_logo' => ['nullable', 'boolean'],
+            'primary_color' => ['sometimes', 'required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'default_theme' => ['sometimes', 'required', Rule::in(['light', 'dark'])],
             'legal_name' => ['nullable', 'string', 'max:180'],
             'phone' => ['nullable', 'string', 'max:40'],
             'email' => ['nullable', 'email', 'max:150'],
@@ -43,6 +48,20 @@ class CompanySettingsController extends Controller
 
         if (blank($validated['code'] ?? null)) {
             $validated['code'] = 'COM-'.str_pad((string) $company->id, 4, '0', STR_PAD_LEFT);
+        }
+
+        unset($validated['logo'], $validated['remove_logo']);
+
+        if ($request->boolean('remove_logo') && $company->logo_path) {
+            Storage::disk('public')->delete($company->logo_path);
+            $validated['logo_path'] = null;
+        }
+
+        if ($request->hasFile('logo')) {
+            if ($company->logo_path) {
+                Storage::disk('public')->delete($company->logo_path);
+            }
+            $validated['logo_path'] = $request->file('logo')->store('branding', 'public');
         }
 
         $company->fill($validated);
