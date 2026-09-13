@@ -29,6 +29,11 @@ class Delivery extends Model
         return $this->hasMany(DeliveryItem::class);
     }
 
+    public function trip()
+    {
+        return $this->belongsTo(DeliveryTrip::class, 'trip_id');
+    }
+
     public function locations()
     {
         return $this->hasMany(DeliveryLocation::class);

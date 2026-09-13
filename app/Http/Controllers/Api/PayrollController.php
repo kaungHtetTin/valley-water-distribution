@@ -121,6 +121,20 @@ class PayrollController extends Controller
         ]);
     }
 
+    public function salaryHistoryShow(Request $request, int $id)
+    {
+        $this->authorizePermission($request, 'office.payroll.view');
+        $item = DB::table('payroll_items')
+            ->join('payrolls', 'payroll_items.payroll_id', '=', 'payrolls.id')
+            ->where('payroll_items.id', $id)
+            ->where('payrolls.status', 'paid')
+            ->select('payroll_items.*', 'payrolls.code as payroll_code', 'payrolls.month', 'payrolls.period_start', 'payrolls.period_end', 'payrolls.status', 'payrolls.paid_at', 'payrolls.payment_reference')
+            ->first();
+        abort_unless($item, 404);
+
+        return ApiResponse::success('Salary history record loaded.', ['item' => $this->salaryHistoryPayload($item)]);
+    }
+
     public function generate(Request $request)
     {
         $this->authorizePermission($request, 'office.payroll.manage');

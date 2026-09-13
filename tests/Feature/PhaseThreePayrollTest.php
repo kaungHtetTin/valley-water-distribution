@@ -154,7 +154,7 @@ class PhaseThreePayrollTest extends TestCase
         ]);
     }
 
-    public function test_sales_and_driver_can_view_their_own_paid_salary_history()
+    public function test_only_driver_can_view_their_own_paid_salary_history()
     {
         $this->seed();
 
@@ -162,12 +162,7 @@ class PhaseThreePayrollTest extends TestCase
 
         $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail())
             ->getJson('/api/mobile/payroll/history')
-            ->assertOk()
-            ->assertJsonPath('data.summary.payments_count', 1)
-            ->assertJsonPath('data.summary.total_net', 425000)
-            ->assertJsonPath('data.items.0.employee_code', 'SAL-001')
-            ->assertJsonPath('data.items.0.month', '2026-07')
-            ->assertJsonPath('data.items.0.status', 'paid');
+            ->assertForbidden();
 
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail())
             ->getJson('/api/mobile/payroll/history?month=2026-07')

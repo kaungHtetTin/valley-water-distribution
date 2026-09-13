@@ -1,4 +1,5 @@
 import './bootstrap';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
     Building2,
@@ -13,6 +14,7 @@ import {
     Home,
     Languages,
     LayoutDashboard,
+    ListFilter,
     LogOut,
     MapPinned,
     Menu,
@@ -23,8 +25,8 @@ import {
     ReceiptText,
     RotateCcw,
     Rows3,
-    Search,
     Settings,
+    SlidersHorizontal,
     ShoppingCart,
     Sun,
     TriangleAlert,
@@ -32,12 +34,13 @@ import {
     User,
     Users,
     WalletCards,
+    X,
 } from 'lucide-react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ClientMasterScreen, CompanySettingsScreen, DriverMasterScreen, MasterDataWorkspace, SalesCustomerDetailPage, SalesMasterScreen, SalesRouteScreen } from './phaseOne';
-import { DamageEntryScreen, InvoicesScreen, MobileOrderDetailPage, MobileOrdersScreen, OrdersScreen, SalesReturnScreen } from './phaseFour';
-import { ClosingStockScreen, StockBalanceScreen, StockCardScreen, StockDamageScreen, StockIssueScreen, StockReceiveScreen, StockTransferScreen, StockValueScreen } from './phaseFive';
-import { DeliveryLiveMapScreen, DeliveryPlanningScreen, MobileDeliveryStatusScreen, MobileDriverDeliveriesScreen, MobileDriverExecutionScreen } from './phaseSix';
+import { InvoicesScreen, MobileOrderDetailPage, MobileOrdersScreen, OrdersScreen, SalesReturnScreen } from './phaseFour';
+import { ClosingStockScreen, StockAdjustmentScreen, StockBalanceScreen, StockCardScreen, StockReceiveScreen, StockTransferScreen, StockValueScreen } from './phaseFive';
+import { DeliveryLiveMapScreen, DeliveryPlanningScreen, MobileDeliveryStatusScreen, MobileDriverDeliveriesScreen, MobileDriverExecutionScreen, TripEditPage, TripWizardPage } from './phaseSix';
 import { FinanceBookScreen, FinanceCollectionsScreen, FinanceExpensesScreen, FinanceReceivablesScreen, MobileFinanceScreen, ProfitLossScreen, SupplierLedgerScreen } from './phaseSeven';
 import { MobileVehicleOperationsScreen, VehicleCostsScreen, VehicleMonthlyCostScreen, VehiclePerformanceScreen, VehicleRouteHistoryScreen } from './phaseEight';
 import { MobileHomeDashboard, OfficeKpiDashboard } from './phaseTen';
@@ -63,9 +66,8 @@ const copy = {
         overview: 'Foundation and UI Shell',
         officeHint: 'Compact operations console for owner, admin, and office staff.',
         clientHint: 'Customer app shell for orders, delivery status, and account balance.',
-        salesHint: 'Sales territory app for customer visits, field orders, and collections.',
+        salesHint: 'Sales territory app for customer visits, customers, and field orders.',
         driverHint: 'Driver app shell for assigned loads, delivery route, and status updates.',
-        search: 'Search screens, customers, routes',
         newDemoOrder: 'New demo order',
         demoNav: 'Demo Navigation',
         visibleStates: 'Visible States',
@@ -127,9 +129,8 @@ const copy = {
         overview: 'အခြေခံနှင့် UI Shell',
         officeHint: 'ပိုင်ရှင်၊ အက်ဒမင်နှင့် ရုံးဝန်ထမ်းများအတွက် console။',
         clientHint: 'အော်ဒါ၊ ပို့ဆောင်မှုအခြေအနေ နှင့် ငွေလက်ကျန်အတွက် ဖောက်သည် app shell။',
-        salesHint: 'ဖောက်သည်လည်ပတ်မှု၊ field order နှင့် ငွေကောက်ခံမှုများအတွက် အရောင်းနယ်မြေ app။',
+        salesHint: 'ဖောက်သည်လည်ပတ်မှု၊ ဖောက်သည်စီမံမှုနှင့် အော်ဒါတင်ခြင်းအတွက် အရောင်း app။',
         driverHint: 'သတ်မှတ်ထားသော load၊ route နှင့် status update များအတွက် driver app shell။',
-        search: 'စာမျက်နှာ၊ ဖောက်သည်၊ route ရှာရန်',
         newDemoOrder: 'Demo order အသစ်',
         demoNav: 'Demo Menu',
         visibleStates: 'မြင်နိုင်သော state များ',
@@ -223,16 +224,14 @@ const officeNavItems = [
     { id: 'orders', label: 'Orders', myLabel: 'အော်ဒါများ', icon: ShoppingCart, permission: 'office.orders.view', view: 'orders', path: '/orders' },
     { id: 'invoices', label: 'Invoices', myLabel: 'Invoice များ', icon: ReceiptText, permission: 'office.invoices.view', view: 'invoices', path: '/invoices' },
     { id: 'sales-returns', label: 'Sales Returns', myLabel: 'Sales Return', icon: RotateCcw, permission: 'office.orders.view', view: 'sales-returns', path: '/returns' },
-    { id: 'damage-entries', label: 'Damage Entries', myLabel: 'Damage', icon: TriangleAlert, permission: 'office.orders.view', view: 'damage-entries', path: '/damage' },
     { id: 'stock-receive', label: 'Stock Receive', myLabel: 'Stock Receive', icon: PackageCheck, permission: 'office.inventory.view', view: 'stock-receive', path: '/stock/receive' },
-    { id: 'stock-issue', label: 'Stock Issue', myLabel: 'Stock Issue', icon: Package, permission: 'office.inventory.view', view: 'stock-issue', path: '/stock/issues' },
     { id: 'stock-transfer', label: 'Stock Transfer', myLabel: 'Stock Transfer', icon: Truck, permission: 'office.inventory.view', view: 'stock-transfer', path: '/stock/transfers' },
-    { id: 'stock-damage', label: 'Damage Stock', myLabel: 'Damage Stock', icon: TriangleAlert, permission: 'office.inventory.view', view: 'stock-damage', path: '/stock/damage' },
+    { id: 'stock-adjustments', label: 'Stock Adjustments', myLabel: 'Stock Adjustments', icon: SlidersHorizontal, permission: 'office.inventory.view', view: 'stock-adjustments', path: '/stock/adjustments' },
     { id: 'closing-stock', label: 'Closing Stock', myLabel: 'Closing Stock', icon: ClipboardList, permission: 'office.inventory.view', view: 'closing-stock', path: '/stock/closing' },
     { id: 'stock-balance', label: 'Stock Balance', myLabel: 'Stock Balance', icon: Package, permission: 'office.inventory.view', view: 'stock-balance', path: '/stock/balances' },
     { id: 'stock-value', label: 'Stock Value', myLabel: 'Stock Value', icon: WalletCards, permission: 'office.inventory.view', view: 'stock-value', path: '/stock/value' },
     { id: 'stock-card', label: 'Stock Card', myLabel: 'Stock Card', icon: ClipboardList, permission: 'office.inventory.view', view: 'stock-card', path: '/stock/card' },
-    { id: 'delivery-planning', label: 'Delivery Planning', myLabel: 'ပို့ဆောင်မှုစီစဉ်ခြင်း', icon: Truck, permission: 'office.deliveries.view', view: 'delivery-planning', path: '/deliveries' },
+    { id: 'delivery-planning', label: 'Trip Planning', myLabel: 'ပို့ဆောင်မှုစီစဉ်ခြင်း', icon: Truck, permission: 'office.deliveries.view', view: 'delivery-planning', path: '/deliveries' },
     { id: 'delivery-live-map', label: 'Driver Live Map', myLabel: 'ယာဉ်မောင်း တိုက်ရိုက်မြေပုံ', icon: MapPinned, permission: 'office.deliveries.view', view: 'delivery-live-map', path: '/deliveries/live-map' },
     { id: 'delivery-history', label: 'Delivery History', myLabel: 'ပို့ဆောင်မှုမှတ်တမ်း', icon: ClipboardList, permission: 'office.deliveries.view', view: 'delivery-history', path: '/deliveries/history' },
     { id: 'attendance-locations', label: 'QR Locations', myLabel: 'QR Locations', icon: QrCode, permission: 'office.attendance.view', view: 'attendance-locations', path: '/attendance/locations' },
@@ -241,9 +240,9 @@ const officeNavItems = [
     { id: 'payroll-drafts', label: 'Payroll Drafts', myLabel: 'Payroll Drafts', icon: CreditCard, permission: 'office.payroll.view', view: 'payroll-drafts', path: '/payroll/drafts' },
     { id: 'payroll-adjustments', label: 'Adjustments', myLabel: 'Adjustments', icon: WalletCards, permission: 'office.payroll.view', view: 'payroll-adjustments', path: '/payroll/adjustments' },
     { id: 'salary-history', label: 'Salary History', myLabel: 'Salary History', icon: ReceiptText, permission: 'office.payroll.view', view: 'salary-history', path: '/payroll/salary-history' },
-    { id: 'finance-collections', label: 'Collections', myLabel: 'ငွေကောက်ခံမှုများ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
+    { id: 'finance-collections', label: 'Payments', myLabel: 'ငွေပေးချေမှုများ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
     { id: 'finance-outdoor-collections', label: 'Outdoor Collections', myLabel: 'ပြင်ပ ငွေကောက်ခံမှုများ', icon: Users, permission: 'office.finance.view', view: 'finance-outdoor-collections', path: '/finance/outdoor-collections' },
-    { id: 'finance-receivables', label: 'Customer Receivable', myLabel: 'ဖောက်သည် ရရန်ငွေ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
+    { id: 'finance-receivables', label: 'Customer Credit', myLabel: 'ဖောက်သည် အကြွေးစာရင်း', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
     { id: 'finance-suppliers', label: 'Supplier Ledger', myLabel: 'ပေးသွင်းသူ စာရင်း', icon: ClipboardList, permission: 'office.finance.view', view: 'finance-suppliers', path: '/finance/suppliers' },
     { id: 'finance-cash-book', label: 'Cash Book', myLabel: 'ငွေသားစာရင်း', icon: WalletCards, permission: 'office.finance.view', view: 'finance-cash-book', path: '/finance/cash-book' },
     { id: 'finance-bank-book', label: 'Bank Book', myLabel: 'ဘဏ်စာရင်း', icon: CreditCard, permission: 'office.finance.view', view: 'finance-bank-book', path: '/finance/bank-book' },
@@ -291,13 +290,13 @@ const officeNavGroups = [
         id: 'sales-ops',
         label: 'Sales Ops',
         myLabel: 'အရောင်းလုပ်ငန်း',
-        items: ['orders', 'invoices', 'sales-returns', 'damage-entries'],
+        items: ['orders', 'sales-returns'],
     },
     {
         id: 'warehouse-stock',
         label: 'Warehouse Stock',
         myLabel: 'Warehouse Stock',
-        items: ['stock-receive', 'stock-issue', 'stock-transfer', 'stock-damage', 'closing-stock', 'stock-balance', 'stock-value', 'stock-card'],
+        items: ['stock-receive', 'stock-transfer', 'stock-adjustments', 'closing-stock', 'stock-balance', 'stock-value', 'stock-card'],
     },
     {
         id: 'delivery-operations',
@@ -361,12 +360,7 @@ const mobileNav = {
         { labelKey: 'home', view: 'home', icon: Home, permission: 'sales.home.view' },
         { labelKey: 'visits', view: 'route', icon: MapPinned, permission: 'sales.route.view' },
         { labelKey: 'orders', view: 'orders', icon: ReceiptText, permission: 'sales.orders.view' },
-        { labelKey: 'deliveries', view: 'deliveries', icon: Truck, permission: 'sales.deliveries.view' },
         { labelKey: 'customers', view: 'customers', icon: Users, permission: 'sales.customers.view' },
-        { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'sales.attendance.view' },
-        { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'sales.payroll.view' },
-        { labelKey: 'collections', view: 'collections', icon: WalletCards, permission: 'sales.collections.view' },
-        { labelKey: 'expenses', view: 'expenses', icon: CreditCard, permission: 'sales.expenses.view' },
     ],
     driver: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'driver.home.view' },
@@ -740,10 +734,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     <button className="icon-button mobile-only" type="button" aria-label="Open navigation" title="Open navigation" onClick={() => setDrawerOpen(true)}>
                         <Menu size={18} />
                     </button>
-                    <div className="searchbox">
-                        <Search size={15} />
-                        <input aria-label={t.search} placeholder={t.search} />
-                    </div>
+                    <ShellFilterControl pathname={pathname} />
                     <AppearanceControls
                         t={t}
                         user={user}
@@ -757,7 +748,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 </header>
 
                 {activeResource ? (
-                    <MasterDataWorkspace resourceKey={activeResource} locale={locale} canManage={canManageMasterData} />
+                    <MasterDataWorkspace resourceKey={activeResource} locale={locale} canManage={canManageMasterData} detailId={resolveOfficeMasterDetailId(pathname, activeResource)} onNavigate={navigate} />
                 ) : activeView === 'profile-settings' ? (
                     <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />
                 ) : activeView === 'dashboard-sales' ? (
@@ -773,23 +764,40 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'company-settings' ? (
                     <CompanySettingsScreen locale={locale} canManage={canManageMasterData} onBrandingUpdated={onBrandingUpdated} />
                 ) : activeView === 'orders' ? (
-                    <OrdersScreen locale={locale} canManage={canManageOrders} canManageInvoices={canManageInvoices} />
+                    <OrdersScreen locale={locale} canManage={canManageOrders} creating={isOfficeRoute(pathname, '/orders/new')} detailId={resolveOfficeDetailId(pathname, '/orders')} onNavigate={navigate} />
                 ) : activeView === 'invoices' ? (
-                    <InvoicesScreen locale={locale} canManage={canManageInvoices} />
+                    <InvoicesScreen locale={locale} canManage={canManageInvoices} detailId={resolveOfficeDetailId(pathname, '/invoices')} onNavigate={navigate} />
                 ) : activeView === 'sales-returns' ? (
-                    <SalesReturnScreen locale={locale} canManage={canManageOrders} />
-                ) : activeView === 'damage-entries' ? (
-                    <DamageEntryScreen locale={locale} canManage={canManageOrders} />
+                    <SalesReturnScreen locale={locale} canManage={canManageOrders} creating={isOfficeRoute(pathname, '/returns/new')} detailId={resolveOfficeDetailId(pathname, '/returns')} onNavigate={navigate} />
                 ) : activeView === 'stock-receive' ? (
-                    <StockReceiveScreen locale={locale} canManage={canManageInventory} />
-                ) : activeView === 'stock-issue' ? (
-                    <StockIssueScreen locale={locale} canManage={canManageInventory} />
+                    <StockReceiveScreen
+                        locale={locale}
+                        canManage={canManageInventory}
+                        receiveForm={normalizePath(pathname).endsWith('/stock/receive/new')}
+                        onNavigate={navigate}
+                    />
                 ) : activeView === 'stock-transfer' ? (
-                    <StockTransferScreen locale={locale} canManage={canManageInventory} />
-                ) : activeView === 'stock-damage' ? (
-                    <StockDamageScreen locale={locale} canManage={canManageInventory} />
+                    <StockTransferScreen
+                        locale={locale}
+                        canManage={canManageInventory}
+                        transferForm={normalizePath(pathname).endsWith('/stock/transfers/new')}
+                        onNavigate={navigate}
+                    />
+                ) : activeView === 'stock-adjustments' ? (
+                    <StockAdjustmentScreen
+                        locale={locale}
+                        canManage={canManageInventory}
+                        creating={normalizePath(pathname).endsWith('/stock/adjustments/new')}
+                        onNavigate={navigate}
+                    />
                 ) : activeView === 'closing-stock' ? (
-                    <ClosingStockScreen locale={locale} canManage={canManageInventory} />
+                    <ClosingStockScreen
+                        locale={locale}
+                        canManage={canManageInventory}
+                        closingForm={normalizePath(pathname).endsWith('/stock/closing/new')}
+                        detailId={resolveOfficeDetailId(pathname, '/stock/closing')}
+                        onNavigate={navigate}
+                    />
                 ) : activeView === 'stock-balance' ? (
                     <StockBalanceScreen locale={locale} />
                 ) : activeView === 'stock-value' ? (
@@ -797,29 +805,33 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'stock-card' ? (
                     <StockCardScreen locale={locale} />
                 ) : activeView === 'delivery-planning' ? (
-                    <DeliveryPlanningScreen canManage={canManageDeliveries} locale={locale} />
+                    normalizePath(pathname).endsWith('/deliveries/new')
+                        ? <TripWizardPage locale={locale} navigate={navigate} />
+                        : normalizePath(pathname).endsWith('/edit') && resolveOfficeDetailId(pathname, '/deliveries')
+                            ? <TripEditPage deliveryId={resolveOfficeDetailId(pathname, '/deliveries')} locale={locale} navigate={navigate} />
+                        : <DeliveryPlanningScreen canManage={canManageDeliveries} locale={locale} navigate={navigate} detailId={resolveOfficeDetailId(pathname, '/deliveries')} />
                 ) : activeView === 'delivery-live-map' ? (
                     <DeliveryLiveMapScreen locale={locale} />
                 ) : activeView === 'delivery-history' ? (
-                    <DeliveryPlanningScreen historyOnly locale={locale} />
+                    <DeliveryPlanningScreen historyOnly locale={locale} navigate={navigate} detailId={resolveOfficeDetailId(pathname, '/deliveries/history')} />
                 ) : activeView === 'attendance-locations' ? (
-                    <AttendanceLocationsScreen locale={locale} canManage={canManageAttendance} />
+                    <AttendanceLocationsScreen locale={locale} canManage={canManageAttendance} detailId={resolveOfficeDetailId(pathname, '/attendance/locations')} onNavigate={navigate} />
                 ) : activeView === 'attendance-records' ? (
-                    <AttendanceRecordsScreen locale={locale} />
+                    <AttendanceRecordsScreen locale={locale} detailId={resolveOfficeDetailId(pathname, '/attendance/records')} onNavigate={navigate} />
                 ) : activeView === 'attendance-summary' ? (
                     <AttendanceSummaryScreen locale={locale} />
                 ) : activeView === 'payroll-drafts' ? (
-                    <PayrollDraftsScreen locale={locale} canManage={canManagePayroll} />
+                    <PayrollDraftsScreen locale={locale} canManage={canManagePayroll} detailId={resolveOfficeDetailId(pathname, '/payroll/drafts')} onNavigate={navigate} />
                 ) : activeView === 'payroll-adjustments' ? (
                     <PayrollAdjustmentsScreen locale={locale} canManage={canManagePayroll} />
                 ) : activeView === 'salary-history' ? (
-                    <SalaryHistoryScreen locale={locale} />
+                    <SalaryHistoryScreen locale={locale} detailId={resolveOfficeDetailId(pathname, '/payroll/salary-history')} onNavigate={navigate} />
                 ) : activeView === 'finance-collections' ? (
                     <FinanceCollectionsScreen canManage={canManageFinance} locale={locale} />
                 ) : activeView === 'finance-outdoor-collections' ? (
                     <FinanceCollectionsScreen outdoor canManage={canManageFinance} locale={locale} />
                 ) : activeView === 'finance-receivables' ? (
-                    <FinanceReceivablesScreen locale={locale} />
+                    <FinanceReceivablesScreen locale={locale} canManage={canManageFinance} detailId={resolveOfficeDetailId(pathname, '/finance/receivables')} onNavigate={navigate} />
                 ) : activeView === 'finance-suppliers' ? (
                     <SupplierLedgerScreen canManage={canManageFinance} locale={locale} />
                 ) : activeView === 'finance-cash-book' ? (
@@ -860,17 +872,114 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
     );
 }
 
+const shellFilterSelector = [
+    '.master-toolbar',
+    '.transfer-filter-toolbar',
+    '.mobile-order-filters',
+    '.mobile-attendance-filters',
+    '.mobile-payroll-filters',
+    '.sales-route-tools',
+    '.trip-order-toolbar',
+    '.phase10-filter',
+    '.status-tabs',
+].join(', ');
+
+function ShellFilterControl({ pathname }) {
+    const [available, setAvailable] = useState(false);
+    const [open, setOpen] = useState(false);
+    const [triggerHost, setTriggerHost] = useState(null);
+    const triggerRef = useRef(null);
+    const closeRef = useRef(null);
+    const wasOpen = useRef(false);
+
+    useEffect(() => {
+        setOpen(false);
+    }, [pathname]);
+
+    useEffect(() => {
+        const workspace = document.querySelector('.app-root');
+        if (!workspace) return undefined;
+
+        const sync = () => {
+            const toolbars = [...workspace.querySelectorAll(shellFilterSelector)];
+            const pageHeading = workspace.querySelector('.page > .master-heading, .page > .mobile-master-heading, .mobile-master-stack > .mobile-master-heading');
+            workspace.querySelectorAll('.master-heading > button, .mobile-master-heading > button').forEach((button) => {
+                if (!button.querySelector('.lucide-plus')) return;
+                const label = button.textContent.trim() || button.getAttribute('aria-label') || 'Add';
+                if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', label);
+                if (!button.getAttribute('title')) button.setAttribute('title', label);
+            });
+            toolbars.forEach((toolbar, index) => {
+                toolbar.dataset.shellFilter = 'true';
+                toolbar.id = `shell-filter-drawer-${index + 1}`;
+                toolbar.setAttribute('aria-hidden', open ? 'false' : 'true');
+                toolbar.inert = !open;
+            });
+            setAvailable(toolbars.length > 0);
+            setTriggerHost((current) => current === pageHeading ? current : pageHeading);
+            if (toolbars.length === 0) setOpen(false);
+        };
+
+        sync();
+        const observer = new MutationObserver(sync);
+        observer.observe(workspace, { childList: true, subtree: true });
+        return () => observer.disconnect();
+    }, [pathname, open]);
+
+    useEffect(() => {
+        document.body.classList.toggle('filter-drawer-open', available && open);
+        return () => document.body.classList.remove('filter-drawer-open');
+    }, [available, open]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        window.requestAnimationFrame(() => closeRef.current?.focus());
+        const closeOnEscape = (event) => event.key === 'Escape' && setOpen(false);
+        window.addEventListener('keydown', closeOnEscape);
+        return () => window.removeEventListener('keydown', closeOnEscape);
+    }, [open]);
+
+    useEffect(() => {
+        if (wasOpen.current && !open) triggerRef.current?.focus();
+        wasOpen.current = open;
+    }, [open]);
+
+    if (!available || !triggerHost) return null;
+
+    return (
+        <>
+            {createPortal(
+                <button ref={triggerRef} className={`icon-button shell-filter-trigger ${open ? 'is-active' : ''}`} type="button" aria-label="Filters" title="Filters" aria-expanded={open} aria-controls="shell-filter-drawer-1" onClick={() => setOpen((value) => !value)}>
+                    <ListFilter size={16} />
+                </button>,
+                triggerHost,
+            )}
+            {open && <button className="filter-drawer-scrim" type="button" aria-label="Close filters" onClick={() => setOpen(false)} />}
+            <div className="filter-drawer-header" aria-hidden={!open}>
+                <div>
+                    <span>View options</span>
+                    <strong>Filters</strong>
+                </div>
+                <button ref={closeRef} className="icon-button" type="button" aria-label="Close filters" title="Close filters" onClick={() => setOpen(false)}>
+                    <X size={18} />
+                </button>
+            </div>
+        </>
+    );
+}
+
 function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme, pathname, navigate, onUserUpdated }) {
     const visibleNav = mobileNav[app.id].filter((item) => hasPermission(user, item.permission));
     const activeView = resolveMobileView(app.id, pathname);
     const compactPrimaryViews = {
-        sales: ['home', 'route', 'orders', 'deliveries'],
+        sales: ['home', 'route', 'orders', 'customers'],
         driver: ['home', 'load', 'route', 'confirm'],
     };
-    const usesMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
+    const supportsMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
     const primaryViews = compactPrimaryViews[app.id] || [];
-    const primaryNav = usesMenuNav ? visibleNav.filter((item) => primaryViews.includes(item.view)) : visibleNav;
-    const menuNav = usesMenuNav ? visibleNav.filter((item) => !primaryViews.includes(item.view)) : [];
+    const menuNav = supportsMenuNav ? visibleNav.filter((item) => !primaryViews.includes(item.view)) : [];
+    const usesMenuNav = supportsMenuNav && menuNav.length > 0;
+    const primaryNav = supportsMenuNav ? visibleNav.filter((item) => primaryViews.includes(item.view)) : visibleNav;
     const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
     const mobileOrderId = ['client', 'sales'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
     const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
@@ -880,6 +989,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
             <header className="mobile-app-topbar">
                 <Brand t={t} compact />
                 <div className="mobile-top-actions">
+                    <ShellFilterControl pathname={pathname} />
                     <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
                         {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
                     </button>
@@ -899,12 +1009,12 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {['client', 'sales'].includes(app.id) && activeView === 'orders' && (mobileOrderId
                     ? <MobileOrderDetailPage orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} />
                     : <MobileOrdersScreen appId={app.id} locale={locale} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />)}
-                {['client', 'sales'].includes(app.id) && activeView === 'deliveries' && <MobileDeliveryStatusScreen appId={app.id} locale={locale} />}
+                {app.id === 'client' && activeView === 'deliveries' && <MobileDeliveryStatusScreen appId={app.id} locale={locale} />}
                 {app.id === 'client' && activeView === 'profile' && <ClientMasterScreen locale={locale} />}
                 {app.id === 'sales' && activeView === 'customers' && (salesCustomerId
                     ? <SalesCustomerDetailPage customerId={salesCustomerId} locale={locale} onBack={() => navigate(`${app.path}/customers`)} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />
                     : <SalesMasterScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />)}
-                {app.id === 'sales' && activeView === 'route' && <SalesRouteScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} onOrders={() => navigate(`${app.path}/orders`)} onCollections={() => navigate(`${app.path}/collections`)} />}
+                {app.id === 'sales' && activeView === 'route' && <SalesRouteScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} onOrders={() => navigate(`${app.path}/orders`)} />}
                 {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} />}
                 {activeView === 'account' && <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
@@ -914,16 +1024,16 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {app.id === 'driver' && activeView === 'route' && <MobileDriverExecutionScreen mode="route" locale={locale} />}
                 {app.id === 'driver' && activeView === 'confirm' && <MobileDriverExecutionScreen mode="confirm" locale={locale} />}
                 {app.id === 'client' && activeView === 'ledger' && <MobileFinanceScreen appId={app.id} mode="ledger" locale={locale} />}
-                {['sales', 'driver'].includes(app.id) && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
+                {app.id === 'driver' && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
                 {app.id === 'driver' && activeView === 'vehicle' && <MobileVehicleOperationsScreen locale={locale} />}
                 {activeView === 'home' && <MobileHomeDashboard
                     appId={app.id}
                     locale={locale}
-                    quickLinks={app.id === 'sales' ? menuNav.filter((item) => ['customers', 'collections', 'expenses', 'attendance'].includes(item.view)).map((item) => ({ ...item, label: t[item.labelKey], href: `${app.path}/${item.view}` })) : []}
+                    quickLinks={[]}
                     onNavigate={(event, href) => navigateAppPage(event, href, navigate)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (['client', 'sales'].includes(app.id) && ['orders', 'deliveries'].includes(activeView)) || (app.id === 'client' && ['profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['route', 'customers'].includes(activeView)) || (['sales', 'driver'].includes(app.id) && ['attendance', 'salary', 'collections', 'expenses'].includes(activeView)) || (app.id === 'driver' && ['profile', 'load', 'route', 'confirm', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'deliveries', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'route', 'customers'].includes(activeView)) || (app.id === 'driver' && ['profile', 'load', 'route', 'confirm', 'attendance', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
@@ -1035,6 +1145,13 @@ function resolveOfficeResource(pathname = window.location.pathname) {
 function resolveOfficeView(pathname = window.location.pathname) {
     const currentPath = normalizePath(pathname);
     const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
+    const legacyAdjustmentPaths = [
+        normalizePath(`${officePath}/damage`),
+        normalizePath(`${officePath}/stock/damage`),
+    ];
+    if (legacyAdjustmentPaths.some((path) => currentPath === path || currentPath.startsWith(`${path}/`))) {
+        return 'stock-adjustments';
+    }
     const configuredViews = officeNavItems
         .filter((item) => item.view && item.path)
         .map((item) => ({ ...item, routePath: normalizePath(`${officePath}${item.path}`) }))
@@ -1047,6 +1164,27 @@ function resolveOfficeView(pathname = window.location.pathname) {
     if (currentPath === normalizePath(`${officePath}/profile`)) return 'profile-settings';
     if (currentPath === normalizePath(`${officePath}/settings/company`)) return 'company-settings';
     return null;
+}
+
+function resolveOfficeDetailId(pathname, routeSuffix) {
+    const currentPath = normalizePath(pathname);
+    const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
+    const basePath = normalizePath(`${officePath}${routeSuffix}`);
+    if (!currentPath.startsWith(`${basePath}/`)) return null;
+    const id = currentPath.slice(basePath.length).split('/').filter(Boolean)[0];
+
+    return /^\d+$/.test(id || '') ? Number(id) : null;
+}
+
+function isOfficeRoute(pathname, routeSuffix) {
+    const currentPath = normalizePath(pathname);
+    const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
+    return currentPath === normalizePath(`${officePath}${routeSuffix}`);
+}
+
+function resolveOfficeMasterDetailId(pathname, resource) {
+    if (!resource) return null;
+    return resolveOfficeDetailId(pathname, `/master/${resource}`);
 }
 
 function Brand({ t, compact = false, branding }) {

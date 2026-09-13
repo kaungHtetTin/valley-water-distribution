@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Carbon\Carbon;
@@ -13,17 +14,21 @@ use Illuminate\Validation\Rule;
 
 class MobileOrderController extends Controller
 {
+    public function __construct(private readonly CustomerCreditService $customerCredit)
+    {
+    }
+
     public function meta(Request $request)
     {
         $scope = $this->scope($request, 'view');
 
         $customers = $scope['app'] === 'client'
-            ? DB::table('customers')->where('id', $scope['customer_id'])->get(['id', 'code', 'shop_name', 'price_type_id', 'credit_limit'])
+            ? DB::table('customers')->where('id', $scope['customer_id'])->get(['id', 'code', 'shop_name', 'contact_name', 'phone', 'address', 'area_id', 'route_id', 'price_type_id', 'credit_limit'])
             : DB::table('customers')
                 ->where('route_id', $scope['route_id'])
                 ->where('is_active', true)
                 ->orderBy('shop_name')
-                ->get(['id', 'code', 'shop_name', 'price_type_id', 'credit_limit']);
+                ->get(['id', 'code', 'shop_name', 'contact_name', 'phone', 'address', 'area_id', 'route_id', 'price_type_id', 'credit_limit']);
 
         $customers = $customers->map(function ($customer) {
             $customer->label = "{$customer->code} - {$customer->shop_name}";
@@ -56,6 +61,14 @@ class MobileOrderController extends Controller
             'app' => $scope['app'],
             'customers' => $customers,
             'products' => $products,
+            'price_types' => DB::table('price_types')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
+            'routes' => DB::table('routes')->where('is_active', true)
+                ->when($scope['app'] === 'sales', fn ($query) => $query->where('id', $scope['route_id']))
+                ->orderBy('name')->get(['id', 'area_id', 'code', 'name']),
+            'areas' => DB::table('areas')->where('is_active', true)
+                ->when($scope['app'] === 'sales', function ($query) use ($scope) {
+                    $query->whereIn('id', DB::table('routes')->where('id', $scope['route_id'])->select('area_id'));
+                })->orderBy('name')->get(['id', 'code', 'name']),
         ]);
     }
 
@@ -75,6 +88,8 @@ class MobileOrderController extends Controller
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($query) use ($search) {
                 $query->where('orders.code', 'like', "%{$search}%")
+                    ->orWhere('orders.recipient_name', 'like', "%{$search}%")
+                    ->orWhere('orders.delivery_address', 'like', "%{$search}%")
                     ->orWhere('customers.shop_name', 'like', "%{$search}%")
                     ->orWhere('customers.code', 'like', "%{$search}%");
             });
@@ -120,26 +135,33 @@ class MobileOrderController extends Controller
     {
         $scope = $this->scope($request, 'create');
         $validated = $request->validate($this->rules($scope['app']));
-        $customerId = $scope['app'] === 'client' ? $scope['customer_id'] : $validated['customer_id'];
-        $customer = DB::table('customers')->where('is_active', true)->find($customerId);
-
-        abort_unless($customer, 422, 'Active customer is required.');
-        abort_if($scope['app'] === 'sales' && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
+        $customerId = $scope['app'] === 'client' ? $scope['customer_id'] : ($validated['customer_id'] ?? null);
+        $customer = $customerId ? DB::table('customers')->where('is_active', true)->find($customerId) : null;
+        abort_if($customerId && ! $customer, 422, 'The selected customer is not active.');
+        abort_if(! $customer && $validated['payment_type'] === 'credit', 422, 'Credit orders require a registered customer.');
+        abort_if($scope['app'] === 'sales' && $customer && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
+        $destination = $this->resolveDestination($validated, $customer);
+        abort_if($scope['app'] === 'sales' && (int) $destination['route_id'] !== (int) $scope['route_id'], 403, 'Orders must stay inside the assigned sales route.');
 
         $orderDate = Carbon::parse($validated['order_date'] ?? now());
-        $priceTypeId = $customer->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
+        $priceTypeId = $validated['price_type_id'] ?? $customer?->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
         $items = $this->normalizeItems($validated['items'], $priceTypeId, $orderDate);
 
-        $order = DB::transaction(function () use ($customer, $items, $orderDate, $priceTypeId, $request, $scope, $validated) {
+        $order = DB::transaction(function () use ($customer, $destination, $items, $orderDate, $priceTypeId, $request, $scope, $validated) {
             $totals = $this->totals($items);
             $order = Order::create([
                 'code' => $this->nextCode($orderDate),
-                'customer_id' => $customer->id,
-                'route_id' => $customer->route_id,
+                'customer_id' => $customer?->id,
+                'area_id' => $destination['area_id'],
+                'route_id' => $destination['route_id'],
                 'price_type_id' => $priceTypeId,
+                'recipient_name' => $destination['recipient_name'],
+                'recipient_phone' => $destination['recipient_phone'],
+                'delivery_address' => $destination['delivery_address'],
                 'source_app' => $scope['app'],
                 'order_date' => $orderDate->toDateString(),
                 'requested_delivery_date' => $validated['requested_delivery_date'] ?? null,
+                'credit_due_date' => $validated['payment_type'] === 'credit' ? ($validated['credit_due_date'] ?? $orderDate->copy()->addDays(7)->toDateString()) : null,
                 'payment_type' => $validated['payment_type'],
                 'status' => 'pending',
                 'subtotal' => $totals['subtotal'],
@@ -187,9 +209,16 @@ class MobileOrderController extends Controller
     private function rules(string $app): array
     {
         return [
-            'customer_id' => [$app === 'sales' ? 'required' : 'nullable', 'integer', 'exists:customers,id'],
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'area_id' => ['nullable', 'integer', 'exists:areas,id'],
+            'route_id' => ['nullable', 'integer', 'exists:routes,id'],
+            'price_type_id' => ['nullable', 'integer', 'exists:price_types,id'],
+            'recipient_name' => ['nullable', 'string', 'max:150'],
+            'recipient_phone' => ['nullable', 'string', 'max:50'],
+            'delivery_address' => ['nullable', 'string', 'max:500'],
             'order_date' => ['nullable', 'date'],
             'requested_delivery_date' => ['nullable', 'date'],
+            'credit_due_date' => ['nullable', 'date', 'after_or_equal:order_date'],
             'payment_type' => ['required', Rule::in(['cash', 'credit'])],
             'notes' => ['nullable', 'string', 'max:500'],
             'items' => ['required', 'array', 'min:1'],
@@ -244,10 +273,7 @@ class MobileOrderController extends Controller
 
     private function outstandingBalance(int $customerId): float
     {
-        return (float) DB::table('invoices')
-            ->where('customer_id', $customerId)
-            ->where('status', '!=', 'cancelled')
-            ->sum('total');
+        return $this->customerCredit->outstanding($customerId);
     }
 
     private function totals(array $items): array
@@ -274,6 +300,7 @@ class MobileOrderController extends Controller
         return DB::table('orders')
             ->leftJoin('customers', 'orders.customer_id', '=', 'customers.id')
             ->leftJoin('routes', 'orders.route_id', '=', 'routes.id')
+            ->leftJoin('areas', 'routes.area_id', '=', 'areas.id')
             ->leftJoin('invoices', function ($join) {
                 $join->on('orders.id', '=', 'invoices.order_id')
                     ->where('invoices.status', '!=', 'cancelled');
@@ -291,7 +318,8 @@ class MobileOrderController extends Controller
         return [
             'orders.*',
             'customers.code as customer_code',
-            'customers.shop_name',
+            DB::raw('COALESCE(orders.recipient_name, customers.shop_name) as recipient_name_display'),
+            'areas.name as area',
             'routes.name as route',
             'invoices.code as invoice_code',
             'invoices.invoice_date',
@@ -316,11 +344,18 @@ class MobileOrderController extends Controller
             'code' => $order->code,
             'customer_id' => $order->customer_id,
             'customer_code' => $order->customer_code,
-            'shop_name' => $order->shop_name,
+            'shop_name' => $order->recipient_name_display,
+            'recipient_name' => $order->recipient_name_display,
+            'recipient_phone' => $order->recipient_phone,
+            'area_id' => $order->area_id,
+            'area' => $order->area,
+            'route_id' => $order->route_id,
+            'delivery_address' => $order->delivery_address,
             'route' => $order->route,
             'source_app' => $order->source_app,
             'order_date' => Carbon::parse($order->order_date)->toDateString(),
             'requested_delivery_date' => $order->requested_delivery_date ? Carbon::parse($order->requested_delivery_date)->toDateString() : null,
+            'credit_due_date' => $order->credit_due_date ? Carbon::parse($order->credit_due_date)->toDateString() : null,
             'payment_type' => $order->payment_type,
             'status' => $order->status,
             'subtotal' => (float) $order->subtotal,
@@ -359,6 +394,30 @@ class MobileOrderController extends Controller
         $next = ((int) Order::query()->where('code', 'like', "{$prefix}%")->count()) + 1;
 
         return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function resolveDestination(array $validated, ?object $customer): array
+    {
+        $routeId = $validated['route_id'] ?? $customer?->route_id;
+        $route = $routeId ? DB::table('routes')->where('is_active', true)->find($routeId) : null;
+        abort_unless($route, 422, 'An active delivery route is required.');
+
+        $areaId = $validated['area_id'] ?? $customer?->area_id ?? $route->area_id;
+        abort_unless($areaId && (int) $route->area_id === (int) $areaId, 422, 'The selected route must belong to the selected area.');
+        abort_unless(DB::table('areas')->where('id', $areaId)->where('is_active', true)->exists(), 422, 'An active delivery area is required.');
+
+        $recipientName = trim((string) ($validated['recipient_name'] ?? $customer?->shop_name));
+        $deliveryAddress = trim((string) ($validated['delivery_address'] ?? $customer?->address));
+        abort_if($recipientName === '', 422, 'Recipient or shop name is required.');
+        abort_if($deliveryAddress === '', 422, 'Delivery address is required.');
+
+        return [
+            'area_id' => (int) $areaId,
+            'route_id' => (int) $route->id,
+            'recipient_name' => $recipientName,
+            'recipient_phone' => trim((string) ($validated['recipient_phone'] ?? $customer?->phone)) ?: null,
+            'delivery_address' => $deliveryAddress,
+        ];
     }
 
     private function authorizePermission(Request $request, string $permission): void

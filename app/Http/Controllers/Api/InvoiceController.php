@@ -54,6 +54,8 @@ class InvoiceController extends Controller
             $query->where(function ($query) use ($search) {
                 $query->where('invoices.code', 'like', "%{$search}%")
                     ->orWhere('orders.code', 'like', "%{$search}%")
+                    ->orWhere('invoices.recipient_name', 'like', "%{$search}%")
+                    ->orWhere('invoices.delivery_address', 'like', "%{$search}%")
                     ->orWhere('customers.shop_name', 'like', "%{$search}%")
                     ->orWhere('customers.code', 'like', "%{$search}%")
                     ->orWhere('routes.name', 'like', "%{$search}%");
@@ -120,6 +122,11 @@ class InvoiceController extends Controller
                 'code' => $this->nextCode($invoiceDate),
                 'order_id' => $order->id,
                 'customer_id' => $order->customer_id,
+                'area_id' => $order->area_id,
+                'route_id' => $order->route_id,
+                'recipient_name' => $order->recipient_name,
+                'recipient_phone' => $order->recipient_phone,
+                'delivery_address' => $order->delivery_address,
                 'invoice_date' => $invoiceDate->toDateString(),
                 'due_date' => $validated['due_date'] ?? null,
                 'status' => 'draft',
@@ -202,7 +209,10 @@ class InvoiceController extends Controller
         return DB::table('invoices')
             ->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')
             ->leftJoin('customers', 'invoices.customer_id', '=', 'customers.id')
-            ->leftJoin('routes', 'orders.route_id', '=', 'routes.id');
+            ->leftJoin('routes', function ($join) {
+                $join->on('routes.id', '=', DB::raw('COALESCE(invoices.route_id, orders.route_id)'));
+            })
+            ->leftJoin('areas', 'routes.area_id', '=', 'areas.id');
     }
 
     private function invoiceColumns(): array
@@ -212,8 +222,9 @@ class InvoiceController extends Controller
             'orders.code as order_code',
             'orders.payment_type',
             'customers.code as customer_code',
-            'customers.shop_name',
+            DB::raw('COALESCE(invoices.recipient_name, customers.shop_name) as recipient_name_display'),
             'customers.contact_name',
+            'areas.name as area',
             'routes.name as route',
         ];
     }
@@ -227,7 +238,13 @@ class InvoiceController extends Controller
             'order_code' => $invoice->order_code,
             'customer_id' => $invoice->customer_id,
             'customer_code' => $invoice->customer_code,
-            'shop_name' => $invoice->shop_name,
+            'shop_name' => $invoice->recipient_name_display,
+            'recipient_name' => $invoice->recipient_name_display,
+            'recipient_phone' => $invoice->recipient_phone,
+            'area_id' => $invoice->area_id,
+            'area' => $invoice->area,
+            'route_id' => $invoice->route_id,
+            'delivery_address' => $invoice->delivery_address,
             'contact_name' => $invoice->contact_name,
             'route' => $invoice->route,
             'payment_type' => $invoice->payment_type,

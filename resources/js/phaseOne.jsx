@@ -24,9 +24,9 @@ import {
     Phone,
     Play,
     SkipForward,
-    WalletCards,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DetailPage, DetailPanel } from './components/DetailPage';
 
 const uiCopy = {
     en: {
@@ -46,6 +46,9 @@ const uiCopy = {
         loadCompanyError: 'Unable to load company settings.', saveCompanyError: 'Unable to save company settings.',
         loadCustomersError: 'Unable to load customers.', registerCustomerError: 'Unable to register customer.',
         loadDataError: 'Unable to load data.', previousPage: 'Previous page', nextPage: 'Next page',
+        effectiveFrom: 'Effective from', savePrices: 'Save prices', pricesSaved: 'Prices updated.',
+        priceMatrixHint: 'Edit every customer price tier for one product in the same row.',
+        unsavedChanges: 'unsaved rows', noUnsavedChanges: 'No unsaved changes', saveAllPrices: 'Save all changes',
     },
     my: {
         add: 'အသစ်ထည့်ရန်', edit: 'ပြင်ဆင်ရန်', save: 'သိမ်းမည်', cancel: 'မလုပ်တော့ပါ', search: 'Master data ရှာရန်',
@@ -164,7 +167,7 @@ function validationError(fieldName, errors, locale) {
     return locale === 'my' ? `${myFieldLabels[fieldName] || titleCase(fieldName)} အချက်အလက်ကို စစ်ဆေးပါ။` : message;
 }
 
-export function MasterDataWorkspace({ resourceKey, locale, canManage = true }) {
+export function MasterDataWorkspace({ resourceKey, locale, canManage = true, detailId = null, onNavigate }) {
     const [setup, setSetup] = useState({ loading: true, resources: [], options: {}, error: '' });
     const [records, setRecords] = useState({ loading: true, items: [], meta: {}, error: '' });
     const [search, setSearch] = useState('');
@@ -172,6 +175,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true }) {
     const [page, setPage] = useState(1);
     const [editing, setEditing] = useState(null);
     const [viewing, setViewing] = useState(null);
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/master/${resourceKey}`;
     const [refreshKey, setRefreshKey] = useState(0);
 
     useEffect(() => {
@@ -185,7 +189,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true }) {
     const definition = useMemo(() => setup.resources.find((item) => item.key === resourceKey), [resourceKey, setup.resources]);
 
     useEffect(() => {
-        if (!definition) return undefined;
+        if (!definition || resourceKey === 'product-prices') return undefined;
         let mounted = true;
         const timer = window.setTimeout(() => {
             setRecords((current) => ({ ...current, loading: true, error: '' }));
@@ -204,9 +208,26 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true }) {
         setViewing(null);
     }, [resourceKey]);
 
+    useEffect(() => {
+        if (!detailId) {
+            setViewing(null);
+            return undefined;
+        }
+        let mounted = true;
+        window.axios.get(`${apiBase('masterData')}/${resourceKey}/${detailId}`)
+            .then(({ data }) => mounted && setViewing(data.data.item))
+            .catch((error) => mounted && setRecords((current) => ({ ...current, error: requestError(error, locale, 'loadRecordsError') })));
+        return () => { mounted = false; };
+    }, [detailId, locale, resourceKey]);
+
     if (setup.loading) return <WorkspaceState icon={RefreshCw} title={text(locale, 'loading')} loading />;
     if (setup.error) return <WorkspaceState icon={AlertCircle} title={setup.error} action={() => window.location.reload()} actionLabel={text(locale, 'retry')} />;
     if (!definition) return <WorkspaceState icon={AlertCircle} title={text(locale, 'screenNotFound')} />;
+    if (resourceKey === 'product-prices') return <ProductPriceMatrix definition={definition} locale={locale} canManage={canManage} />;
+    if (detailId) return viewing ? <>
+        <RecordDetailPage record={viewing} definition={definition} locale={locale} onBack={() => onNavigate?.(listPath)} onEdit={canManage ? () => setEditing({ mode: 'edit', values: { ...viewing } }) : null} />
+        {editing && <MasterForm definition={definition} resourceKey={resourceKey} options={setup.options} editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onNavigate?.(listPath); }} />}
+    </> : <WorkspaceState icon={records.error ? AlertCircle : RefreshCw} title={records.error || text(locale, 'loading')} loading={!records.error} />;
 
     const openCreate = () => {
         const initial = Object.fromEntries(definition.fields.map((field) => [field.name, field.default ?? (field.type === 'boolean' ? field.name === 'is_active' : field.type === 'multiselect' ? [] : '')]));
@@ -269,7 +290,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true }) {
                                     <tr key={record.id}>
                                         {definition.list.map((column) => <td key={column}>{renderValue(column, record[column], locale)}</td>)}
                                         <td className="row-actions">
-                                            <button type="button" aria-label={text(locale, 'details')} title={text(locale, 'details')} onClick={() => setViewing(record)}><Eye size={15} /></button>
+                                            <button type="button" aria-label={text(locale, 'details')} title={text(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${record.id}`)}><Eye size={15} /></button>
                                             {canManage && <button type="button" aria-label={text(locale, 'edit')} title={text(locale, 'edit')} onClick={() => setEditing({ mode: 'edit', values: { ...record } })}><Pencil size={15} /></button>}
                                             {canManage && <button className="danger" type="button" aria-label={text(locale, 'delete')} title={text(locale, 'delete')} onClick={() => remove(record)}><Trash2 size={15} /></button>}
                                         </td>
@@ -294,7 +315,160 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true }) {
                     onSaved={() => { setEditing(null); setRefreshKey((key) => key + 1); }}
                 />
             )}
-            {viewing && <RecordDrawer record={viewing} definition={definition} locale={locale} onClose={() => setViewing(null)} onEdit={canManage ? () => { setEditing({ mode: 'edit', values: { ...viewing } }); setViewing(null); } : null} />}
+        </section>
+    );
+}
+
+function ProductPriceMatrix({ definition, locale, canManage }) {
+    const [state, setState] = useState({ loading: true, items: [], priceTypes: [], meta: {}, error: '' });
+    const [rows, setRows] = useState({});
+    const [dirtyRows, setDirtyRows] = useState({});
+    const [dirtyCells, setDirtyCells] = useState({});
+    const [search, setSearch] = useState('');
+    const [page, setPage] = useState(1);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [saving, setSaving] = useState(false);
+    const [message, setMessage] = useState('');
+
+    useEffect(() => {
+        let mounted = true;
+        const timer = window.setTimeout(() => {
+            setState((current) => ({ ...current, loading: true, error: '' }));
+            window.axios.get(`${apiBase('masterData')}/product-prices/matrix`, { params: { search, page, per_page: 25 } })
+                .then(({ data }) => {
+                    if (!mounted) return;
+                    const items = data.data.items;
+                    const priceTypes = data.data.price_types;
+                    setRows(Object.fromEntries(items.map((product) => {
+                        const latestDate = product.prices.reduce((date, price) => price.effective_from > date ? price.effective_from : date, '');
+                        const prices = Object.fromEntries(priceTypes.map((priceType) => {
+                            const price = product.prices.find((item) => Number(item.price_type_id) === Number(priceType.id));
+                            return [priceType.id, price ? String(price.amount) : ''];
+                        }));
+                        return [product.id, { effective_from: latestDate || new Date().toISOString().slice(0, 10), prices }];
+                    })));
+                    setDirtyRows({});
+                    setDirtyCells({});
+                    setMessage('');
+                    setState({ loading: false, items, priceTypes, meta: data.data.meta, error: '' });
+                })
+                .catch((error) => mounted && setState((current) => ({ ...current, loading: false, items: [], error: requestError(error, locale, 'loadRecordsError') })));
+        }, 220);
+        return () => { mounted = false; window.clearTimeout(timer); };
+    }, [locale, page, refreshKey, search]);
+
+    const setPrice = (productId, priceTypeId, amount) => {
+        setMessage('');
+        setDirtyRows((current) => ({ ...current, [productId]: true }));
+        setDirtyCells((current) => ({ ...current, [`${productId}:price:${priceTypeId}`]: true }));
+        setRows((current) => ({
+            ...current,
+            [productId]: { ...current[productId], prices: { ...current[productId].prices, [priceTypeId]: amount } },
+        }));
+    };
+
+    const saveAll = async () => {
+        const productIds = Object.keys(dirtyRows).filter((productId) => dirtyRows[productId]);
+        if (!productIds.length) return;
+        setSaving(true);
+        setMessage('');
+        setState((current) => ({ ...current, error: '' }));
+        try {
+            await Promise.all(productIds.map((productId) => {
+                const row = rows[productId];
+                return window.axios.put(`${apiBase('masterData')}/product-prices/matrix`, {
+                    product_id: Number(productId),
+                    effective_from: row.effective_from,
+                    prices: state.priceTypes.map((priceType) => ({ price_type_id: priceType.id, amount: row.prices[priceType.id] })),
+                });
+            }));
+            setDirtyRows({});
+            setDirtyCells({});
+            setMessage(text(locale, 'pricesSaved'));
+        } catch (error) {
+            setState((current) => ({ ...current, error: requestError(error, locale, 'saveError') }));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const moveVertically = (event, rowIndex, columnIndex) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const nextRow = rowIndex + (event.shiftKey ? -1 : 1);
+        const target = event.currentTarget.closest('table')?.querySelector(`[data-grid-row="${nextRow}"][data-grid-column="${columnIndex}"]`);
+        target?.focus();
+        if (target?.type === 'number') target.select();
+    };
+
+    const pasteGrid = (event, startRow, startColumn) => {
+        const pastedRows = event.clipboardData.getData('text').trimEnd().split(/\r?\n/).map((line) => line.split('\t'));
+        if (pastedRows.length === 1 && pastedRows[0].length === 1) return;
+        event.preventDefault();
+
+        const changedRows = {};
+        const changedCells = {};
+        const updates = [];
+        pastedRows.forEach((values, rowOffset) => {
+            const product = state.items[startRow + rowOffset];
+            if (!product) return;
+            const priceUpdates = {};
+            values.forEach((value, columnOffset) => {
+                const column = startColumn + columnOffset;
+                if (column < state.priceTypes.length) {
+                    const priceTypeId = state.priceTypes[column].id;
+                    priceUpdates[priceTypeId] = value.replaceAll(',', '').trim();
+                    changedCells[`${product.id}:price:${priceTypeId}`] = true;
+                }
+            });
+            updates.push({ productId: product.id, priceUpdates });
+            changedRows[product.id] = true;
+        });
+
+        setRows((current) => {
+            const next = { ...current };
+            updates.forEach(({ productId, priceUpdates }) => {
+                next[productId] = { ...next[productId], prices: { ...next[productId].prices, ...priceUpdates } };
+            });
+            return next;
+        });
+        setDirtyRows((current) => ({ ...current, ...changedRows }));
+        setDirtyCells((current) => ({ ...current, ...changedCells }));
+        setMessage('');
+    };
+
+    const dirtyCount = Object.values(dirtyRows).filter(Boolean).length;
+
+    return (
+        <section className="master-workspace price-matrix-workspace">
+            <div className="master-heading">
+                <div><p className="eyebrow">{text(locale, 'masterData')}</p><h1>{resourceLabel('product-prices', definition, locale)}</h1><span className="muted">{text(locale, 'priceMatrixHint')}</span></div>
+            </div>
+            <div className="master-panel price-matrix-panel">
+                <div className="master-toolbar">
+                    <label className="master-search"><Search size={15} /><input disabled={Boolean(dirtyCount) || saving} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={text(locale, 'search')} /></label>
+                    {canManage && <span className={`price-matrix-change-count ${dirtyCount ? 'has-changes' : ''}`}>{dirtyCount ? `${dirtyCount} ${text(locale, 'unsavedChanges')}` : text(locale, 'noUnsavedChanges')}</span>}
+                    <button className="icon-button" type="button" disabled={Boolean(dirtyCount) || saving} aria-label={text(locale, 'retry')} title={text(locale, 'retry')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
+                    {canManage && <button className="button primary" type="button" disabled={!dirtyCount || saving} onClick={saveAll}><Save size={15} />{saving ? 'Saving…' : text(locale, 'saveAllPrices')}</button>}
+                </div>
+                {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
+                {message && <div className="inline-success"><CheckCircle2 size={15} /> {message}</div>}
+                {state.loading ? <TableLoading columns={state.priceTypes.length + 1} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={text(locale, 'empty')} compact /> : (
+                    <div className="master-table-wrap price-matrix-wrap">
+                        <table className="master-table price-matrix-table">
+                            <thead><tr><th>Product</th>{state.priceTypes.map((priceType) => <th key={priceType.id}>{priceType.name}<small>{priceType.currency}</small></th>)}</tr></thead>
+                            <tbody>{state.items.map((product, rowIndex) => {
+                                const row = rows[product.id];
+                                return <tr className={dirtyRows[product.id] ? 'is-dirty' : ''} key={product.id}>
+                                    <td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td>
+                                    {state.priceTypes.map((priceType, columnIndex) => <td className={`price-matrix-cell ${dirtyCells[`${product.id}:price:${priceType.id}`] ? 'is-dirty' : ''}`} key={priceType.id}><input aria-label={`${product.name} ${priceType.name}`} data-grid-column={columnIndex} data-grid-row={rowIndex} disabled={!canManage || saving} min="0" step="1" type="number" value={row?.prices[priceType.id] ?? ''} onFocus={(event) => event.currentTarget.select()} onKeyDown={(event) => moveVertically(event, rowIndex, columnIndex)} onPaste={(event) => pasteGrid(event, rowIndex, columnIndex)} onChange={(event) => setPrice(product.id, priceType.id, event.target.value)} /></td>)}
+                                </tr>;
+                            })}</tbody>
+                        </table>
+                    </div>
+                )}
+                <Pagination meta={state.meta} page={page} setPage={setPage} locale={locale} disabled={Boolean(dirtyCount) || saving} />
+            </div>
         </section>
     );
 }
@@ -550,15 +724,23 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
     );
 }
 
-function RecordDrawer({ record, definition, locale, onClose, onEdit }) {
+function RecordDetailPage({ record, definition, locale, onBack, onEdit }) {
+    const title = record.name || record.shop_name || record.sku || record.code;
+    const fields = definition.fields.filter((field) => !['hidden', 'multiselect', 'password'].includes(field.type));
     return (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <aside className="record-drawer" role="dialog" aria-modal="true" aria-label={text(locale, 'details')}>
-                <header><div><p className="eyebrow">{text(locale, 'details')}</p><h2>{record.name || record.shop_name || record.sku || record.code}</h2></div><button className="icon-button" type="button" aria-label={text(locale, 'cancel')} onClick={onClose}><X size={17} /></button></header>
-                <dl>{definition.fields.filter((field) => !['hidden', 'multiselect', 'password'].includes(field.type)).map((field) => <div key={field.name}><dt>{fieldLabel(field, locale)}</dt><dd>{renderValue(field.name, record[relationAlias(field.name)] ?? record[field.name], locale)}</dd></div>)}</dl>
-                {onEdit && <footer><button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {text(locale, 'edit')}</button></footer>}
-            </aside>
-        </div>
+        <DetailPage
+            eyebrow={definition.label || text(locale, 'details')}
+            title={title}
+            subtitle={record.code && record.code !== title ? record.code : text(locale, 'details')}
+            onBack={onBack}
+            actions={onEdit && <button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {text(locale, 'edit')}</button>}
+        >
+            <DetailPanel eyebrow={text(locale, 'details')} title="Record information">
+                <dl className="record-page-facts">
+                    {fields.map((field) => <div key={field.name}><dt>{fieldLabel(field, locale)}</dt><dd>{renderValue(field.name, record[relationAlias(field.name)] ?? record[field.name], locale)}</dd></div>)}
+                </dl>
+            </DetailPanel>
+        </DetailPage>
     );
 }
 
@@ -584,7 +766,7 @@ export function DriverMasterScreen({ locale }) {
     );
 }
 
-export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders, onCollections }) {
+export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState('all');
@@ -639,15 +821,15 @@ export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders, onCo
         </section>
         <section className="mobile-finance-summary sales-route-summary">
             <article><span>{localized('Orders today', 'ယနေ့ အော်ဒါ')}</span><strong>{Number(state.summary.orders_count || 0)}</strong><small>{money(state.summary.order_amount)}</small></article>
-            <article><span>{localized('Collections', 'ငွေကောက်ခံ')}</span><strong>{money(state.summary.collection_amount)}</strong><small>{Number(state.summary.skipped || 0)} {localized('skipped visits', 'ကျော်ခဲ့')}</small></article>
+            <article><span>{localized('Customers', 'ဖောက်သည်များ')}</span><strong>{total}</strong><small>{Number(state.summary.skipped || 0)} {localized('skipped visits', 'ကျော်ခဲ့')}</small></article>
         </section>
-        <div className="sales-route-quick-actions"><button className="button" type="button" onClick={onOrders}><ShoppingCart size={15} />{localized('Orders', 'အော်ဒါ')}</button><button className="button" type="button" onClick={onCollections}><WalletCards size={15} />{localized('Collections', 'ငွေကောက်ခံ')}</button></div>
+        <div className="sales-route-quick-actions"><button className="button" type="button" onClick={onOrders}><ShoppingCart size={15} />{localized('Orders', 'အော်ဒါ')}</button></div>
         <section className="mobile-master-section sales-route-stops">
             <div className="sales-route-tools"><label className="mobile-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={localized('Search customer or address', 'ဖောက်သည် သို့မဟုတ် လိပ်စာရှာရန်')} /></label><div className="sales-route-tabs" role="tablist" aria-label="Visit status"><button className={filter === 'all' ? 'is-active' : ''} role="tab" aria-selected={filter === 'all'} type="button" onClick={() => setFilter('all')}><span>{localized('All', 'အားလုံး')}</span><small>{total}</small></button><button className={filter === 'pending' ? 'is-active' : ''} role="tab" aria-selected={filter === 'pending'} type="button" onClick={() => setFilter('pending')}><span>{localized('Pending', 'ကျန်ရှိ')}</span><small>{Math.max(total - completed - Number(state.summary.skipped || 0), 0)}</small></button><button className={filter === 'completed' ? 'is-active' : ''} role="tab" aria-selected={filter === 'completed'} type="button" onClick={() => setFilter('completed')}><span>{localized('Done', 'ပြီး')}</span><small>{completed}</small></button></div></div>
             <div className="mobile-section-heading"><div><p className="eyebrow">{localized('Visit list', 'လည်ပတ်မှုစာရင်း')}</p><h2>{customers.length} {localized('customers', 'ဖောက်သည်')}</h2></div></div>
             {customers.length ? <div className="sales-route-stop-list">{customers.map((customer, index) => <article key={customer.id}>
                 <button className="sales-route-customer" type="button" onClick={() => onViewCustomer?.(customer.id)}><span className="sales-route-sequence">{index + 1}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name || customer.phone}</small><small>{customer.address || customer.area || localized('No address', 'လိပ်စာမရှိ')}</small></span><span className={`status ${visitFamily(customer.visit_status)}`}>{visitLabel(customer.visit_status)}</span><ChevronRight size={16} /></button>
-                {(customer.orders_count > 0 || customer.collections_count > 0) && <div className="sales-route-activity"><span>{customer.orders_count} {localized('orders', 'အော်ဒါ')} · {money(customer.order_amount)}</span><span>{money(customer.collection_amount)} {localized('collected', 'ကောက်ခံ')}</span></div>}
+                {customer.orders_count > 0 && <div className="sales-route-activity"><span>{customer.orders_count} {localized('orders', 'အော်ဒါ')} · {money(customer.order_amount)}</span></div>}
                 <div className="sales-route-stop-actions">{customer.phone && <a className="button route-call-action" href={`tel:${customer.phone}`}><Phone size={14} />{localized('Call', 'ဖုန်းခေါ်')}</a>}{['planned', 'skipped'].includes(customer.visit_status) && <button className="button primary route-primary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'in_progress')}><Play size={14} />{customer.visit_status === 'skipped' ? localized('Resume visit', 'ပြန်စတင်') : localized('Start visit', 'စတင်')}</button>}{customer.visit_status === 'in_progress' && <button className="button primary route-primary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'completed')}><CheckCircle2 size={14} />{localized('Complete visit', 'ပြီးဆုံး')}</button>}{customer.visit_status === 'completed' && <span className="route-action-complete"><CheckCircle2 size={14} />{localized('Visit completed', 'ပြီးဆုံးခဲ့')}</span>}{['planned', 'in_progress'].includes(customer.visit_status) && <button className="icon-button route-skip-action" aria-label={localized(`Skip ${customer.shop_name}`, `${customer.shop_name} ကျော်ရန်`)} title={localized('Skip this stop', 'ဤနေရာကို ကျော်ရန်')} disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'skipped')}><SkipForward size={15} /></button>}</div>
             </article>)}</div> : <WorkspaceState icon={Search} title={localized('No customer visits match this view.', 'ကိုက်ညီသော ဖောက်သည်မရှိပါ။')} compact />}
         </section>
@@ -773,9 +955,9 @@ function TableLoading({ columns }) {
     return <div className="master-table-wrap"><table className="master-table"><tbody>{[0, 1, 2, 3, 4].map((row) => <tr key={row}>{Array.from({ length: columns }).map((_, column) => <td key={column}><span className="table-skeleton" /></td>)}</tr>)}</tbody></table></div>;
 }
 
-function Pagination({ meta = {}, page, setPage, locale }) {
+function Pagination({ meta = {}, page, setPage, locale, disabled = false }) {
     if (!meta.last_page || meta.last_page <= 1) return null;
-    return <div className="master-pagination"><span>{text(locale, 'page')} {meta.current_page} {text(locale, 'of')} {meta.last_page} · {meta.total}</span><div><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} aria-label={text(locale, 'previousPage')} title={text(locale, 'previousPage')}><ChevronLeft size={16} /></button><button type="button" disabled={page >= meta.last_page} onClick={() => setPage((value) => value + 1)} aria-label={text(locale, 'nextPage')} title={text(locale, 'nextPage')}><ChevronRight size={16} /></button></div></div>;
+    return <div className="master-pagination"><span>{text(locale, 'page')} {meta.current_page} {text(locale, 'of')} {meta.last_page} · {meta.total}</span><div><button type="button" disabled={disabled || page <= 1} onClick={() => setPage((value) => value - 1)} aria-label={text(locale, 'previousPage')} title={text(locale, 'previousPage')}><ChevronLeft size={16} /></button><button type="button" disabled={disabled || page >= meta.last_page} onClick={() => setPage((value) => value + 1)} aria-label={text(locale, 'nextPage')} title={text(locale, 'nextPage')}><ChevronRight size={16} /></button></div></div>;
 }
 
 function normalizePayload(values, fields) {

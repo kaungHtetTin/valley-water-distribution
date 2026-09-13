@@ -13,11 +13,14 @@ return new class extends Migration
             $table->string('code')->unique();
             $table->foreignId('invoice_id')->unique()->constrained()->restrictOnDelete();
             $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('customer_id')->constrained()->restrictOnDelete();
+            $table->foreignId('customer_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('area_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('warehouse_id')->constrained()->restrictOnDelete();
             $table->foreignId('route_id')->constrained('routes')->restrictOnDelete();
             $table->foreignId('driver_id')->constrained('employees')->restrictOnDelete();
             $table->foreignId('vehicle_id')->constrained()->restrictOnDelete();
+            $table->string('recipient_name')->nullable();
+            $table->string('recipient_phone')->nullable();
             $table->date('planned_date')->index();
             $table->string('status')->default('planned')->index();
             $table->decimal('total_quantity', 14, 2)->default(0);

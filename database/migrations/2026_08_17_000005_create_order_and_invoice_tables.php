@@ -11,9 +11,13 @@ return new class extends Migration
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
             $table->string('code')->unique();
-            $table->foreignId('customer_id')->constrained()->restrictOnDelete();
+            $table->foreignId('customer_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('area_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('route_id')->nullable()->constrained('routes')->nullOnDelete();
             $table->foreignId('price_type_id')->nullable()->constrained()->nullOnDelete();
+            $table->string('recipient_name')->nullable();
+            $table->string('recipient_phone')->nullable();
+            $table->text('delivery_address')->nullable();
             $table->string('source_app')->default('office')->index();
             $table->date('order_date')->index();
             $table->date('requested_delivery_date')->nullable()->index();
@@ -51,7 +55,12 @@ return new class extends Migration
             $table->id();
             $table->string('code')->unique();
             $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('customer_id')->constrained()->restrictOnDelete();
+            $table->foreignId('customer_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('area_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('route_id')->nullable()->constrained('routes')->nullOnDelete();
+            $table->string('recipient_name')->nullable();
+            $table->string('recipient_phone')->nullable();
+            $table->text('delivery_address')->nullable();
             $table->date('invoice_date')->index();
             $table->date('due_date')->nullable()->index();
             $table->string('status')->default('draft')->index();

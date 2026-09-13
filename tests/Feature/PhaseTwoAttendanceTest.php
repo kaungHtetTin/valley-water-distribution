@@ -129,7 +129,7 @@ class PhaseTwoAttendanceTest extends TestCase
             ->assertJsonPath('data.meta.total', 1);
     }
 
-    public function test_sales_and_driver_can_view_only_their_own_mobile_attendance_history()
+    public function test_only_driver_can_view_their_own_mobile_attendance_history()
     {
         $this->seed();
 
@@ -137,10 +137,7 @@ class PhaseTwoAttendanceTest extends TestCase
 
         $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail())
             ->getJson('/api/mobile/attendance/records')
-            ->assertOk()
-            ->assertJsonPath('data.summary.total', 1)
-            ->assertJsonPath('data.summary.accepted', 1)
-            ->assertJsonPath('data.items.0.entered_employee_code', 'SAL-001');
+            ->assertForbidden();
 
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail())
             ->getJson('/api/mobile/attendance/records')

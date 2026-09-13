@@ -54,27 +54,57 @@ class PhaseSevenFinanceTest extends TestCase
         ])->assertUnprocessable();
     }
 
-    public function test_sales_collection_is_scoped_and_requires_office_approval()
+    public function test_sales_representative_cannot_access_or_create_cash_collections()
     {
         $this->seed();
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $customerId = DB::table('customers')->where('code', 'CUS-0002')->value('id');
-        $outsideCustomerId = DB::table('customers')->where('code', 'CUS-0004')->value('id');
 
         $this->actingAs($sales);
-        $this->getJson('/api/mobile/finance/meta')
-            ->assertOk()
-            ->assertJsonPath('data.app', 'sales');
-        $created = $this->postJson('/api/mobile/finance/collections', [
+        $this->getJson('/api/mobile/finance')->assertForbidden();
+        $this->getJson('/api/mobile/finance/meta')->assertForbidden();
+        $this->postJson('/api/mobile/finance/collections', [
             'customer_id' => $customerId,
             'collection_date' => '2026-08-17',
             'amount' => 7000,
             'payment_method' => 'cash',
             'reference_no' => 'FIELD-TEST-01',
-        ])->assertCreated();
-        $collectionId = $created->json('data.collection_id');
-        $this->assertDatabaseHas('collections', ['id' => $collectionId, 'employee_id' => $sales->employee_id, 'source_app' => 'sales', 'status' => 'submitted']);
-        $this->assertDatabaseMissing('financial_transactions', ['reference_type' => 'collection', 'reference_id' => $collectionId]);
+        ])->assertForbidden();
+    }
+
+    public function test_driver_can_collect_cash_from_an_assigned_route_customer_without_a_delivery()
+    {
+        $this->seed();
+        $driver = User::where('email', 'driver@valley.test')->firstOrFail();
+        $routeCustomerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
+        $outsideCustomerId = DB::table('customers')->where('code', 'CUS-0004')->value('id');
+
+        $this->actingAs($driver);
+        $this->getJson('/api/mobile/finance/meta')
+            ->assertOk()
+            ->assertJsonPath('data.app', 'driver')
+            ->assertJsonFragment(['code' => 'CUS-0001', 'outstanding' => 30000]);
+        $created = $this->postJson('/api/mobile/finance/collections', [
+            'customer_id' => $routeCustomerId,
+            'collection_date' => '2026-08-17',
+            'amount' => 2000,
+            'payment_method' => 'cash',
+        ])->assertCreated()->assertJsonPath('data.outstanding_after_approval', 28000);
+        $this->assertDatabaseHas('collections', ['id' => $created->json('data.collection_id'), 'customer_id' => $routeCustomerId, 'employee_id' => $driver->employee_id, 'source_app' => 'driver', 'payment_method' => 'cash', 'status' => 'submitted']);
+
+        $this->postJson('/api/mobile/finance/collections', [
+            'customer_id' => $routeCustomerId,
+            'collection_date' => '2026-08-17',
+            'amount' => 29000,
+            'payment_method' => 'cash',
+        ])->assertUnprocessable();
+
+        $this->postJson('/api/mobile/finance/collections', [
+            'customer_id' => $routeCustomerId,
+            'collection_date' => '2026-08-17',
+            'amount' => 1000,
+            'payment_method' => 'bank',
+        ])->assertUnprocessable();
 
         $this->postJson('/api/mobile/finance/collections', [
             'customer_id' => $outsideCustomerId,
@@ -82,43 +112,13 @@ class PhaseSevenFinanceTest extends TestCase
             'amount' => 1000,
             'payment_method' => 'cash',
         ])->assertForbidden();
-
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
-        $this->postJson("/api/finance/collections/{$collectionId}/review", ['status' => 'approved'])
-            ->assertOk()
-            ->assertJsonPath('data.collection.status', 'approved');
-        $this->assertDatabaseHas('financial_transactions', ['reference_type' => 'collection', 'reference_id' => $collectionId, 'direction' => 'in']);
     }
 
-    public function test_driver_collection_requires_an_assigned_delivery()
+    public function test_driver_expenses_are_reviewed_and_included_in_profit_and_loss()
     {
         $this->seed();
         $driver = User::where('email', 'driver@valley.test')->firstOrFail();
-        $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
-
         $this->actingAs($driver);
-        $this->postJson('/api/mobile/finance/collections', [
-            'customer_id' => $delivery->customer_id,
-            'delivery_id' => $delivery->id,
-            'collection_date' => '2026-08-17',
-            'amount' => 2000,
-            'payment_method' => 'cash',
-        ])->assertCreated();
-
-        $this->postJson('/api/mobile/finance/collections', [
-            'customer_id' => DB::table('customers')->where('code', 'CUS-0004')->value('id'),
-            'delivery_id' => $delivery->id,
-            'collection_date' => '2026-08-17',
-            'amount' => 1000,
-            'payment_method' => 'cash',
-        ])->assertForbidden();
-    }
-
-    public function test_mobile_expenses_are_reviewed_and_included_in_profit_and_loss()
-    {
-        $this->seed();
-        $sales = User::where('email', 'sales@valley.test')->firstOrFail();
-        $this->actingAs($sales);
         $created = $this->postJson('/api/mobile/finance/expenses', [
             'expense_date' => '2026-08-17',
             'category' => 'travel',

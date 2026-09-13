@@ -42,13 +42,7 @@ class DatabaseSeeder extends Seeder
             'sales.profile' => ['view'],
             'sales.route' => ['view'],
             'sales.orders' => ['view', 'create'],
-            'sales.deliveries' => ['view'],
             'sales.customers' => ['view', 'create'],
-            'sales.finance' => ['view'],
-            'sales.collections' => ['view', 'create'],
-            'sales.expenses' => ['view', 'create'],
-            'sales.attendance' => ['view'],
-            'sales.payroll' => ['view'],
             'driver.home' => ['view'],
             'driver.profile' => ['view'],
             'driver.vehicle' => ['view'],
@@ -135,16 +129,8 @@ class DatabaseSeeder extends Seeder
                 'sales.route.view',
                 'sales.orders.view',
                 'sales.orders.create',
-                'sales.deliveries.view',
                 'sales.customers.view',
                 'sales.customers.create',
-                'sales.collections.view',
-                'sales.collections.create',
-                'sales.expenses.view',
-                'sales.expenses.create',
-                'sales.finance.view',
-                'sales.attendance.view',
-                'sales.payroll.view',
             ],
             'Driver' => [
                 'driver.home.view',
@@ -274,6 +260,7 @@ class DatabaseSeeder extends Seeder
         foreach ($stockSeedRows as $stockMovement) {
             $productSku = $stockMovement['product_sku'];
             unset($stockMovement['product_sku']);
+            $stockMovement['document_code'] = $stockMovement['code'];
             $stockMovement['product_id'] = DB::table('products')->where('sku', $productSku)->value('id');
             DB::table('stock_movements')->updateOrInsert(
                 ['code' => $stockMovement['code']],
@@ -473,7 +460,8 @@ class DatabaseSeeder extends Seeder
                 'source_app' => 'office',
                 'order_date' => '2026-08-16',
                 'requested_delivery_date' => '2026-08-17',
-                'payment_type' => 'cash',
+                'payment_type' => 'credit',
+                'credit_due_date' => '2026-08-24',
                 'status' => 'invoiced',
                 'subtotal' => 36000,
                 'discount_total' => 0,

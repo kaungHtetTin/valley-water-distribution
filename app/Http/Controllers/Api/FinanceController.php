@@ -7,6 +7,7 @@ use App\Models\Collection;
 use App\Models\Expense;
 use App\Models\FinancialTransaction;
 use App\Models\SupplierLedgerEntry;
+use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Carbon\Carbon;
@@ -20,13 +21,17 @@ class FinanceController extends Controller
 
     private const MANAGE_PERMISSION = 'office.finance.manage';
 
+    public function __construct(private readonly CustomerCreditService $customerCredit)
+    {
+    }
+
     public function meta(Request $request)
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
 
         return ApiResponse::success('Finance setup loaded.', [
             'customers' => DB::table('customers')->where('is_active', true)->orderBy('shop_name')->get(['id', 'code', 'shop_name'])->map(fn ($item) => $this->customerMeta($item)),
-            'invoices' => DB::table('invoices')->join('customers', 'invoices.customer_id', '=', 'customers.id')->where('invoices.status', '!=', 'cancelled')->orderByDesc('invoice_date')->get(['invoices.id', 'invoices.code', 'invoices.customer_id', 'invoices.total', 'customers.shop_name'])->map(function ($invoice) {
+            'invoices' => DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->join('customers', 'invoices.customer_id', '=', 'customers.id')->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->orderByDesc('invoice_date')->get(['invoices.id', 'invoices.code', 'invoices.customer_id', 'invoices.total', 'customers.shop_name'])->map(function ($invoice) {
                 $invoice->outstanding = $this->invoiceOutstanding((int) $invoice->id);
                 $invoice->label = "{$invoice->code} - {$invoice->shop_name}";
 
@@ -106,23 +111,30 @@ class FinanceController extends Controller
     public function receivables(Request $request)
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
-        $invoiceTotals = DB::table('invoices')->where('status', '!=', 'cancelled')->groupBy('customer_id')->selectRaw('customer_id, SUM(total) invoiced_amount');
+        $invoiceTotals = DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->groupBy('invoices.customer_id')->selectRaw('invoices.customer_id, SUM(invoices.total) invoiced_amount');
         $collectionTotals = DB::table('collections')->where('status', 'approved')->groupBy('customer_id')->selectRaw('customer_id, SUM(amount) collected_amount');
         $query = DB::table('customers')->leftJoinSub($invoiceTotals, 'invoice_totals', 'customers.id', '=', 'invoice_totals.customer_id')->leftJoinSub($collectionTotals, 'collection_totals', 'customers.id', '=', 'collection_totals.customer_id')->leftJoin('routes', 'customers.route_id', '=', 'routes.id')->where('customers.is_active', true);
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('customers.code', 'like', "%{$search}%")->orWhere('customers.shop_name', 'like', "%{$search}%"));
         }
         $items = $query->orderBy('customers.shop_name')->get(['customers.id', 'customers.code', 'customers.shop_name', 'customers.credit_limit', 'routes.name as route_name', DB::raw('COALESCE(invoice_totals.invoiced_amount,0) invoiced_amount'), DB::raw('COALESCE(collection_totals.collected_amount,0) collected_amount')])->map(function ($item) {
+            $credit = $this->customerCredit->summary((int) $item->id);
             $item->credit_limit = (float) $item->credit_limit;
-            $item->invoiced_amount = (float) $item->invoiced_amount;
-            $item->collected_amount = (float) $item->collected_amount;
-            $item->outstanding_amount = $item->invoiced_amount - $item->collected_amount;
-            $item->available_credit = $item->credit_limit > 0 ? $item->credit_limit - $item->outstanding_amount : null;
+            $item->invoiced_amount = $credit['credit_sales_amount'];
+            $item->collected_amount = $credit['payments_amount'];
+            $item->return_credits_amount = $credit['return_credits_amount'];
+            $item->refunds_amount = $credit['refunds_amount'];
+            $item->outstanding_amount = $credit['outstanding_amount'];
+            $item->customer_credit_amount = $credit['customer_credit_amount'];
+            $item->available_credit = $item->credit_limit > 0 ? $item->credit_limit - $item->outstanding_amount + $item->customer_credit_amount : null;
+            $due = $this->customerDueSummary((int) $item->id, $this->customerCredit->settlementCredits((int) $item->id));
+            $item->overdue_amount = $due['overdue_amount'];
+            $item->next_due_date = $due['next_due_date'];
 
             return $item;
         });
 
-        return ApiResponse::success('Customer receivables loaded.', ['items' => $items, 'summary' => ['customers_count' => $items->count(), 'invoiced_amount' => (float) $items->sum('invoiced_amount'), 'collected_amount' => (float) $items->sum('collected_amount'), 'outstanding_amount' => (float) $items->sum('outstanding_amount')]]);
+        return ApiResponse::success('Customer credit loaded.', ['items' => $items, 'summary' => ['customers_count' => $items->count(), 'credit_sales_amount' => (float) $items->sum('invoiced_amount'), 'invoiced_amount' => (float) $items->sum('invoiced_amount'), 'collected_amount' => (float) $items->sum('collected_amount'), 'return_credits_amount' => (float) $items->sum('return_credits_amount'), 'customer_credit_amount' => (float) $items->sum('customer_credit_amount'), 'outstanding_amount' => (float) $items->sum('outstanding_amount'), 'overdue_amount' => (float) $items->sum('overdue_amount')]]);
     }
 
     public function customerLedger(Request $request, int $customerId)
@@ -277,28 +289,58 @@ class FinanceController extends Controller
     {
         $scope = $this->mobileScope($request, 'view');
         abort_if($scope['app'] === 'client', 403);
-        $customers = $scope['app'] === 'sales'
-            ? DB::table('customers')->where('route_id', $scope['route_id'])->where('is_active', true)->orderBy('shop_name')->get(['id', 'code', 'shop_name'])
-            : DB::table('deliveries')->join('customers', 'deliveries.customer_id', '=', 'customers.id')->where('deliveries.driver_id', $scope['employee_id'])->whereIn('deliveries.status', ['assigned', 'loading', 'on_route'])->distinct()->get(['customers.id', 'customers.code', 'customers.shop_name']);
-        $deliveries = $scope['app'] === 'driver' ? DB::table('deliveries')->join('customers', 'deliveries.customer_id', '=', 'customers.id')->where('deliveries.driver_id', $scope['employee_id'])->whereIn('deliveries.status', ['assigned', 'loading', 'on_route'])->get(['deliveries.id', 'deliveries.code', 'deliveries.customer_id', 'customers.shop_name']) : collect();
+        $deliveries = $scope['app'] === 'driver'
+            ? DB::table('deliveries')->join('customers', 'deliveries.customer_id', '=', 'customers.id')->where('deliveries.driver_id', $scope['employee_id'])->whereIn('deliveries.status', ['assigned', 'loading', 'on_route'])->orderByDesc('deliveries.id')->get(['deliveries.id', 'deliveries.code', 'deliveries.customer_id', 'customers.shop_name'])
+            : collect();
+        $deliveryByCustomer = $deliveries->keyBy('customer_id');
+        $customerQuery = DB::table('customers')->where('customers.is_active', true);
+        if ($scope['route_id']) {
+            $customerQuery->where('customers.route_id', $scope['route_id']);
+        } elseif ($scope['app'] === 'driver') {
+            $customerQuery->whereIn('customers.id', $deliveries->pluck('customer_id'));
+        } else {
+            $customerQuery->whereRaw('1 = 0');
+        }
+        $customers = $customerQuery->orderBy('customers.shop_name')->get(['customers.id', 'customers.code', 'customers.shop_name', 'customers.contact_name', 'customers.phone', 'customers.address'])->map(function ($customer) use ($deliveryByCustomer) {
+            $delivery = $deliveryByCustomer->get($customer->id);
+            $customer->outstanding = $this->customerOutstanding((int) $customer->id);
+            $customer->pending_collection = (float) DB::table('collections')->where('customer_id', $customer->id)->where('status', 'submitted')->sum('amount');
+            $customer->collectible = max($customer->outstanding - $customer->pending_collection, 0);
+            $customer->active_delivery_id = $delivery?->id;
+            $customer->active_delivery_code = $delivery?->code;
+
+            return $customer;
+        })->filter(fn ($customer) => $customer->collectible > 0)->values();
 
         return ApiResponse::success('Field finance setup loaded.', ['app' => $scope['app'], 'customers' => $customers, 'deliveries' => $deliveries, 'expense_categories' => ['meals', 'travel', 'fuel', 'communication', 'other']]);
     }
 
     public function mobileStoreCollection(Request $request)
     {
+        abort_unless($request->user()?->role === 'Driver', 403, 'Cash collection is a Driver operation.');
         $scope = $this->mobileScope($request, 'create', 'collections');
-        $validated = $request->validate(['customer_id' => ['required', 'integer', 'exists:customers,id'], 'delivery_id' => [$scope['app'] === 'driver' ? 'required' : 'nullable', 'integer', 'exists:deliveries,id'], 'collection_date' => ['required', 'date'], 'amount' => ['required', 'numeric', 'gt:0'], 'payment_method' => ['required', Rule::in(['cash', 'bank'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:500']]);
-        if ($scope['app'] === 'sales') {
-            abort_unless(DB::table('customers')->where('id', $validated['customer_id'])->where('route_id', $scope['route_id'])->exists(), 403, 'Customer is outside the assigned route.');
+        $validated = $request->validate(['customer_id' => ['required', 'integer', 'exists:customers,id'], 'delivery_id' => ['nullable', 'integer', 'exists:deliveries,id'], 'collection_date' => ['required', 'date'], 'amount' => ['required', 'numeric', 'gt:0'], 'payment_method' => ['nullable', Rule::in(['cash'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:500']]);
+        $assignedCustomer = $scope['route_id'] && DB::table('customers')->where('id', $validated['customer_id'])->where('route_id', $scope['route_id'])->where('is_active', true)->exists();
+        $activeDelivery = $scope['app'] === 'driver'
+            ? DB::table('deliveries')->where('driver_id', $scope['employee_id'])->where('customer_id', $validated['customer_id'])->whereIn('status', ['assigned', 'loading', 'on_route'])->latest('id')->first()
+            : null;
+        abort_unless($assignedCustomer || $activeDelivery, 403, 'Customer is outside the assigned route.');
+        if (! empty($validated['delivery_id'])) {
+            abort_unless($scope['app'] === 'driver' && $activeDelivery && (int) $activeDelivery->id === (int) $validated['delivery_id'], 403, 'Delivery is outside the assigned route.');
+        } elseif ($activeDelivery) {
+            $validated['delivery_id'] = $activeDelivery->id;
         }
-        if ($scope['app'] === 'driver') {
-            abort_unless(DB::table('deliveries')->where('id', $validated['delivery_id'])->where('driver_id', $scope['employee_id'])->where('customer_id', $validated['customer_id'])->whereIn('status', ['assigned', 'loading', 'on_route'])->exists(), 403, 'Delivery is outside the assigned route.');
-        }
-        abort_if((float) $validated['amount'] > $this->customerOutstanding((int) $validated['customer_id']), 422, 'Collection cannot exceed customer outstanding.');
-        $collection = Collection::create($validated + ['code' => $this->nextCode('COL', 'collections', 'collection_date', Carbon::parse($validated['collection_date'])), 'employee_id' => $scope['employee_id'], 'source_app' => $scope['app'], 'status' => 'submitted', 'submitted_by' => $request->user()->id]);
+        $validated['payment_method'] = 'cash';
+        $collection = DB::transaction(function () use ($request, $scope, $validated) {
+            DB::table('customers')->where('id', $validated['customer_id'])->lockForUpdate()->first();
+            $outstanding = $this->customerOutstanding((int) $validated['customer_id']);
+            $pending = (float) DB::table('collections')->where('customer_id', $validated['customer_id'])->where('status', 'submitted')->sum('amount');
+            abort_if((float) $validated['amount'] > max($outstanding - $pending, 0), 422, 'Collection exceeds the customer balance available to collect.');
 
-        return ApiResponse::success('Field collection submitted for review.', ['collection_id' => $collection->id, 'code' => $collection->code], 201);
+            return Collection::create($validated + ['code' => $this->nextCode('COL', 'collections', 'collection_date', Carbon::parse($validated['collection_date'])), 'employee_id' => $scope['employee_id'], 'source_app' => $scope['app'], 'status' => 'submitted', 'submitted_by' => $request->user()->id]);
+        });
+
+        return ApiResponse::success('Cash collection submitted for Office review.', ['collection_id' => $collection->id, 'code' => $collection->code, 'outstanding_after_approval' => max($this->customerOutstanding((int) $validated['customer_id']) - (float) $collection->amount, 0)], 201);
     }
 
     public function mobileStoreExpense(Request $request)
@@ -349,8 +391,20 @@ class FinanceController extends Controller
         $customer = DB::table('customers')->find($customerId);
         abort_unless($customer, 404);
         $entries = collect();
-        DB::table('invoices')->where('customer_id', $customerId)->where('status', '!=', 'cancelled')->get()->each(fn ($item) => $entries->push(['key' => "I{$item->id}", 'date' => $item->invoice_date, 'type' => 'invoice', 'reference' => $item->code, 'description' => 'Invoice charge', 'debit' => (float) $item->total, 'credit' => 0]));
+        DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->where('invoices.customer_id', $customerId)->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->get(['invoices.*'])->each(fn ($item) => $entries->push(['key' => "I{$item->id}", 'date' => $item->invoice_date, 'due_date' => $item->due_date, 'type' => 'invoice', 'reference' => $item->code, 'description' => 'Credit sale', 'debit' => (float) $item->total, 'credit' => 0]));
         DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->get()->each(fn ($item) => $entries->push(['key' => "C{$item->id}", 'date' => $item->collection_date, 'type' => 'collection', 'reference' => $item->code, 'description' => 'Payment received', 'debit' => 0, 'credit' => (float) $item->amount]));
+        DB::table('orders as returns')
+            ->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')
+            ->where('returns.customer_id', $customerId)
+            ->where('returns.status', 'confirmed')
+            ->where(fn ($query) => $query->where('originals.payment_type', 'credit')->orWhere('returns.return_settlement_method', 'customer_credit'))
+            ->get(['returns.id', 'returns.code', 'returns.order_date', 'returns.total', 'returns.refund_amount'])
+            ->each(function ($item) use ($entries) {
+                $entries->push(['key' => "R{$item->id}", 'date' => $item->order_date, 'type' => 'sales_return', 'reference' => $item->code, 'description' => 'Sales return credit', 'debit' => 0, 'credit' => (float) $item->total]);
+                if ((float) $item->refund_amount > 0) {
+                    $entries->push(['key' => "F{$item->id}", 'date' => $item->order_date, 'type' => 'return_refund', 'reference' => $item->code, 'description' => 'Return credit refunded', 'debit' => (float) $item->refund_amount, 'credit' => 0]);
+                }
+            });
         $balance = 0;
         $entries = $entries->sortBy(fn ($item) => $item['date'].($item['type'] === 'invoice' ? '0' : '1').str_pad(substr($item['key'], 1), 10, '0', STR_PAD_LEFT))->values()->map(function ($item) use (&$balance) {
             $balance += $item['debit'] - $item['credit'];
@@ -359,17 +413,61 @@ class FinanceController extends Controller
             return $item;
         });
 
-        return ['customer' => ['id' => $customer->id, 'code' => $customer->code, 'shop_name' => $customer->shop_name, 'credit_limit' => (float) $customer->credit_limit], 'entries' => $entries->reverse()->values(), 'summary' => ['invoiced_amount' => (float) $entries->sum('debit'), 'collected_amount' => (float) $entries->sum('credit'), 'outstanding_amount' => (float) $balance]];
+        $due = $this->customerDueSummary($customerId, $this->customerCredit->settlementCredits($customerId));
+        $credit = $this->customerCredit->summary($customerId);
+
+        return ['customer' => ['id' => $customer->id, 'code' => $customer->code, 'shop_name' => $customer->shop_name, 'credit_limit' => (float) $customer->credit_limit], 'entries' => $entries->reverse()->values(), 'summary' => ['credit_sales_amount' => $credit['credit_sales_amount'], 'collected_amount' => $credit['payments_amount'], 'return_credits_amount' => $credit['return_credits_amount'], 'refunds_amount' => $credit['refunds_amount'], 'customer_credit_amount' => $credit['customer_credit_amount'], 'outstanding_amount' => $credit['outstanding_amount'], 'overdue_amount' => $due['overdue_amount'], 'next_due_date' => $due['next_due_date']]];
     }
 
     private function customerOutstanding(int $customerId): float
     {
-        return (float) DB::table('invoices')->where('customer_id', $customerId)->where('status', '!=', 'cancelled')->sum('total') - (float) DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->sum('amount');
+        return $this->customerCredit->outstanding($customerId);
     }
 
     private function invoiceOutstanding(int $invoiceId): float
     {
-        return (float) DB::table('invoices')->where('id', $invoiceId)->where('status', '!=', 'cancelled')->value('total') - (float) DB::table('collections')->where('invoice_id', $invoiceId)->where('status', 'approved')->sum('amount');
+        $invoice = DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->where('invoices.id', $invoiceId)->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->first(['invoices.total', 'orders.id as order_id']);
+        if (! $invoice) {
+            return 0;
+        }
+
+        $returned = (float) DB::table('orders')->where('original_order_id', $invoice->order_id)->where('status', 'confirmed')->sum('total');
+        $refunded = (float) DB::table('orders')->where('original_order_id', $invoice->order_id)->where('status', 'confirmed')->sum('refund_amount');
+
+        return max((float) $invoice->total + $refunded - (float) DB::table('collections')->where('invoice_id', $invoiceId)->where('status', 'approved')->sum('amount') - $returned, 0);
+    }
+
+    private function customerDueSummary(int $customerId, float $collected): array
+    {
+        $paymentsRemaining = $collected;
+        $overdue = 0;
+        $nextDueDate = null;
+        $invoices = DB::table('invoices')
+            ->join('orders', 'invoices.order_id', '=', 'orders.id')
+            ->where('invoices.customer_id', $customerId)
+            ->where('orders.payment_type', 'credit')
+            ->where('invoices.status', '!=', 'cancelled')
+            ->orderByRaw('COALESCE(invoices.due_date, invoices.invoice_date)')
+            ->orderBy('invoices.id')
+            ->get(['invoices.total', 'invoices.invoice_date', 'invoices.due_date']);
+
+        foreach ($invoices as $invoice) {
+            $amount = (float) $invoice->total;
+            $settled = min($amount, $paymentsRemaining);
+            $paymentsRemaining -= $settled;
+            $outstanding = $amount - $settled;
+            if ($outstanding <= 0) {
+                continue;
+            }
+            $dueDate = $invoice->due_date ?: $invoice->invoice_date;
+            if (Carbon::parse($dueDate)->isBefore(today())) {
+                $overdue += $outstanding;
+            } elseif ($nextDueDate === null || $dueDate < $nextDueDate) {
+                $nextDueDate = $dueDate;
+            }
+        }
+
+        return ['overdue_amount' => $overdue, 'next_due_date' => $nextDueDate];
     }
 
     private function customerMeta($item)

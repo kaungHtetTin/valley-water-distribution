@@ -1,5 +1,6 @@
 import {
     AlertCircle,
+    ArrowLeft,
     CalendarDays,
     CheckCircle2,
     ChevronLeft,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DetailPage, DetailPanel } from './components/DetailPage';
 
 const copy = {
     en: {
@@ -123,6 +125,13 @@ const officeCopy = {
         employeeType: 'Employee type',
         empty: 'No records match this view.',
         gpsDenied: 'GPS denied',
+        gpsLocating: 'Getting live GPS location...',
+        gpsReady: 'Live GPS ready',
+        gpsUnavailable: 'GPS is unavailable in this browser.',
+        gpsSecureContext: 'Chrome requires HTTPS or localhost to use GPS.',
+        useCurrentGps: 'Use current GPS',
+        locationMap: 'Location map',
+        accuracy: 'Accuracy',
         history: 'History',
         inactive: 'Inactive',
         latitude: 'Latitude',
@@ -260,7 +269,7 @@ export function PublicAttendanceScreen({ token, locale, setLocale }) {
     );
 }
 
-export function AttendanceLocationsScreen({ locale, canManage = false }) {
+export function AttendanceLocationsScreen({ locale, canManage = false, detailId = null, onNavigate }) {
     const [filters, setFilters] = useState({ search: '', is_active: '' });
     const [page, setPage] = useState(1);
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
@@ -268,6 +277,19 @@ export function AttendanceLocationsScreen({ locale, canManage = false }) {
     const [viewing, setViewing] = useState(null);
     const [message, setMessage] = useState('');
     const [refreshKey, setRefreshKey] = useState(0);
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/attendance/locations`;
+
+    useEffect(() => {
+        if (!detailId) {
+            setViewing(null);
+            return undefined;
+        }
+        let mounted = true;
+        window.axios.get(`${apiBase('attendanceLocations')}/${detailId}`)
+            .then(({ data }) => mounted && setViewing(data.data.location))
+            .catch((error) => mounted && setState((current) => ({ ...current, error: requestMessage(error, locale) })));
+        return () => { mounted = false; };
+    }, [detailId, locale]);
 
     useEffect(() => {
         let mounted = true;
@@ -309,12 +331,14 @@ export function AttendanceLocationsScreen({ locale, canManage = false }) {
         try {
             const { data } = await window.axios.post(`${apiBase('attendanceLocations')}/${location.id}/rotate-token`);
             const updated = data.data.location;
-            setViewing(updated);
+            if (detailId) setViewing(updated);
             setRefreshKey((key) => key + 1);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         }
     };
+
+    if (detailId) return viewing ? <><LocationDetailPage location={viewing} locale={locale} canManage={canManage} onClose={() => onNavigate?.(listPath)} onCopy={() => setMessage(t(locale, 'copied'))} onEdit={() => setEditing({ mode: 'edit', values: { ...viewing } })} onRotate={() => rotate(viewing)} />{editing && <LocationDialog editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setViewing(location); setRefreshKey((key) => key + 1); }} />}</> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
 
     return (
         <section className="master-workspace attendance-workspace">
@@ -365,7 +389,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false }) {
                                         <td><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></td>
                                         <td><a className="text-link" href={location.public_url} target="_blank" rel="noreferrer">{t(locale, 'open')}</a></td>
                                         <td className="row-actions">
-                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => setViewing(location)}><Eye size={15} /></button>
+                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${location.id}`)}><Eye size={15} /></button>
                                             {canManage && <button type="button" aria-label={t(locale, 'edit')} title={t(locale, 'edit')} onClick={() => setEditing({ mode: 'edit', values: { ...location } })}><Pencil size={15} /></button>}
                                             {canManage && <button type="button" aria-label={t(locale, 'rotate')} title={t(locale, 'rotate')} onClick={() => rotate(location)}><RotateCcw size={15} /></button>}
                                             {canManage && <button className="danger" type="button" aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => remove(location)}><Trash2 size={15} /></button>}
@@ -380,29 +404,31 @@ export function AttendanceLocationsScreen({ locale, canManage = false }) {
                 <Pagination meta={state.meta} page={page} setPage={setPage} locale={locale} />
             </div>
 
-            {editing && <LocationDialog editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setViewing(location); setRefreshKey((key) => key + 1); }} />}
-            {viewing && (
-                <LocationDrawer
-                    location={viewing}
-                    locale={locale}
-                    canManage={canManage}
-                    onClose={() => setViewing(null)}
-                    onCopy={() => setMessage(t(locale, 'copied'))}
-                    onEdit={() => { setEditing({ mode: 'edit', values: { ...viewing } }); setViewing(null); }}
-                    onRotate={() => rotate(viewing)}
-                />
-            )}
+            {editing && <LocationDialog editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setRefreshKey((key) => key + 1); onNavigate?.(`${listPath}/${location.id}`); }} />}
         </section>
     );
 }
 
-export function AttendanceRecordsScreen({ locale }) {
+export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate }) {
     const [filters, setFilters] = useState({ search: '', status: '', rejection_reason: '', attendance_location_id: '', date: '' });
     const [page, setPage] = useState(1);
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
     const [locations, setLocations] = useState([]);
     const [viewing, setViewing] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/attendance/records`;
+
+    useEffect(() => {
+        if (!detailId) {
+            setViewing(null);
+            return undefined;
+        }
+        let mounted = true;
+        window.axios.get(`${apiBase('attendanceRecords')}/${detailId}`)
+            .then(({ data }) => mounted && setViewing(data.data.record))
+            .catch((error) => mounted && setState((current) => ({ ...current, error: requestMessage(error, locale) })));
+        return () => { mounted = false; };
+    }, [detailId, locale]);
 
     useEffect(() => {
         let mounted = true;
@@ -446,6 +472,8 @@ export function AttendanceRecordsScreen({ locale }) {
             [t(locale, 'gpsDenied'), gpsDenied, t(locale, 'reason')],
         ];
     }, [locale, state.items, state.meta.total]);
+
+    if (detailId) return viewing ? <AttendanceRecordDetailPage record={viewing} locale={locale} onClose={() => onNavigate?.(listPath)} /> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
 
     return (
         <section className="master-workspace attendance-workspace">
@@ -512,7 +540,7 @@ export function AttendanceRecordsScreen({ locale }) {
                                         <td>{meters(record.distance_m)}</td>
                                         <td><StatusBadge status={record.status} locale={locale} /></td>
                                         <td>{record.rejection_reason ? t(locale, record.rejection_reason) : <span className="muted">-</span>}</td>
-                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => setViewing(record)}><Eye size={15} /></button></td>
+                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${record.id}`)}><Eye size={15} /></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -523,7 +551,6 @@ export function AttendanceRecordsScreen({ locale }) {
                 <Pagination meta={state.meta} page={page} setPage={setPage} locale={locale} />
             </div>
 
-            {viewing && <AttendanceRecordDrawer record={viewing} locale={locale} onClose={() => setViewing(null)} />}
         </section>
     );
 }
@@ -719,6 +746,8 @@ function LocationDialog({ editing, locale, onClose, onSaved }) {
     const [errors, setErrors] = useState({});
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
+    const [gps, setGps] = useState({ status: 'locating', latitude: null, longitude: null, accuracy: null, error: '' });
+    const [gpsRequestKey, setGpsRequestKey] = useState(0);
     const dialogRef = useRef(null);
 
     useEffect(() => {
@@ -732,6 +761,37 @@ function LocationDialog({ editing, locale, onClose, onSaved }) {
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [onClose]);
+
+    useEffect(() => {
+        setGps({ status: 'locating', latitude: null, longitude: null, accuracy: null, error: '' });
+        if (!window.isSecureContext) {
+            setGps({ status: 'error', latitude: null, longitude: null, accuracy: null, error: t(locale, 'gpsSecureContext') });
+            return undefined;
+        }
+        if (!navigator.geolocation) {
+            setGps({ status: 'error', latitude: null, longitude: null, accuracy: null, error: t(locale, 'gpsUnavailable') });
+            return undefined;
+        }
+
+        const watchId = navigator.geolocation.watchPosition((position) => {
+            const next = {
+                status: 'ready',
+                latitude: Number(position.coords.latitude.toFixed(7)),
+                longitude: Number(position.coords.longitude.toFixed(7)),
+                accuracy: Math.round(position.coords.accuracy),
+                error: '',
+            };
+            setGps(next);
+            if (editing.mode === 'create') {
+                setValues((current) => ({ ...current, latitude: next.latitude, longitude: next.longitude }));
+            }
+        }, (error) => {
+            const denied = error.code === error.PERMISSION_DENIED;
+            setGps((current) => ({ ...current, status: 'error', error: denied ? t(locale, 'gpsDenied') : t(locale, 'gpsUnavailable') }));
+        }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 });
+
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, [editing.mode, gpsRequestKey, locale]);
 
     const setField = (field, value) => setValues((current) => ({ ...current, [field]: value }));
     const fieldError = (field) => errors[field]?.[0] || '';
@@ -766,13 +826,13 @@ function LocationDialog({ editing, locale, onClose, onSaved }) {
 
     return (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <form ref={dialogRef} className="master-dialog" role="dialog" aria-modal="true" aria-labelledby="location-dialog-title" onSubmit={submit}>
+            <form ref={dialogRef} className="master-dialog attendance-location-dialog" role="dialog" aria-modal="true" aria-labelledby="location-dialog-title" onSubmit={submit}>
                 <header>
                     <div><p className="eyebrow">{editing.mode === 'create' ? t(locale, 'addLocation') : t(locale, 'edit')}</p><h2 id="location-dialog-title">{t(locale, 'attendanceLocations')}</h2></div>
                     <button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={onClose}><X size={17} /></button>
                 </header>
-                <div className="master-form-body">
-                    <div className="master-form-grid">
+                <div className="master-form-body attendance-location-editor">
+                    <div className="master-form-grid attendance-location-fields">
                         <FormField label={t(locale, 'code')} value={values.code} error={fieldError('code')} onChange={(value) => setField('code', value)} />
                         <FormField label={t(locale, 'name')} value={values.name} error={fieldError('name')} required onChange={(value) => setField('name', value)} />
                         <FormField label={t(locale, 'address')} value={values.address} error={fieldError('address')} textarea onChange={(value) => setField('address', value)} />
@@ -781,6 +841,15 @@ function LocationDialog({ editing, locale, onClose, onSaved }) {
                         <FormField label={t(locale, 'allowedRadius')} type="number" value={values.allowed_radius_m} error={fieldError('allowed_radius_m')} required onChange={(value) => setField('allowed_radius_m', value)} />
                         <label className="toggle-field"><input type="checkbox" checked={Boolean(values.is_active)} onChange={(event) => setField('is_active', event.target.checked)} /><span><CheckCircle2 size={13} /></span>{t(locale, 'active')}</label>
                     </div>
+                    <aside className="attendance-gps-panel">
+                        <div className="attendance-gps-status">
+                            <span className={`attendance-gps-icon ${gps.status}`}><Crosshair size={16} /></span>
+                            <span><strong>{gps.status === 'ready' ? t(locale, 'gpsReady') : gps.status === 'locating' ? t(locale, 'gpsLocating') : t(locale, 'gpsUnavailable')}</strong><small>{gps.status === 'ready' ? `${gps.latitude}, ${gps.longitude} | ${t(locale, 'accuracy')} ${gps.accuracy} m` : gps.error}</small></span>
+                        </div>
+                        {gps.status === 'ready' && editing.mode === 'edit' && <button className="button attendance-use-gps" type="button" onClick={() => setValues((current) => ({ ...current, latitude: gps.latitude, longitude: gps.longitude }))}><Crosshair size={14} />{t(locale, 'useCurrentGps')}</button>}
+                        {gps.status === 'error' && <button className="button attendance-use-gps" type="button" onClick={() => setGpsRequestKey((current) => current + 1)}><RefreshCw size={14} />{t(locale, 'retry')}</button>}
+                        <AttendanceLocationMap latitude={gps.latitude ?? values.latitude} longitude={gps.longitude ?? values.longitude} name={values.name || t(locale, 'locationMap')} compact />
+                    </aside>
                     {message && <div className="inline-error"><AlertCircle size={15} /> {message}</div>}
                 </div>
                 <footer>
@@ -802,7 +871,23 @@ function FormField({ label, value, error, onChange, type = 'text', textarea = fa
     );
 }
 
-function LocationDrawer({ location, locale, canManage, onClose, onEdit, onRotate, onCopy }) {
+function AttendanceLocationMap({ latitude, longitude, name, compact = false }) {
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return <div className={`attendance-location-map is-empty ${compact ? 'compact' : ''}`}><MapPinned size={24} /><span>Waiting for GPS coordinates</span></div>;
+    }
+    const delta = 0.0035;
+    const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`;
+    const source = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(`${lat},${lng}`)}`;
+
+    return <div className={`attendance-location-map ${compact ? 'compact' : ''}`}>
+        <iframe title={`${name} map`} src={source} loading="lazy" referrerPolicy="no-referrer" />
+        <span><MapPinned size={13} /><strong>{lat.toFixed(7)}, {lng.toFixed(7)}</strong></span>
+    </div>;
+}
+
+function LocationDetailPage({ location, locale, canManage, onClose, onEdit, onRotate, onCopy }) {
     const qrRef = useRef(null);
 
     const copyLink = async () => {
@@ -811,49 +896,46 @@ function LocationDrawer({ location, locale, canManage, onClose, onEdit, onRotate
     };
 
     return (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <aside className="record-drawer attendance-drawer" role="dialog" aria-modal="true" aria-label={t(locale, 'details')}>
-                <header>
-                    <div><p className="eyebrow">{t(locale, 'qrCode')}</p><h2>{location.name}</h2></div>
-                    <button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={onClose}><X size={17} /></button>
-                </header>
+        <DetailPage eyebrow={t(locale, 'attendanceLocations')} title={location.name} subtitle={location.code} onBack={onClose}
+            actions={<>
+                <button className="button" type="button" onClick={copyLink}><Copy size={15} /> {t(locale, 'copy')}</button>
+                <button className="button" type="button" onClick={() => downloadQrSvg(location, qrRef.current)}><Download size={15} /> {t(locale, 'download')}</button>
+                <button className="button" type="button" onClick={() => printQr(location, qrRef.current?.querySelector('svg')?.outerHTML || '', locale)}><Printer size={15} /> {t(locale, 'print')}</button>
+                <a className="button" href={location.public_url} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {t(locale, 'open')}</a>
+                {canManage && <button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {t(locale, 'edit')}</button>}
+                {canManage && <button className="button" type="button" onClick={onRotate}><RotateCcw size={15} /> {t(locale, 'rotate')}</button>}
+            </>}
+            aside={<DetailPanel eyebrow={t(locale, 'status')}><div className="record-page-summary"><span>{t(locale, 'status')}</span><strong><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></strong><small className="muted">{location.code}</small></div></DetailPanel>}
+        >
+            <DetailPanel eyebrow={t(locale, 'qrCode')} title={location.name}>
                 <div className="attendance-drawer-body">
-                    <section className="qr-preview">
+                    <section className="qr-preview record-page-qr">
                         <div><QrCode size={18} /><strong>{location.code}</strong><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></div>
                         <span className="qr-art" ref={qrRef}>
                             <QRCodeSVG value={location.public_url} size={220} level="M" marginSize={4} title={`${location.name} ${t(locale, 'qrCode')}`} />
                         </span>
                         <p>{location.public_url}</p>
                     </section>
-                    <dl>
+                    <dl className="record-page-facts">
                         <InfoRow label={t(locale, 'address')} value={location.address || '-'} />
                         <InfoRow label={t(locale, 'latitude')} value={location.latitude} />
                         <InfoRow label={t(locale, 'longitude')} value={location.longitude} />
                         <InfoRow label={t(locale, 'allowedRadius')} value={meters(location.allowed_radius_m)} />
                     </dl>
+                    <section className="attendance-location-detail-map"><div><p className="eyebrow">{t(locale, 'locationMap')}</p><strong>{location.address || location.name}</strong></div><AttendanceLocationMap latitude={location.latitude} longitude={location.longitude} name={location.name} /></section>
                 </div>
-                <footer className="attendance-drawer-actions">
-                    <button className="button" type="button" onClick={copyLink}><Copy size={15} /> {t(locale, 'copy')}</button>
-                    <button className="button" type="button" onClick={() => downloadQrSvg(location, qrRef.current)}><Download size={15} /> {t(locale, 'download')}</button>
-                    <button className="button" type="button" onClick={() => printQr(location, qrRef.current?.querySelector('svg')?.outerHTML || '', locale)}><Printer size={15} /> {t(locale, 'print')}</button>
-                    <a className="button" href={location.public_url} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {t(locale, 'open')}</a>
-                    {canManage && <button className="button" type="button" onClick={onEdit}><Pencil size={15} /> {t(locale, 'edit')}</button>}
-                    {canManage && <button className="button" type="button" onClick={onRotate}><RotateCcw size={15} /> {t(locale, 'rotate')}</button>}
-                </footer>
-            </aside>
-        </div>
+            </DetailPanel>
+        </DetailPage>
     );
 }
 
-function AttendanceRecordDrawer({ record, locale, onClose }) {
+function AttendanceRecordDetailPage({ record, locale, onClose }) {
     return (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <aside className="record-drawer" role="dialog" aria-modal="true" aria-label={t(locale, 'details')}>
-                <header>
-                    <div><p className="eyebrow">{t(locale, 'details')}</p><h2>{record.employee_name || record.entered_employee_code}</h2></div>
-                    <button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={onClose}><X size={17} /></button>
-                </header>
-                <dl>
+        <DetailPage eyebrow={t(locale, 'attendanceRecords')} title={record.employee_name || record.entered_employee_code} subtitle={formatDateTime(record.attendance_at)} onBack={onClose}
+            aside={<DetailPanel eyebrow={t(locale, 'status')}><div className="record-page-summary"><span>{t(locale, 'status')}</span><strong><StatusBadge status={record.status} locale={locale} /></strong><small className="muted">{record.location_name || '-'}</small></div></DetailPanel>}
+        >
+            <DetailPanel eyebrow={t(locale, 'details')} title={t(locale, 'attendance')}>
+                <dl className="record-page-facts">
                     <InfoRow label={t(locale, 'employee')} value={record.employee_name || '-'} />
                     <InfoRow label={t(locale, 'employeeCode')} value={record.employee_code || record.entered_employee_code} />
                     <InfoRow label={t(locale, 'location')} value={record.location_name || '-'} />
@@ -864,8 +946,8 @@ function AttendanceRecordDrawer({ record, locale, onClose }) {
                     <InfoRow label={t(locale, 'latitude')} value={record.latitude ?? '-'} />
                     <InfoRow label={t(locale, 'longitude')} value={record.longitude ?? '-'} />
                 </dl>
-            </aside>
-        </div>
+            </DetailPanel>
+        </DetailPage>
     );
 }
 

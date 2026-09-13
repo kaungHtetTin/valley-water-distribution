@@ -141,13 +141,6 @@ class MobileMasterDataController extends Controller
             ->where('created_by', $request->user()->id)
             ->selectRaw('customer_id, COUNT(*) as orders_count, COALESCE(SUM(total), 0) as order_amount')
             ->groupBy('customer_id');
-        $collections = DB::table('collections')->whereDate('collection_date', $date)
-            ->where('employee_id', $employee->id)
-            ->where('source_app', 'sales')
-            ->where('status', '!=', 'rejected')
-            ->selectRaw('customer_id, COUNT(*) as collections_count, COALESCE(SUM(amount), 0) as collection_amount')
-            ->groupBy('customer_id');
-
         $customers = DB::table('customers')
             ->leftJoin('areas', 'customers.area_id', '=', 'areas.id')
             ->leftJoin('sales_route_visits', function ($join) use ($employee, $date) {
@@ -156,7 +149,6 @@ class MobileMasterDataController extends Controller
                     ->where('sales_route_visits.visit_date', '=', $date);
             })
             ->leftJoinSub($orders, 'today_orders', 'customers.id', '=', 'today_orders.customer_id')
-            ->leftJoinSub($collections, 'today_collections', 'customers.id', '=', 'today_collections.customer_id')
             ->where('customers.route_id', $employee->assigned_route_id)
             ->where('customers.is_active', true)
             ->orderBy('customers.shop_name')
@@ -164,13 +156,10 @@ class MobileMasterDataController extends Controller
                 'customers.id', 'customers.code', 'customers.shop_name', 'customers.contact_name', 'customers.phone', 'customers.address',
                 'areas.name as area', 'sales_route_visits.status as visit_status', 'sales_route_visits.started_at', 'sales_route_visits.completed_at',
                 DB::raw('COALESCE(today_orders.orders_count, 0) as orders_count'), DB::raw('COALESCE(today_orders.order_amount, 0) as order_amount'),
-                DB::raw('COALESCE(today_collections.collections_count, 0) as collections_count'), DB::raw('COALESCE(today_collections.collection_amount, 0) as collection_amount'),
             ])->map(function ($customer) {
                 $customer->visit_status = $customer->visit_status ?: 'planned';
                 $customer->orders_count = (int) $customer->orders_count;
                 $customer->order_amount = (float) $customer->order_amount;
-                $customer->collections_count = (int) $customer->collections_count;
-                $customer->collection_amount = (float) $customer->collection_amount;
                 return $customer;
             });
 
@@ -185,7 +174,6 @@ class MobileMasterDataController extends Controller
                 'skipped' => $customers->where('visit_status', 'skipped')->count(),
                 'orders_count' => $customers->sum('orders_count'),
                 'order_amount' => (float) $customers->sum('order_amount'),
-                'collection_amount' => (float) $customers->sum('collection_amount'),
             ],
         ]);
     }

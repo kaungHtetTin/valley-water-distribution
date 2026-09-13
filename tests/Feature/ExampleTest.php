@@ -30,7 +30,7 @@ class ExampleTest extends TestCase
 
     public function test_attendance_office_routes_are_deep_linkable()
     {
-        foreach (['/office/orders', '/office/invoices', '/office/returns', '/office/damage', '/office/stock/receive', '/office/stock/issues', '/office/stock/transfers', '/office/stock/damage', '/office/stock/closing', '/office/stock/balances', '/office/stock/value', '/office/stock/card', '/office/deliveries', '/office/deliveries/live-map', '/office/deliveries/history', '/office/attendance/locations', '/office/attendance/records', '/office/attendance/summary', '/office/payroll/drafts', '/office/payroll/adjustments', '/office/payroll/salary-history'] as $route) {
+        foreach (['/office/orders', '/office/invoices', '/office/returns', '/office/damage', '/office/stock/receive', '/office/stock/issues', '/office/stock/transfers', '/office/stock/damage', '/office/stock/closing', '/office/stock/balances', '/office/stock/value', '/office/stock/card', '/office/deliveries', '/office/deliveries/new', '/office/deliveries/live-map', '/office/deliveries/history', '/office/attendance/locations', '/office/attendance/records', '/office/attendance/summary', '/office/payroll/drafts', '/office/payroll/adjustments', '/office/payroll/salary-history'] as $route) {
             $this->get($route)->assertOk();
         }
     }

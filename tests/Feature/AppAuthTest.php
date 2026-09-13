@@ -62,6 +62,26 @@ class AppAuthTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_sales_access_is_limited_to_customer_visits_and_orders()
+    {
+        $this->seed();
+
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $permissions = $this->getJson('/api/auth/user')
+            ->assertOk()
+            ->assertJsonFragment(['sales.orders.create'])
+            ->assertJsonFragment(['sales.customers.create'])
+            ->json('data.user.permissions');
+
+        $this->assertNotContains('sales.deliveries.view', $permissions);
+        $this->assertNotContains('sales.collections.view', $permissions);
+        $this->assertNotContains('sales.collections.create', $permissions);
+        $this->assertNotContains('sales.finance.view', $permissions);
+        $this->assertNotContains('sales.expenses.create', $permissions);
+        $this->assertNotContains('sales.attendance.view', $permissions);
+        $this->assertNotContains('sales.payroll.view', $permissions);
+    }
+
     public function test_current_user_endpoint_returns_role_access_payload()
     {
         $this->seed();

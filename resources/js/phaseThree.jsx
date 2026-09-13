@@ -1,5 +1,6 @@
-import { AlertCircle, BadgeCheck, CalendarDays, CircleDollarSign, Eye, FileClock, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, BadgeCheck, CalendarDays, CircleDollarSign, Eye, FileClock, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { DetailPage, DetailPanel } from './components/DetailPage';
 
 const copy = {
     en: {
@@ -83,7 +84,7 @@ function requestMessage(error, locale, fallbackKey = 'loading') {
     return locale === 'my' ? t(locale, fallbackKey) : error.response?.data?.message || t(locale, fallbackKey);
 }
 
-export function PayrollDraftsScreen({ locale, canManage = false }) {
+export function PayrollDraftsScreen({ locale, canManage = false, detailId = null, onNavigate }) {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const [filters, setFilters] = useState({ month: currentMonth, status: '', employee_type: '' });
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
@@ -91,6 +92,11 @@ export function PayrollDraftsScreen({ locale, canManage = false }) {
     const [generating, setGenerating] = useState(false);
     const [processingId, setProcessingId] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/payroll/drafts`;
+
+    useEffect(() => {
+        setViewing(detailId ? { payroll: { id: detailId }, items: null } : null);
+    }, [detailId]);
 
     useEffect(() => {
         let mounted = true;
@@ -121,6 +127,7 @@ export function PayrollDraftsScreen({ locale, canManage = false }) {
             });
             setViewing(data.data);
             setRefreshKey((key) => key + 1);
+            onNavigate?.(`${listPath}/${data.data.payroll.id}`);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         } finally {
@@ -160,6 +167,8 @@ export function PayrollDraftsScreen({ locale, canManage = false }) {
         deductions: carry.deductions + Number(item.total_deductions || 0),
         net: carry.net + Number(item.total_net || 0),
     }), { employees: 0, gross: 0, deductions: 0, net: 0 });
+
+    if (detailId && viewing) return <PayrollDetailPage viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} onApprove={(payroll) => transitionPayroll(payroll, 'approve')} onMarkPaid={(payroll) => transitionPayroll(payroll, 'mark-paid')} onClose={() => onNavigate?.(listPath)} />;
 
     return (
         <section className="master-workspace payroll-workspace">
@@ -211,7 +220,7 @@ export function PayrollDraftsScreen({ locale, canManage = false }) {
                                         <td>{money(payroll.total_net)}</td>
                                         <td><StatusBadge status={payroll.status} locale={locale} /></td>
                                         <td className="row-actions">
-                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => setViewing({ payroll, items: null })}><Eye size={15} /></button>
+                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${payroll.id}`)}><Eye size={15} /></button>
                                             {canManage && payroll.status === 'draft' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'approve')} title={t(locale, 'approve')} onClick={() => transitionPayroll(payroll, 'approve')}><BadgeCheck size={15} /></button>}
                                             {canManage && payroll.status === 'approved' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'paid')} title={t(locale, 'paid')} onClick={() => transitionPayroll(payroll, 'mark-paid')}><CircleDollarSign size={15} /></button>}
                                         </td>
@@ -223,7 +232,6 @@ export function PayrollDraftsScreen({ locale, canManage = false }) {
                 )}
             </div>
 
-            {viewing && <PayrollDrawer viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} onApprove={(payroll) => transitionPayroll(payroll, 'approve')} onMarkPaid={(payroll) => transitionPayroll(payroll, 'mark-paid')} onClose={() => setViewing(null)} />}
         </section>
     );
 }
@@ -432,12 +440,25 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
     );
 }
 
-export function SalaryHistoryScreen({ locale }) {
+export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
     const [filters, setFilters] = useState({ search: '', month: '', employee_type: '', employee_id: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: { payments_count: 0, employees_count: 0, total_gross: 0, total_deductions: 0, total_net: 0, latest_paid_at: null }, meta: {}, error: '' });
     const [employees, setEmployees] = useState([]);
     const [selected, setSelected] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/payroll/salary-history`;
+
+    useEffect(() => {
+        if (!detailId) {
+            setSelected(null);
+            return undefined;
+        }
+        let mounted = true;
+        window.axios.get(`${apiBase('payrollHistory')}/${detailId}`)
+            .then(({ data }) => mounted && setSelected(data.data.item))
+            .catch((error) => mounted && setState((current) => ({ ...current, error: requestMessage(error, locale) })));
+        return () => { mounted = false; };
+    }, [detailId, locale]);
 
     useEffect(() => {
         let mounted = true;
@@ -465,6 +486,8 @@ export function SalaryHistoryScreen({ locale }) {
 
         return () => { mounted = false; };
     }, [filters, locale, refreshKey]);
+
+    if (detailId) return selected ? <SalaryHistoryDetailPage item={selected} locale={locale} onClose={() => onNavigate?.(listPath)} /> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
 
     return (
         <section className="master-workspace payroll-workspace">
@@ -514,7 +537,7 @@ export function SalaryHistoryScreen({ locale }) {
                                         <td>{money(Number(item.advance_deduction || 0) + Number(item.other_deduction || 0))}</td>
                                         <td>{money(item.net_pay)}</td>
                                         <td>{formatDateTime(item.paid_at)}</td>
-                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => setSelected(item)}><Eye size={15} /></button></td>
+                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${item.id}`)}><Eye size={15} /></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -523,7 +546,6 @@ export function SalaryHistoryScreen({ locale }) {
                 )}
             </div>
 
-            {selected && <SalaryHistoryDrawer item={selected} locale={locale} onClose={() => setSelected(null)} />}
         </section>
     );
 }
@@ -595,7 +617,7 @@ export function MobilePayrollHistoryScreen({ locale }) {
     );
 }
 
-function PayrollDrawer({ viewing, locale, canManage = false, processingId = null, onApprove, onMarkPaid, onClose }) {
+function PayrollDetailPage({ viewing, locale, canManage = false, processingId = null, onApprove, onMarkPaid, onClose }) {
     const [state, setState] = useState(() => viewing.items ? { loading: false, payroll: viewing.payroll, items: viewing.items, error: '' } : { loading: true, payroll: viewing.payroll, items: [], error: '' });
 
     useEffect(() => {
@@ -607,54 +629,44 @@ function PayrollDrawer({ viewing, locale, canManage = false, processingId = null
         return () => { mounted = false; };
     }, [locale, viewing]);
 
+    const actions = canManage && ['draft', 'approved'].includes(state.payroll.status) ? <>
+        {state.payroll.status === 'draft' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onApprove?.(state.payroll)}><BadgeCheck size={15} /> {t(locale, 'approve')}</button>}
+        {state.payroll.status === 'approved' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onMarkPaid?.(state.payroll)}><CircleDollarSign size={15} /> {t(locale, 'paid')}</button>}
+    </> : null;
+
     return (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <aside className="record-drawer payroll-drawer" role="dialog" aria-modal="true" aria-label={t(locale, 'details')}>
-                <header><div><p className="eyebrow">{t(locale, 'details')}</p><h2>{state.payroll.code}</h2></div><button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={onClose}><X size={17} /></button></header>
-                {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
-                {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : (
-                    <div className="payroll-drawer-body">
-                        <section className="payroll-total-card">
-                            <FileClock size={18} />
-                            <div><small>{state.payroll.month}</small><strong>{money(state.payroll.total_net)}</strong><span>{state.payroll.items_count} {t(locale, 'totalEmployees')} · {t(locale, 'status')}: {t(locale, state.payroll.status)}</span></div>
-                        </section>
-                        {(state.payroll.approved_at || state.payroll.paid_at || state.payroll.payment_reference) && (
-                            <section className="payroll-workflow-card">
-                                {state.payroll.approved_at && <span><strong>{t(locale, 'approvedAt')}</strong>{formatDateTime(state.payroll.approved_at)}</span>}
-                                {state.payroll.paid_at && <span><strong>{t(locale, 'paidAt')}</strong>{formatDateTime(state.payroll.paid_at)}</span>}
-                                {state.payroll.payment_reference && <span><strong>{t(locale, 'paymentReference')}</strong>{state.payroll.payment_reference}</span>}
-                            </section>
-                        )}
-                        <div className="master-table-wrap">
+        <DetailPage eyebrow={t(locale, 'payroll')} title={state.payroll.code || t(locale, 'loading')} subtitle={state.payroll.month} onBack={onClose} actions={actions}
+            aside={!state.loading && <DetailPanel eyebrow={t(locale, 'summary')}><section className="payroll-total-card record-page-summary"><FileClock size={18} /><div><small>{state.payroll.month}</small><strong>{money(state.payroll.total_net)}</strong><span>{state.payroll.items_count} {t(locale, 'totalEmployees')} · {t(locale, state.payroll.status)}</span></div></section></DetailPanel>}
+        >
+            {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
+            {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : <>
+                {(state.payroll.approved_at || state.payroll.paid_at || state.payroll.payment_reference) && (
+                    <DetailPanel eyebrow={t(locale, 'status')} title={t(locale, 'details')}><section className="payroll-workflow-card">
+                        {state.payroll.approved_at && <span><strong>{t(locale, 'approvedAt')}</strong>{formatDateTime(state.payroll.approved_at)}</span>}
+                        {state.payroll.paid_at && <span><strong>{t(locale, 'paidAt')}</strong>{formatDateTime(state.payroll.paid_at)}</span>}
+                        {state.payroll.payment_reference && <span><strong>{t(locale, 'paymentReference')}</strong>{state.payroll.payment_reference}</span>}
+                    </section></DetailPanel>
+                )}
+                <DetailPanel eyebrow={t(locale, 'employees')} title={`${state.payroll.items_count} ${t(locale, 'totalEmployees')}`}>
+                    <div className="master-table-wrap">
                             <table className="master-table payroll-item-table">
                                 <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'attendance')}</th><th>{t(locale, 'baseSalary')}</th><th>{t(locale, 'netPay')}</th></tr></thead>
                                 <tbody>{state.items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><span className="muted">{item.employee_code}</span></td><td>{item.accepted_count} / {item.rejected_count}</td><td>{money(item.base_salary)}</td><td>{money(item.net_pay)}</td></tr>)}</tbody>
                             </table>
-                        </div>
                     </div>
-                )}
-                {canManage && ['draft', 'approved'].includes(state.payroll.status) && (
-                    <footer className="payroll-drawer-actions">
-                        {state.payroll.status === 'draft' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onApprove?.(state.payroll)}><BadgeCheck size={15} /> {t(locale, 'approve')}</button>}
-                        {state.payroll.status === 'approved' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onMarkPaid?.(state.payroll)}><CircleDollarSign size={15} /> {t(locale, 'paid')}</button>}
-                    </footer>
-                )}
-            </aside>
-        </div>
+                </DetailPanel>
+            </>}
+        </DetailPage>
     );
 }
 
-function SalaryHistoryDrawer({ item, locale, onClose }) {
+function SalaryHistoryDetailPage({ item, locale, onClose }) {
     return (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <aside className="record-drawer payroll-drawer" role="dialog" aria-modal="true" aria-label={t(locale, 'details')}>
-                <header><div><p className="eyebrow">{t(locale, 'salaryHistory')}</p><h2>{item.employee_name}</h2></div><button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={onClose}><X size={17} /></button></header>
-                <div className="payroll-drawer-body">
-                    <section className="payroll-total-card">
-                        <CircleDollarSign size={18} />
-                        <div><small>{item.month} - {item.payroll_code}</small><strong>{money(item.net_pay)}</strong><span>{t(locale, 'paidAt')}: {formatDateTime(item.paid_at)}</span></div>
-                    </section>
-                    <dl className="mobile-info-list salary-history-detail">
+        <DetailPage eyebrow={t(locale, 'salaryHistory')} title={item.employee_name} subtitle={`${item.employee_code} · ${item.month}`} onBack={onClose}
+            aside={<DetailPanel eyebrow={t(locale, 'netPay')}><section className="payroll-total-card record-page-summary"><CircleDollarSign size={18} /><div><small>{item.payroll_code}</small><strong>{money(item.net_pay)}</strong><span>{t(locale, 'paidAt')}: {formatDateTime(item.paid_at)}</span></div></section></DetailPanel>}
+        >
+            <DetailPanel eyebrow={t(locale, 'details')} title={t(locale, 'salaryHistory')}>
+                    <dl className="record-page-facts salary-history-detail">
                         <InfoLine label={t(locale, 'employee')} value={`${item.employee_code} - ${item.employee_name}`} />
                         <InfoLine label={t(locale, 'employeeType')} value={titleCase(item.employee_type)} />
                         <InfoLine label={t(locale, 'period')} value={`${item.period_start} - ${item.period_end}`} />
@@ -668,9 +680,8 @@ function SalaryHistoryDrawer({ item, locale, onClose }) {
                         <InfoLine label={t(locale, 'grossPay')} value={money(item.gross_pay)} />
                         <InfoLine label={t(locale, 'netPay')} value={money(item.net_pay)} />
                     </dl>
-                </div>
-            </aside>
-        </div>
+            </DetailPanel>
+        </DetailPage>
     );
 }
 

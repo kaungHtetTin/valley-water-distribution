@@ -191,6 +191,40 @@ class PhaseOneMasterDataTest extends TestCase
             ->assertJsonStructure(['errors' => ['sku', 'name', 'unit']]);
     }
 
+    public function test_office_user_can_view_and_update_product_prices_as_a_matrix_row()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->first());
+
+        $matrix = $this->getJson('/api/master-data/product-prices/matrix?search=5%20Gallon')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonCount(3, 'data.price_types');
+
+        $productId = $matrix->json('data.items.0.id');
+        $prices = collect($matrix->json('data.price_types'))->map(fn ($priceType, $index) => [
+            'price_type_id' => $priceType['id'],
+            'amount' => 4000 + ($index * 500),
+        ])->values()->all();
+
+        $this->putJson('/api/master-data/product-prices/matrix', [
+            'product_id' => $productId,
+            'effective_from' => '2026-09-09',
+            'prices' => $prices,
+        ])->assertOk()
+            ->assertJsonPath('message', 'Product prices updated.');
+
+        foreach ($prices as $price) {
+            $this->assertDatabaseHas('product_prices', [
+                'product_id' => $productId,
+                'price_type_id' => $price['price_type_id'],
+                'effective_from' => '2026-09-09',
+                'amount' => $price['amount'],
+                'is_active' => true,
+            ]);
+        }
+    }
+
     public function test_customer_password_creates_and_updates_linked_login_account()
     {
         $this->seed();
@@ -365,7 +399,6 @@ class PhaseOneMasterDataTest extends TestCase
         $this->seed();
         $salesUser = User::where('email', 'sales@valley.test')->firstOrFail();
         $clientUser = User::where('email', 'client@valley.test')->firstOrFail();
-        $salesEmployeeId = $salesUser->employee_id;
         $today = now()->toDateString();
         $this->actingAs($salesUser);
         $customerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
@@ -380,28 +413,14 @@ class PhaseOneMasterDataTest extends TestCase
             'source_app' => 'sales',
             'created_by' => $salesUser->id,
         ]);
-        DB::table('collections')->whereIn('code', ['COL-202608-0002', 'COL-202608-0003'])->update([
-            'collection_date' => $today,
-        ]);
-
         $this->getJson('/api/mobile/sales-route')
             ->assertOk()
             ->assertJsonPath('data.route.code', 'TGI-N')
             ->assertJsonPath('data.customers.0.visit_status', 'planned')
             ->assertJsonPath('data.summary.orders_count', 1)
             ->assertJsonPath('data.summary.order_amount', 36000)
-            ->assertJsonPath('data.summary.collection_amount', 12000)
-            ->assertJsonStructure(['data' => ['summary' => ['total', 'completed', 'in_progress', 'skipped', 'orders_count', 'order_amount', 'collection_amount']]]);
-
-        $this->assertDatabaseHas('collections', [
-            'code' => 'COL-202608-0003',
-            'source_app' => 'driver',
-        ]);
-        $this->assertDatabaseHas('collections', [
-            'code' => 'COL-202608-0002',
-            'employee_id' => $salesEmployeeId,
-            'source_app' => 'sales',
-        ]);
+            ->assertJsonMissingPath('data.summary.collection_amount')
+            ->assertJsonStructure(['data' => ['summary' => ['total', 'completed', 'in_progress', 'skipped', 'orders_count', 'order_amount']]]);
 
         $this->postJson("/api/mobile/sales-route/customers/{$customerId}/visit", ['status' => 'in_progress'])
             ->assertOk()

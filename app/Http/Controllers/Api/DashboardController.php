@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Carbon\Carbon;
@@ -15,10 +16,15 @@ class DashboardController extends Controller
 {
     private const DASHBOARDS = ['owner', 'sales', 'stock', 'delivery', 'finance'];
 
+    public function __construct(private readonly CustomerCreditService $customerCredit)
+    {
+    }
+
     public function summary(Request $request, string $dashboard)
     {
         abort_unless(in_array($dashboard, self::DASHBOARDS, true), 404);
         $this->authorizePermission($request, 'office.dashboard.view');
+        $this->validatePeriod($request);
         $data = $this->cached($request, "summary:{$dashboard}", fn () => match ($dashboard) {
             'owner' => $this->owner($request),
             'sales' => $this->sales($request),
@@ -34,6 +40,7 @@ class DashboardController extends Controller
     {
         abort_unless(in_array($dashboard, self::DASHBOARDS, true), 404);
         $this->authorizePermission($request, 'office.dashboard.view');
+        $this->validatePeriod($request);
         $data = $this->cached($request, "charts:{$dashboard}", fn () => $this->chartData($request, $dashboard));
 
         return ApiResponse::success(ucfirst($dashboard).' KPI charts loaded.', $data);
@@ -61,9 +68,10 @@ class DashboardController extends Controller
 
     private function owner(Request $request): array
     {
-        $date = Carbon::parse($request->query('date', now()->toDateString()));
-        $monthStart = $date->copy()->startOfMonth()->toDateString();
-        $yearStart = $date->copy()->startOfYear()->toDateString();
+        $date = Carbon::parse($request->query('date_to', $request->query('date', now()->toDateString())));
+        $rangeStart = $request->filled('date_from') ? Carbon::parse($request->query('date_from'))->toDateString() : null;
+        $monthStart = $rangeStart ?: $date->copy()->startOfMonth()->toDateString();
+        $yearStart = $rangeStart ?: $date->copy()->startOfYear()->toDateString();
         $through = $date->toDateString();
         $todaySales = $this->salesBetween($through, $through);
         $monthlySales = $this->salesBetween($monthStart, $through);
@@ -77,25 +85,29 @@ class DashboardController extends Controller
         $outdoorExpense = (float) DB::table('expenses')->where('status', 'approved')->where('expense_type', 'outdoor')->whereBetween('expense_date', [$yearStart, $through])->sum('amount');
         $dailyExpense = (float) DB::table('expenses')->where('status', 'approved')->where('expense_type', 'daily')->where('category', '!=', 'vehicle_cost')->whereBetween('expense_date', [$yearStart, $through])->sum('amount');
         $netProfit = $annualSales - $vehicleCost - $salaryCost - $outdoorExpense - $dailyExpense;
-        $target = (float) DB::table('sales_targets')->whereDate('target_month', $date->copy()->startOfMonth())->sum('target_amount');
+        $targetQuery = DB::table('sales_targets');
+        $target = $rangeStart
+            ? (float) $targetQuery->whereBetween('target_month', [Carbon::parse($rangeStart)->startOfMonth()->toDateString(), $date->copy()->startOfMonth()->toDateString()])->sum('target_amount')
+            : (float) $targetQuery->whereDate('target_month', $date->copy()->startOfMonth())->sum('target_amount');
         $fieldCollections = (float) DB::table('collections')->whereNotNull('employee_id')->whereBetween('collection_date', [$monthStart, $through])->sum('amount');
-        $recentOrders = DB::table('orders')->join('customers', 'orders.customer_id', '=', 'customers.id')->whereExists(function ($query) {
+        $recentOrders = DB::table('orders')->leftJoin('customers', 'orders.customer_id', '=', 'customers.id')->whereExists(function ($query) {
             $query->selectRaw('1')->from('order_items')->whereColumn('order_items.order_id', 'orders.id')->whereIn('order_items.item_type', ['sale', 'foc']);
-        })->orderByDesc('orders.order_date')->orderByDesc('orders.id')->limit(6)->get(['orders.id', 'orders.code', 'orders.order_date', 'orders.status', 'orders.total', 'customers.shop_name'])->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'date' => $item->order_date, 'status' => $item->status, 'amount' => (float) $item->total, 'shop_name' => $item->shop_name]);
+        })->when($rangeStart, fn ($query) => $query->whereBetween('orders.order_date', [$rangeStart, $through]))->orderByDesc('orders.order_date')->orderByDesc('orders.id')->limit(6)->get(['orders.id', 'orders.code', 'orders.order_date', 'orders.status', 'orders.total', DB::raw('COALESCE(orders.recipient_name, customers.shop_name) as shop_name')])->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'date' => $item->order_date, 'status' => $item->status, 'amount' => (float) $item->total, 'shop_name' => $item->shop_name]);
 
         return ['as_of' => $through, 'kpis' => ['today_sales' => $todaySales, 'monthly_sales' => $monthlySales, 'annual_sales' => $annualSales, 'cash_balance' => $cashBalance, 'bank_balance' => $bankBalance, 'outstanding_credit' => $outstanding, 'warehouse_value' => $warehouseValue, 'vehicle_cost' => $vehicleCost, 'salary_cost' => $salaryCost, 'outdoor_expense' => $outdoorExpense, 'net_profit' => $netProfit, 'target_amount' => $target, 'target_achievement' => $target > 0 ? round($monthlySales / $target * 100, 1) : null, 'customer_count' => DB::table('customers')->where('is_active', true)->count(), 'field_collection' => $fieldCollections], 'recent_orders' => $recentOrders, 'attention' => ['pending_orders' => DB::table('orders')->where('status', 'pending')->count(), 'submitted_collections' => DB::table('collections')->where('status', 'submitted')->count(), 'submitted_expenses' => DB::table('expenses')->where('status', 'submitted')->count(), 'submitted_vehicle_records' => DB::table('vehicle_costs')->where('status', 'submitted')->count(), 'stock_alerts' => DB::table('stock_balances')->where('quantity', '<=', 100)->count()]];
     }
 
     private function sales(Request $request): array
     {
-        [$month, $from, $to] = $this->monthRange($request);
+        [$from, $to] = $this->periodRange($request);
+        $month = Carbon::parse($from)->startOfMonth()->toDateString();
         $invoices = $this->invoiceRows($from, $to);
-        $targets = DB::table('sales_targets')->whereDate('target_month', $month)->get()->keyBy('employee_id');
+        $targets = DB::table('sales_targets')->whereBetween('target_month', [$month, Carbon::parse($to)->startOfMonth()->toDateString()])->get()->groupBy('employee_id');
         $areaSales = $invoices->groupBy('area_name')->map(fn ($rows, $area) => ['label' => $area ?: 'Unassigned', 'value' => (float) $rows->sum('total')])->sortByDesc('value')->values();
         $employees = DB::table('employees')->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')->where('employees.employee_type', 'sales')->where('employees.is_active', true)->get(['employees.id', 'employees.code', 'employees.name', 'employees.assigned_route_id', 'routes.name as route_name']);
         $ranking = $employees->map(function ($employee) use ($invoices, $targets) {
             $actual = (float) $invoices->where('route_id', $employee->assigned_route_id)->sum('total');
-            $target = (float) ($targets->get($employee->id)->target_amount ?? 0);
+            $target = (float) ($targets->get($employee->id)?->sum('target_amount') ?? 0);
 
             return ['employee_id' => $employee->id, 'code' => $employee->code, 'name' => $employee->name, 'route_name' => $employee->route_name, 'actual' => $actual, 'target' => $target, 'achievement' => $target > 0 ? round($actual / $target * 100, 1) : null];
         })->sortByDesc('actual')->values()->map(fn ($item, $index) => $item + ['rank' => $index + 1]);
@@ -105,12 +117,15 @@ class DashboardController extends Controller
             return ['customer_id' => $first->customer_id, 'code' => $first->customer_code, 'shop_name' => $first->shop_name, 'route_name' => $first->route_name, 'sales' => (float) $rows->sum('total')];
         })->sortByDesc('sales')->take(8)->values();
 
-        return ['month' => $month, 'summary' => ['sales' => (float) $invoices->sum('total'), 'orders' => $invoices->pluck('order_id')->filter()->unique()->count(), 'new_customers' => DB::table('customers')->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(), 'target' => (float) $targets->sum('target_amount'), 'achievement' => $targets->sum('target_amount') > 0 ? round($invoices->sum('total') / $targets->sum('target_amount') * 100, 1) : null], 'area_sales' => $areaSales, 'ranking' => $ranking, 'top_customers' => $topCustomers];
+        $targetTotal = (float) $targets->flatten()->sum('target_amount');
+
+        return ['month' => $month, 'period' => ['date_from' => $from, 'date_to' => $to], 'summary' => ['sales' => (float) $invoices->sum('total'), 'orders' => $invoices->pluck('order_id')->filter()->unique()->count(), 'new_customers' => DB::table('customers')->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(), 'target' => $targetTotal, 'achievement' => $targetTotal > 0 ? round($invoices->sum('total') / $targetTotal * 100, 1) : null], 'area_sales' => $areaSales, 'ranking' => $ranking, 'top_customers' => $topCustomers];
     }
 
     private function stock(Request $request): array
     {
-        [$month, $from, $to] = $this->monthRange($request);
+        [$from, $to] = $this->periodRange($request);
+        $month = Carbon::parse($from)->startOfMonth()->toDateString();
         $balances = DB::table('stock_balances')->join('products', 'stock_balances.product_id', '=', 'products.id')->join('warehouses', 'stock_balances.warehouse_id', '=', 'warehouses.id')->get(['stock_balances.product_id', 'stock_balances.quantity', 'stock_balances.stock_value', 'products.sku', 'products.name as product_name', 'warehouses.name as warehouse_name']);
         $demand = DB::table('invoice_items')->join('invoices', 'invoice_items.invoice_id', '=', 'invoices.id')->where('invoices.status', '!=', 'cancelled')->whereBetween('invoices.invoice_date', [$from, $to])->groupBy('invoice_items.product_id', 'invoice_items.product_sku', 'invoice_items.product_name')->selectRaw('invoice_items.product_id, invoice_items.product_sku sku, invoice_items.product_name product_name, SUM(invoice_items.quantity) quantity')->get()->keyBy('product_id');
         $products = $balances->groupBy('product_id')->map(function ($rows, $productId) use ($demand) {
@@ -124,7 +139,8 @@ class DashboardController extends Controller
 
     private function delivery(Request $request): array
     {
-        [$month, $from, $to] = $this->monthRange($request);
+        [$from, $to] = $this->periodRange($request);
+        $month = Carbon::parse($from)->startOfMonth()->toDateString();
         $deliveries = DB::table('deliveries')->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')->join('employees', 'deliveries.driver_id', '=', 'employees.id')->join('routes', 'deliveries.route_id', '=', 'routes.id')->whereBetween('deliveries.planned_date', [$from, $to])->get(['deliveries.*', 'vehicles.code as vehicle_code', 'vehicles.plate_no', 'employees.code as driver_code', 'employees.name as driver_name', 'routes.name as route_name']);
         $completedStatuses = ['delivered', 'partially_delivered'];
         $vehicleUsage = $deliveries->groupBy('vehicle_id')->map(function ($rows) {
@@ -144,7 +160,8 @@ class DashboardController extends Controller
 
     private function finance(Request $request): array
     {
-        [$month, $from, $to] = $this->monthRange($request);
+        [$from, $to] = $this->periodRange($request);
+        $month = Carbon::parse($from)->startOfMonth()->toDateString();
         $collections = (float) DB::table('collections')->where('status', 'approved')->whereBetween('collection_date', [$from, $to])->sum('amount');
         $fieldCollections = (float) DB::table('collections')->whereNotNull('employee_id')->whereBetween('collection_date', [$from, $to])->sum('amount');
         $expenses = DB::table('expenses')->where('status', 'approved')->whereBetween('expense_date', [$from, $to])->get();
@@ -160,11 +177,20 @@ class DashboardController extends Controller
 
     private function chartData(Request $request, string $dashboard): array
     {
-        $date = Carbon::parse($request->query('date', now()->toDateString()));
-        $months = collect(range(5, 0))->map(fn ($offset) => $date->copy()->subMonths($offset)->startOfMonth());
-        $salesTrend = $months->map(fn ($month) => ['label' => $month->format('M'), 'value' => $this->salesBetween($month->toDateString(), $month->copy()->endOfMonth()->toDateString())]);
+        $date = Carbon::parse($request->query('date_to', $request->query('date', now()->toDateString())));
+        $hasRange = $request->filled('date_from') || $request->filled('date_to');
+        [$rangeFrom, $rangeTo] = $hasRange ? $this->periodRange($request) : [$date->copy()->subMonths(5)->startOfMonth()->toDateString(), $date->toDateString()];
+        $months = $hasRange
+            ? collect(Carbon::parse($rangeFrom)->startOfMonth()->monthsUntil(Carbon::parse($rangeTo)->startOfMonth()))
+            : collect(range(5, 0))->map(fn ($offset) => $date->copy()->subMonths($offset)->startOfMonth());
+        $salesTrend = $months->map(function ($month) use ($hasRange, $rangeFrom, $rangeTo) {
+            $from = $hasRange ? max($rangeFrom, $month->toDateString()) : $month->toDateString();
+            $to = $hasRange ? min($rangeTo, $month->copy()->endOfMonth()->toDateString()) : $month->copy()->endOfMonth()->toDateString();
+
+            return ['label' => $month->format('M'), 'value' => $this->salesBetween($from, $to)];
+        });
         if ($dashboard === 'owner') {
-            return ['sales_trend' => $salesTrend, 'cash_flow' => $this->cashFlow($date), 'mix' => [['label' => 'Sales', 'value' => (float) $salesTrend->sum('value')], ['label' => 'Collections', 'value' => (float) DB::table('collections')->where('status', 'approved')->whereBetween('collection_date', [$date->copy()->startOfYear(), $date])->sum('amount')], ['label' => 'Receivable', 'value' => $this->outstanding($date->toDateString())]]];
+            return ['sales_trend' => $salesTrend, 'cash_flow' => $hasRange ? $this->cashFlowRange($rangeFrom, $rangeTo) : $this->cashFlow($date), 'mix' => [['label' => 'Sales', 'value' => (float) $salesTrend->sum('value')], ['label' => 'Collections', 'value' => (float) DB::table('collections')->where('status', 'approved')->whereBetween('collection_date', [$hasRange ? $rangeFrom : $date->copy()->startOfYear()->toDateString(), $date->toDateString()])->sum('amount')], ['label' => 'Receivable', 'value' => $this->outstanding($date->toDateString())]]];
         }
         if ($dashboard === 'sales') {
             $sales = $this->sales($request);
@@ -212,9 +238,9 @@ class DashboardController extends Controller
         $to = $month->copy()->endOfMonth()->toDateString();
         $sales = (float) $this->invoiceRows($from, $to)->where('route_id', $employee->assigned_route_id)->sum('total');
         $target = (float) DB::table('sales_targets')->where('employee_id', $employee->id)->whereDate('target_month', $from)->value('target_amount');
-        $collections = (float) DB::table('collections')->where('employee_id', $employee->id)->whereBetween('collection_date', [$from, $to])->sum('amount');
+        $ordersCount = DB::table('orders')->where('created_by', $user->id)->where('source_app', 'sales')->whereBetween('order_date', [$from, $to])->count();
 
-        return ['summary' => ['monthly_sales' => $sales, 'target' => $target, 'achievement' => $target > 0 ? round($sales / $target * 100, 1) : null, 'new_customers' => DB::table('customers')->where('route_id', $employee->assigned_route_id)->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(), 'collections' => $collections, 'assigned_route' => $employee->route_name, 'route_code' => $employee->route_code], 'trend' => $this->chartData(new Request(['date' => now()->toDateString()]), 'sales')['sales_trend']];
+        return ['summary' => ['monthly_sales' => $sales, 'target' => $target, 'achievement' => $target > 0 ? round($sales / $target * 100, 1) : null, 'orders_count' => $ordersCount, 'new_customers' => DB::table('customers')->where('route_id', $employee->assigned_route_id)->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(), 'assigned_route' => $employee->route_name, 'route_code' => $employee->route_code], 'trend' => $this->chartData(new Request(['date' => now()->toDateString()]), 'sales')['sales_trend']];
     }
 
     private function driverMobile(User $user): array
@@ -232,7 +258,9 @@ class DashboardController extends Controller
 
     private function invoiceRows(string $from, string $to)
     {
-        return DB::table('invoices')->join('customers', 'invoices.customer_id', '=', 'customers.id')->leftJoin('routes', 'customers.route_id', '=', 'routes.id')->leftJoin('areas', 'customers.area_id', '=', 'areas.id')->where('invoices.status', '!=', 'cancelled')->whereBetween('invoices.invoice_date', [$from, $to])->get(['invoices.id', 'invoices.order_id', 'invoices.customer_id', 'invoices.total', 'customers.code as customer_code', 'customers.shop_name', 'customers.route_id', 'routes.name as route_name', 'areas.name as area_name'])->map(function ($item) {
+        return DB::table('invoices')->leftJoin('customers', 'invoices.customer_id', '=', 'customers.id')->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')->leftJoin('routes', function ($join) {
+            $join->on('routes.id', '=', DB::raw('COALESCE(invoices.route_id, orders.route_id, customers.route_id)'));
+        })->leftJoin('areas', 'routes.area_id', '=', 'areas.id')->where('invoices.status', '!=', 'cancelled')->whereBetween('invoices.invoice_date', [$from, $to])->get(['invoices.id', 'invoices.order_id', 'invoices.customer_id', 'invoices.total', 'customers.code as customer_code', DB::raw('COALESCE(invoices.recipient_name, orders.recipient_name, customers.shop_name) as shop_name'), DB::raw('COALESCE(invoices.route_id, orders.route_id, customers.route_id) as route_id'), 'routes.name as route_name', 'areas.name as area_name'])->map(function ($item) {
             $item->total = (float) $item->total;
 
             return $item;
@@ -246,12 +274,16 @@ class DashboardController extends Controller
 
     private function outstanding(string $through): float
     {
-        return (float) DB::table('invoices')->where('status', '!=', 'cancelled')->whereDate('invoice_date', '<=', $through)->sum('total') - (float) DB::table('collections')->where('status', 'approved')->whereDate('collection_date', '<=', $through)->sum('amount');
+        $creditSales = (float) DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->whereDate('invoices.invoice_date', '<=', $through)->sum('invoices.total');
+        $returnCredits = (float) DB::table('orders as returns')->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')->where('returns.status', 'confirmed')->whereDate('returns.order_date', '<=', $through)->where(fn ($query) => $query->where('originals.payment_type', 'credit')->orWhere('returns.return_settlement_method', 'customer_credit'))->sum('returns.total');
+        $returnRefunds = (float) DB::table('orders as returns')->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')->where('returns.status', 'confirmed')->where('originals.payment_type', 'credit')->whereDate('returns.order_date', '<=', $through)->sum('returns.refund_amount');
+
+        return max($creditSales + $returnRefunds - (float) DB::table('collections')->where('status', 'approved')->whereDate('collection_date', '<=', $through)->sum('amount') - $returnCredits, 0);
     }
 
     private function customerOutstanding(int $customerId): float
     {
-        return (float) DB::table('invoices')->where('customer_id', $customerId)->where('status', '!=', 'cancelled')->sum('total') - (float) DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->sum('amount');
+        return $this->customerCredit->outstanding($customerId);
     }
 
     private function bookBalance(string $book, string $through): float
@@ -271,11 +303,45 @@ class DashboardController extends Controller
         });
     }
 
+    private function cashFlowRange(string $from, string $to)
+    {
+        return collect(Carbon::parse($from)->daysUntil(Carbon::parse($to)))->map(function ($date) {
+            $day = $date->toDateString();
+            $rows = DB::table('financial_transactions')->whereDate('transaction_date', $day)->get();
+
+            return ['label' => $date->format('M j'), 'inflow' => (float) $rows->where('direction', 'in')->sum('amount'), 'outflow' => (float) $rows->where('direction', 'out')->sum('amount')];
+        });
+    }
+
     private function monthRange(Request $request): array
     {
         $month = Carbon::parse($request->query('month', now()->format('Y-m').'-01'))->startOfMonth();
 
         return [$month->toDateString(), $month->toDateString(), $month->copy()->endOfMonth()->toDateString()];
+    }
+
+    private function periodRange(Request $request): array
+    {
+        if ($request->filled('date_from') || $request->filled('date_to')) {
+            $from = Carbon::parse($request->query('date_from', $request->query('date_to')))->toDateString();
+            $to = Carbon::parse($request->query('date_to', $request->query('date_from')))->toDateString();
+
+            return [$from, $to];
+        }
+
+        [, $from, $to] = $this->monthRange($request);
+
+        return [$from, $to];
+    }
+
+    private function validatePeriod(Request $request): void
+    {
+        $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'date' => ['nullable', 'date'],
+            'month' => ['nullable', 'date'],
+        ]);
     }
 
     private function cached(Request $request, string $scope, callable $callback)

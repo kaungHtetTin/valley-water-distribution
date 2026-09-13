@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,14 @@ class PhaseTenDashboardTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Carbon::setTestNow('2026-08-17 12:00:00');
         Cache::flush();
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     public function test_owner_dashboard_contains_all_required_kpis_and_cached_charts()
@@ -100,20 +108,23 @@ class PhaseTenDashboardTest extends TestCase
             ->assertJsonPath('data.recent_orders.0.code', 'ORD-202608-0004');
     }
 
-    public function test_sales_home_dashboard_uses_assigned_route_target_and_collections()
+    public function test_sales_home_dashboard_is_focused_on_orders_and_assigned_route()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $sales = User::where('email', 'sales@valley.test')->firstOrFail();
+        DB::table('orders')->where('code', 'ORD-202608-0001')->update(['source_app' => 'sales', 'created_by' => $sales->id]);
+        $this->actingAs($sales);
 
-        $this->getJson('/api/mobile/dashboard')
+        $response = $this->getJson('/api/mobile/dashboard')
             ->assertOk()
             ->assertJsonPath('data.app', 'sales')
             ->assertJsonPath('data.summary.monthly_sales', 117000)
             ->assertJsonPath('data.summary.target', 150000)
             ->assertJsonPath('data.summary.achievement', 78)
-            ->assertJsonPath('data.summary.collections', 12000)
+            ->assertJsonPath('data.summary.orders_count', 1)
             ->assertJsonPath('data.summary.assigned_route', 'Taunggyi North')
             ->assertJsonCount(6, 'data.trend');
+        $this->assertArrayNotHasKey('collections', $response->json('data.summary'));
     }
 
     public function test_driver_home_dashboard_shows_delivery_and_submission_kpis()
@@ -144,5 +155,29 @@ class PhaseTenDashboardTest extends TestCase
         $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
         $this->getJson('/api/mobile/dashboard')->assertForbidden();
         $this->getJson('/api/dashboards/unknown')->assertNotFound();
+    }
+
+    public function test_office_dashboards_accept_a_date_range()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $query = '?date_from=2026-08-01&date_to=2026-08-31';
+
+        $this->getJson('/api/dashboards/sales'.$query)
+            ->assertOk()
+            ->assertJsonPath('data.summary.sales', 117000)
+            ->assertJsonPath('data.summary.target', 150000);
+        $this->getJson('/api/dashboards/delivery'.$query)
+            ->assertOk()
+            ->assertJsonPath('data.summary.deliveries', 3);
+        $this->getJson('/api/dashboards/finance'.$query)
+            ->assertOk()
+            ->assertJsonPath('data.summary.revenue', 117000);
+        $this->getJson('/api/dashboard-charts/owner'.$query)
+            ->assertOk()
+            ->assertJsonCount(1, 'data.sales_trend')
+            ->assertJsonCount(31, 'data.cash_flow');
+        $this->getJson('/api/dashboards/sales?date_from=2026-08-31&date_to=2026-08-01')
+            ->assertUnprocessable();
     }
 }

@@ -11,6 +11,108 @@ class PhaseFourOrderTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_office_can_create_a_customer_independent_order_with_its_own_destination()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+
+        $route = DB::table('routes')->where('code', 'TGI-N')->first();
+        $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
+
+        $created = $this->postJson('/api/orders', [
+            'customer_id' => null,
+            'area_id' => $route->area_id,
+            'route_id' => $route->id,
+            'recipient_name' => 'North Walk-in Shop',
+            'recipient_phone' => '09-777-000-111',
+            'delivery_address' => 'No. 24, Northern Market, Taunggyi',
+            'payment_type' => 'cash',
+            'items' => [[
+                'product_id' => $productId,
+                'quantity' => 3,
+                'item_type' => 'sale',
+            ]],
+        ])->assertCreated()
+            ->assertJsonPath('data.order.customer_id', null)
+            ->assertJsonPath('data.order.shop_name', 'North Walk-in Shop')
+            ->assertJsonPath('data.order.area_id', $route->area_id)
+            ->assertJsonPath('data.order.route_id', $route->id)
+            ->assertJsonPath('data.order.delivery_address', 'No. 24, Northern Market, Taunggyi');
+
+        $orderId = $created->json('data.order.id');
+        $this->assertDatabaseHas('orders', [
+            'id' => $orderId,
+            'customer_id' => null,
+            'recipient_name' => 'North Walk-in Shop',
+            'route_id' => $route->id,
+        ]);
+
+        $confirmed = $this->postJson("/api/orders/{$orderId}/confirm")
+            ->assertOk()
+            ->assertJsonPath('data.order.status', 'invoiced')
+            ->assertJsonPath('data.financial_record.status', 'issued');
+        $invoiceId = $confirmed->json('data.financial_record.id');
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoiceId,
+            'customer_id' => null,
+            'recipient_name' => 'North Walk-in Shop',
+            'status' => 'issued',
+        ]);
+        $this->assertDatabaseHas('financial_transactions', [
+            'reference_type' => 'invoice',
+            'reference_id' => $invoiceId,
+            'direction' => 'in',
+            'category' => 'cash_sale',
+            'amount' => 9000,
+        ]);
+
+        $delivery = $this->postJson('/api/deliveries', [
+            'invoice_ids' => [$invoiceId],
+            'warehouse_id' => DB::table('warehouses')->where('is_active', true)->value('id'),
+            'route_id' => $route->id,
+            'driver_id' => DB::table('employees')->where('employee_type', 'driver')->where('is_active', true)->value('id'),
+            'vehicle_id' => DB::table('vehicles')->where('is_active', true)->value('id'),
+            'planned_date' => '2026-09-10',
+        ])->assertCreated()
+            ->assertJsonPath('data.delivery.shop_name', 'North Walk-in Shop')
+            ->assertJsonPath('data.delivery.delivery_address', 'No. 24, Northern Market, Taunggyi');
+
+        $this->assertDatabaseHas('deliveries', [
+            'id' => $delivery->json('data.delivery.id'),
+            'customer_id' => null,
+            'recipient_name' => 'North Walk-in Shop',
+            'route_id' => $route->id,
+        ]);
+    }
+
+    public function test_guest_order_requires_a_valid_destination_and_cash_payment()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+
+        $route = DB::table('routes')->where('code', 'TGI-N')->first();
+        $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
+        $payload = [
+            'area_id' => $route->area_id,
+            'route_id' => $route->id,
+            'recipient_name' => 'Guest Shop',
+            'delivery_address' => 'Guest delivery address',
+            'payment_type' => 'credit',
+            'credit_due_date' => '2026-08-25',
+            'items' => [['product_id' => $productId, 'quantity' => 1, 'item_type' => 'sale']],
+        ];
+
+        $this->postJson('/api/orders', $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Credit orders require a registered customer.');
+
+        $otherAreaId = DB::table('areas')->where('id', '!=', $route->area_id)->value('id');
+        $this->postJson('/api/orders', array_merge($payload, ['payment_type' => 'cash', 'area_id' => $otherAreaId]))
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'The selected route must belong to the selected area.');
+    }
+
     public function test_office_can_create_view_and_confirm_order()
     {
         $this->seed();
@@ -62,11 +164,19 @@ class PhaseFourOrderTest extends TestCase
 
         $this->postJson("/api/orders/{$orderId}/confirm")
             ->assertOk()
-            ->assertJsonPath('data.order.status', 'confirmed');
+            ->assertJsonPath('data.order.status', 'invoiced')
+            ->assertJsonPath('data.order.credit_due_date', '2026-08-25')
+            ->assertJsonPath('data.financial_record.status', 'issued');
 
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
-            'status' => 'confirmed',
+            'status' => 'invoiced',
+            'credit_due_date' => '2026-08-25 00:00:00',
+        ]);
+        $this->assertDatabaseHas('invoices', [
+            'order_id' => $orderId,
+            'status' => 'issued',
+            'due_date' => '2026-08-25 00:00:00',
         ]);
 
         $this->postJson("/api/orders/{$orderId}/confirm")

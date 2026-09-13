@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\StockBalance;
 use App\Models\StockMovement;
+use App\Services\InventoryService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Carbon\Carbon;
@@ -17,6 +17,12 @@ class StockController extends Controller
     private const VIEW_PERMISSION = 'office.inventory.view';
 
     private const MANAGE_PERMISSION = 'office.inventory.manage';
+
+    private const ADJUSTMENT_REASONS = ['damage', 'expired', 'loss', 'internal_use', 'count_correction', 'found_stock', 'other'];
+
+    public function __construct(private InventoryService $inventory)
+    {
+    }
 
     public function meta(Request $request)
     {
@@ -50,7 +56,7 @@ class StockController extends Controller
         return ApiResponse::success('Stock setup loaded.', [
             'warehouses' => $warehouses,
             'products' => $products,
-            'movement_types' => ['opening', 'receive', 'issue', 'damage', 'adjustment', 'transfer_out', 'transfer_in'],
+            'movement_types' => ['opening', 'receive', 'issue', 'damage', 'adjustment', 'transfer_out', 'transfer_in', 'delivery_issue', 'delivery_issue_reversal', 'delivery_return', 'delivery_damage'],
         ]);
     }
 
@@ -70,8 +76,25 @@ class StockController extends Controller
             $query->where('stock_movements.product_id', $request->query('product_id'));
         }
 
-        if ($request->filled('type')) {
+        if ($request->query('type_group') === 'issue' && ! $request->filled('type')) {
+            $query->whereIn('stock_movements.movement_type', ['issue', 'delivery_issue', 'delivery_issue_reversal']);
+        } elseif ($request->query('type_group') === 'adjustment' && ! $request->filled('type')) {
+            $query->whereIn('stock_movements.movement_type', ['damage', 'adjustment']);
+        } elseif ($request->filled('type')) {
             $query->where('stock_movements.movement_type', $request->query('type'));
+        }
+
+        if ($request->filled('adjustment_reason')) {
+            $reason = $request->query('adjustment_reason');
+            $query->where(function ($query) use ($reason) {
+                $query->where('stock_movements.adjustment_reason', $reason);
+                if ($reason === 'damage') {
+                    $query->orWhere(function ($legacy) {
+                        $legacy->where('stock_movements.movement_type', 'damage')
+                            ->whereNull('stock_movements.adjustment_reason');
+                    });
+                }
+            });
         }
 
         if ($request->filled('reference_type')) {
@@ -89,7 +112,8 @@ class StockController extends Controller
                     ->orWhere('warehouses.code', 'like', "%{$search}%")
                     ->orWhere('warehouses.name', 'like', "%{$search}%")
                     ->orWhere('products.sku', 'like', "%{$search}%")
-                    ->orWhere('products.name', 'like', "%{$search}%");
+                    ->orWhere('products.name', 'like', "%{$search}%")
+                    ->orWhere('stock_movements.adjustment_reason', 'like', "%{$search}%");
             });
         }
 
@@ -117,44 +141,253 @@ class StockController extends Controller
         ]);
     }
 
-    public function balances(Request $request)
+    public function receipts(Request $request)
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
 
-        $query = $this->balanceQuery()
-            ->orderBy('warehouses.name')
-            ->orderBy('products.name');
+        $query = $this->movementQuery()
+            ->whereIn('stock_movements.movement_type', ['opening', 'receive'])
+            ->whereNotNull('stock_movements.document_code');
 
         if ($request->filled('warehouse_id')) {
-            $query->where('stock_balances.warehouse_id', $request->query('warehouse_id'));
+            $query->where('stock_movements.warehouse_id', $request->query('warehouse_id'));
         }
 
         if ($request->filled('product_id')) {
-            $query->where('stock_balances.product_id', $request->query('product_id'));
+            $query->where('stock_movements.product_id', $request->query('product_id'));
+        }
+
+        if ($request->filled('type')) {
+            $query->where('stock_movements.movement_type', $request->query('type'));
+        }
+
+        if ($request->filled('date')) {
+            $query->whereDate('stock_movements.movement_date', $request->query('date'));
         }
 
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($query) use ($search) {
-                $query->where('warehouses.code', 'like', "%{$search}%")
+                $query->where('stock_movements.document_code', 'like', "%{$search}%")
+                    ->orWhere('stock_movements.reference_code', 'like', "%{$search}%")
+                    ->orWhere('warehouses.code', 'like', "%{$search}%")
                     ->orWhere('warehouses.name', 'like', "%{$search}%")
                     ->orWhere('products.sku', 'like', "%{$search}%")
                     ->orWhere('products.name', 'like', "%{$search}%");
             });
         }
 
-        $summary = (clone $query)->reorder()
-            ->selectRaw('COUNT(*) as products_count, COALESCE(SUM(stock_balances.quantity), 0) as total_quantity, COALESCE(SUM(stock_balances.stock_value), 0) as stock_value')
+        $grouped = $query
+            ->groupBy([
+                'stock_movements.document_code',
+                'stock_movements.warehouse_id',
+                'warehouses.code',
+                'warehouses.name',
+                'stock_movements.movement_type',
+                'stock_movements.movement_date',
+                'stock_movements.reference_code',
+                'stock_movements.notes',
+            ])
+            ->select([
+                'stock_movements.document_code',
+                'stock_movements.warehouse_id',
+                'warehouses.code as warehouse_code',
+                'warehouses.name as warehouse_name',
+                'stock_movements.movement_type',
+                'stock_movements.movement_date',
+                'stock_movements.reference_code',
+                'stock_movements.notes',
+            ])
+            ->selectRaw('MAX(stock_movements.id) as latest_id, COUNT(DISTINCT stock_movements.product_id) as products_count, SUM(stock_movements.signed_quantity) as total_quantity, SUM(stock_movements.total_cost) as total_value');
+
+        $summary = DB::query()->fromSub(clone $grouped, 'receipt_rows')
+            ->selectRaw('COUNT(*) as records_count, COALESCE(SUM(total_quantity), 0) as in_quantity, COALESCE(SUM(total_value), 0) as stock_value')
             ->first();
 
-        $paginator = $query->select($this->balanceColumns())
+        $paginator = $grouped
+            ->orderByDesc('stock_movements.movement_date')
+            ->orderByDesc('latest_id')
             ->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
 
-        return ApiResponse::success('Stock balances loaded.', [
-            'items' => collect($paginator->items())->map(fn ($balance) => $this->balancePayload($balance)),
+        return ApiResponse::success('Stock receipts loaded.', [
+            'items' => collect($paginator->items())->map(fn ($receipt) => [
+                'document_code' => $receipt->document_code,
+                'warehouse_id' => $receipt->warehouse_id,
+                'warehouse_code' => $receipt->warehouse_code,
+                'warehouse_name' => $receipt->warehouse_name,
+                'movement_type' => $receipt->movement_type,
+                'movement_date' => Carbon::parse($receipt->movement_date)->toDateString(),
+                'reference_code' => $receipt->reference_code,
+                'notes' => $receipt->notes,
+                'products_count' => (int) $receipt->products_count,
+                'total_quantity' => (float) $receipt->total_quantity,
+                'total_value' => (float) $receipt->total_value,
+            ]),
             'summary' => [
-                'products_count' => (int) ($summary->products_count ?? 0),
-                'total_quantity' => (float) ($summary->total_quantity ?? 0),
+                'records_count' => (int) ($summary->records_count ?? 0),
+                'in_quantity' => (float) ($summary->in_quantity ?? 0),
+                'out_quantity' => 0,
                 'stock_value' => (float) ($summary->stock_value ?? 0),
+            ],
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ]);
+    }
+
+    public function transfers(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        $query = $this->movementQuery()
+            ->leftJoin('stock_movements as transfer_in', function ($join) {
+                $join->on('transfer_in.document_code', '=', 'stock_movements.document_code')
+                    ->on('transfer_in.product_id', '=', 'stock_movements.product_id')
+                    ->where('transfer_in.movement_type', 'transfer_in');
+            })
+            ->leftJoin('warehouses as destination_warehouses', 'destination_warehouses.id', '=', 'transfer_in.warehouse_id')
+            ->where('stock_movements.movement_type', 'transfer_out')
+            ->whereNotNull('stock_movements.document_code');
+
+        if ($request->filled('from_warehouse_id')) $query->where('stock_movements.warehouse_id', $request->query('from_warehouse_id'));
+        if ($request->filled('to_warehouse_id')) $query->where('transfer_in.warehouse_id', $request->query('to_warehouse_id'));
+        if ($request->filled('product_id')) $query->where('stock_movements.product_id', $request->query('product_id'));
+        if ($request->filled('date')) $query->whereDate('stock_movements.movement_date', $request->query('date'));
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($query) use ($search) {
+                $query->where('stock_movements.document_code', 'like', "%{$search}%")
+                    ->orWhere('stock_movements.reference_code', 'like', "%{$search}%")
+                    ->orWhere('warehouses.code', 'like', "%{$search}%")
+                    ->orWhere('warehouses.name', 'like', "%{$search}%")
+                    ->orWhere('destination_warehouses.code', 'like', "%{$search}%")
+                    ->orWhere('destination_warehouses.name', 'like', "%{$search}%")
+                    ->orWhere('products.sku', 'like', "%{$search}%")
+                    ->orWhere('products.name', 'like', "%{$search}%");
+            });
+        }
+
+        $grouped = $query->groupBy([
+            'stock_movements.document_code', 'stock_movements.warehouse_id', 'warehouses.code', 'warehouses.name',
+            'transfer_in.warehouse_id', 'destination_warehouses.code', 'destination_warehouses.name',
+            'stock_movements.movement_date', 'stock_movements.reference_code', 'stock_movements.notes',
+        ])->select([
+            'stock_movements.document_code', 'stock_movements.warehouse_id as from_warehouse_id',
+            'warehouses.code as from_warehouse_code', 'warehouses.name as from_warehouse_name',
+            'transfer_in.warehouse_id as to_warehouse_id', 'destination_warehouses.code as to_warehouse_code',
+            'destination_warehouses.name as to_warehouse_name', 'stock_movements.movement_date',
+            'stock_movements.reference_code', 'stock_movements.notes',
+        ])->selectRaw('MAX(stock_movements.id) as latest_id, COUNT(DISTINCT stock_movements.product_id) as products_count, SUM(ABS(stock_movements.signed_quantity)) as total_quantity, SUM(stock_movements.total_cost) as total_value');
+
+        $summary = DB::query()->fromSub(clone $grouped, 'transfer_rows')
+            ->selectRaw('COUNT(*) as records_count, COALESCE(SUM(total_quantity), 0) as out_quantity, COALESCE(SUM(total_value), 0) as stock_value')->first();
+        $paginator = $grouped->orderByDesc('stock_movements.movement_date')->orderByDesc('latest_id')
+            ->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+
+        return ApiResponse::success('Stock transfers loaded.', [
+            'items' => collect($paginator->items())->map(fn ($transfer) => [
+                'document_code' => $transfer->document_code,
+                'from_warehouse_code' => $transfer->from_warehouse_code,
+                'from_warehouse_name' => $transfer->from_warehouse_name,
+                'to_warehouse_code' => $transfer->to_warehouse_code,
+                'to_warehouse_name' => $transfer->to_warehouse_name,
+                'movement_date' => Carbon::parse($transfer->movement_date)->toDateString(),
+                'reference_code' => $transfer->reference_code,
+                'notes' => $transfer->notes,
+                'products_count' => (int) $transfer->products_count,
+                'total_quantity' => (float) $transfer->total_quantity,
+                'total_value' => (float) $transfer->total_value,
+            ]),
+            'summary' => ['records_count' => (int) ($summary->records_count ?? 0), 'in_quantity' => 0, 'out_quantity' => (float) ($summary->out_quantity ?? 0), 'stock_value' => (float) ($summary->stock_value ?? 0)],
+            'meta' => ['current_page' => $paginator->currentPage(), 'last_page' => $paginator->lastPage(), 'per_page' => $paginator->perPage(), 'total' => $paginator->total()],
+        ]);
+    }
+
+    public function balances(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        // Inventory permission grants the active warehouse set. Inactive warehouses
+        // stay outside both the matrix columns and every quantity calculation.
+        $warehouseQuery = DB::table('warehouses')
+            ->where('is_active', true)
+            ->orderBy('name');
+
+        if ($request->filled('warehouse_id')) {
+            $warehouseQuery->where('id', $request->integer('warehouse_id'));
+        }
+
+        $warehouses = $warehouseQuery->get(['id', 'code', 'name']);
+        $warehouseIds = $warehouses->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $productQuery = DB::table('products')
+            ->where('is_active', true)
+            ->orderBy('name');
+
+        if ($request->filled('product_id')) {
+            $productQuery->where('id', $request->integer('product_id'));
+        }
+
+        if ($search = trim((string) $request->query('search'))) {
+            $productQuery->where(function ($query) use ($search) {
+                $query->where('sku', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            });
+        }
+
+        $filteredProductIds = (clone $productQuery)->reorder()->select('products.id');
+        $totalQuantity = DB::table('stock_balances')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('product_id', $filteredProductIds)
+            ->sum('quantity');
+
+        $warehouseTotals = DB::table('stock_balances')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('product_id', (clone $filteredProductIds))
+            ->select('warehouse_id')
+            ->selectRaw('COALESCE(SUM(quantity), 0) as total_quantity')
+            ->groupBy('warehouse_id')
+            ->pluck('total_quantity', 'warehouse_id');
+
+        $paginator = $productQuery
+            ->select(['id', 'sku', 'name', 'unit'])
+            ->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+
+        $pageProductIds = collect($paginator->items())->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $balances = DB::table('stock_balances')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('product_id', $pageProductIds)
+            ->get(['warehouse_id', 'product_id', 'quantity'])
+            ->keyBy(fn ($balance) => "{$balance->product_id}:{$balance->warehouse_id}");
+
+        return ApiResponse::success('Stock balances loaded.', [
+            'warehouses' => $warehouses->map(fn ($warehouse) => [
+                'id' => (int) $warehouse->id,
+                'code' => $warehouse->code,
+                'name' => $warehouse->name,
+                'total_quantity' => (float) ($warehouseTotals[$warehouse->id] ?? 0),
+            ]),
+            'items' => collect($paginator->items())->map(function ($product) use ($warehouses, $balances) {
+                $quantities = $warehouses->mapWithKeys(function ($warehouse) use ($product, $balances) {
+                    $balance = $balances->get("{$product->id}:{$warehouse->id}");
+
+                    return [(string) $warehouse->id => (float) ($balance->quantity ?? 0)];
+                })->all();
+
+                return [
+                    'product_id' => (int) $product->id,
+                    'product_sku' => $product->sku,
+                    'product_name' => $product->name,
+                    'unit' => $product->unit,
+                    'quantities' => $quantities,
+                    'quantity' => (float) array_sum($quantities),
+                ];
+            }),
+            'summary' => [
+                'products_count' => $paginator->total(),
+                'warehouses_count' => $warehouses->count(),
+                'total_quantity' => (float) $totalQuantity,
             ],
             'meta' => [
                 'current_page' => $paginator->currentPage(),
@@ -169,61 +402,90 @@ class StockController extends Controller
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
 
-        $query = $this->balanceQuery();
+        // Use the same active, permission-protected warehouse scope as Stock Balance.
+        $warehouseQuery = DB::table('warehouses')
+            ->where('is_active', true)
+            ->orderBy('name');
 
         if ($request->filled('warehouse_id')) {
-            $query->where('stock_balances.warehouse_id', $request->query('warehouse_id'));
+            $warehouseQuery->where('id', $request->integer('warehouse_id'));
         }
 
+        $warehouses = $warehouseQuery->get(['id', 'code', 'name']);
+        $warehouseIds = $warehouses->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $productQuery = DB::table('products')
+            ->where('is_active', true)
+            ->orderBy('name');
+
         if ($request->filled('product_id')) {
-            $query->where('stock_balances.product_id', $request->query('product_id'));
+            $productQuery->where('id', $request->integer('product_id'));
         }
 
         if ($search = trim((string) $request->query('search'))) {
-            $query->where(function ($query) use ($search) {
-                $query->where('warehouses.code', 'like', "%{$search}%")
-                    ->orWhere('warehouses.name', 'like', "%{$search}%")
-                    ->orWhere('products.sku', 'like', "%{$search}%")
-                    ->orWhere('products.name', 'like', "%{$search}%");
+            $productQuery->where(function ($query) use ($search) {
+                $query->where('sku', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
             });
         }
 
-        $summary = (clone $query)
-            ->selectRaw('COUNT(*) as balance_lines, COUNT(DISTINCT stock_balances.product_id) as products_count, COUNT(DISTINCT stock_balances.warehouse_id) as warehouses_count, COALESCE(SUM(stock_balances.quantity), 0) as total_quantity, COALESCE(SUM(stock_balances.stock_value), 0) as stock_value')
+        $filteredProductIds = (clone $productQuery)->reorder()->select('products.id');
+        $balanceScope = DB::table('stock_balances')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('product_id', $filteredProductIds);
+        $summary = (clone $balanceScope)
+            ->selectRaw('COUNT(*) as balance_lines, COALESCE(SUM(quantity), 0) as total_quantity, COALESCE(SUM(stock_value), 0) as stock_value')
             ->first();
-
-        $warehouses = (clone $query)
-            ->select([
-                'warehouses.id',
-                'warehouses.code',
-                'warehouses.name',
-            ])
-            ->selectRaw('COUNT(DISTINCT stock_balances.product_id) as products_count, COALESCE(SUM(stock_balances.quantity), 0) as total_quantity, COALESCE(SUM(stock_balances.stock_value), 0) as stock_value')
-            ->groupBy('warehouses.id', 'warehouses.code', 'warehouses.name')
-            ->orderByDesc('stock_value')
+        $warehouseTotals = (clone $balanceScope)
+            ->select('warehouse_id')
+            ->selectRaw('COUNT(DISTINCT product_id) as products_count, COALESCE(SUM(quantity), 0) as total_quantity, COALESCE(SUM(stock_value), 0) as stock_value')
+            ->groupBy('warehouse_id')
             ->get()
-            ->map(fn ($warehouse) => [
-                'id' => $warehouse->id,
-                'code' => $warehouse->code,
-                'name' => $warehouse->name,
-                'products_count' => (int) $warehouse->products_count,
-                'total_quantity' => (float) $warehouse->total_quantity,
-                'stock_value' => (float) $warehouse->stock_value,
-            ]);
+            ->keyBy('warehouse_id');
 
-        $paginator = $query
-            ->orderByDesc('stock_balances.stock_value')
-            ->orderBy('products.name')
-            ->select($this->balanceColumns())
+        $paginator = $productQuery
+            ->select(['id', 'sku', 'name', 'unit'])
             ->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+        $pageProductIds = collect($paginator->items())->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $balances = DB::table('stock_balances')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('product_id', $pageProductIds)
+            ->get(['warehouse_id', 'product_id', 'stock_value'])
+            ->keyBy(fn ($balance) => "{$balance->product_id}:{$balance->warehouse_id}");
 
         return ApiResponse::success('Stock value report loaded.', [
-            'items' => collect($paginator->items())->map(fn ($balance) => $this->balancePayload($balance)),
-            'warehouses' => $warehouses,
+            'items' => collect($paginator->items())->map(function ($product) use ($warehouses, $balances) {
+                $values = $warehouses->mapWithKeys(function ($warehouse) use ($product, $balances) {
+                    $balance = $balances->get("{$product->id}:{$warehouse->id}");
+
+                    return [(string) $warehouse->id => (float) ($balance->stock_value ?? 0)];
+                })->all();
+
+                return [
+                    'product_id' => (int) $product->id,
+                    'product_sku' => $product->sku,
+                    'product_name' => $product->name,
+                    'unit' => $product->unit,
+                    'values' => $values,
+                    'stock_value' => (float) array_sum($values),
+                ];
+            }),
+            'warehouses' => $warehouses->map(function ($warehouse) use ($warehouseTotals) {
+                $totals = $warehouseTotals->get($warehouse->id);
+
+                return [
+                    'id' => (int) $warehouse->id,
+                    'code' => $warehouse->code,
+                    'name' => $warehouse->name,
+                    'products_count' => (int) ($totals->products_count ?? 0),
+                    'total_quantity' => (float) ($totals->total_quantity ?? 0),
+                    'stock_value' => (float) ($totals->stock_value ?? 0),
+                ];
+            }),
             'summary' => [
                 'balance_lines' => (int) ($summary->balance_lines ?? 0),
-                'products_count' => (int) ($summary->products_count ?? 0),
-                'warehouses_count' => (int) ($summary->warehouses_count ?? 0),
+                'products_count' => $paginator->total(),
+                'warehouses_count' => $warehouses->count(),
                 'total_quantity' => (float) ($summary->total_quantity ?? 0),
                 'stock_value' => (float) ($summary->stock_value ?? 0),
             ],
@@ -249,6 +511,7 @@ class StockController extends Controller
             'unit_cost' => ['nullable', 'numeric', 'min:0'],
             'reference_code' => ['nullable', 'string', 'max:80'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'adjustment_reason' => ['nullable', Rule::requiredIf(fn () => $request->input('movement_type') === 'adjustment'), Rule::in(self::ADJUSTMENT_REASONS)],
         ]);
 
         $warehouse = DB::table('warehouses')->where('is_active', true)->find($validated['warehouse_id']);
@@ -256,6 +519,15 @@ class StockController extends Controller
         abort_unless($warehouse && $product, 422, 'Active warehouse and product are required.');
 
         $movementDate = Carbon::parse($validated['movement_date'] ?? now());
+
+        if (in_array($validated['movement_type'], ['opening', 'receive'], true)) {
+            $validated['document_code'] = $this->nextReceiptCode($movementDate);
+            $validated['reference_type'] = 'stock_receipt';
+        }
+
+        if ($validated['movement_type'] === 'adjustment') {
+            $validated['reference_type'] = 'stock_adjustment';
+        }
 
         $result = DB::transaction(fn () => $this->applyMovement($validated, $movementDate, $request));
 
@@ -269,6 +541,73 @@ class StockController extends Controller
         ], 201);
     }
 
+    public function storeReceipt(Request $request)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+
+        $validated = $request->validate([
+            'movement_type' => ['required', Rule::in(['opening', 'receive'])],
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'movement_date' => ['nullable', 'date'],
+            'reference_code' => ['nullable', 'string', 'max:80'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
+            'items.*.unit_cost' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
+        ]);
+
+        $warehouse = DB::table('warehouses')->where('is_active', true)->find($validated['warehouse_id']);
+        abort_unless($warehouse, 422, 'An active warehouse is required.');
+
+        $productIds = collect($validated['items'])->pluck('product_id');
+        $activeProductIds = DB::table('products')->where('is_active', true)->whereIn('id', $productIds)->pluck('id');
+        abort_unless($activeProductIds->count() === $productIds->count(), 422, 'Every receipt line requires an active product.');
+
+        $movementDate = Carbon::parse($validated['movement_date'] ?? now());
+
+        $result = DB::transaction(function () use ($validated, $movementDate, $request) {
+            $documentCode = $this->nextReceiptCode($movementDate);
+            $movements = [];
+            $totalQuantity = 0;
+            $totalValue = 0;
+
+            foreach ($validated['items'] as $index => $item) {
+                [$movement] = $this->applyMovement([
+                    'movement_type' => $validated['movement_type'],
+                    'warehouse_id' => $validated['warehouse_id'],
+                    'product_id' => $item['product_id'],
+                    'quantity' => $item['quantity'],
+                    'unit_cost' => $item['unit_cost'] ?? null,
+                    'reference_type' => 'stock_receipt',
+                    'reference_code' => $validated['reference_code'] ?? null,
+                    'document_code' => $documentCode,
+                    'notes' => $validated['notes'] ?? null,
+                ], $movementDate, $request, $documentCode.'-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT));
+
+                $movements[] = $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $movement->id)->first());
+                $totalQuantity += (float) $movement->signed_quantity;
+                $totalValue += (float) $movement->total_cost;
+            }
+
+            return compact('documentCode', 'movements', 'totalQuantity', 'totalValue');
+        }, 3);
+
+        return ApiResponse::success('Stock receipt recorded.', [
+            'receipt' => [
+                'document_code' => $result['documentCode'],
+                'warehouse_id' => (int) $validated['warehouse_id'],
+                'movement_type' => $validated['movement_type'],
+                'movement_date' => $movementDate->toDateString(),
+                'reference_code' => $validated['reference_code'] ?? null,
+                'products_count' => count($result['movements']),
+                'total_quantity' => $result['totalQuantity'],
+                'total_value' => $result['totalValue'],
+                'items' => $result['movements'],
+            ],
+        ], 201);
+    }
+
     public function storeTransfer(Request $request)
     {
         $this->authorizePermission($request, self::MANAGE_PERMISSION);
@@ -276,58 +615,239 @@ class StockController extends Controller
         $validated = $request->validate([
             'from_warehouse_id' => ['required', 'integer', 'exists:warehouses,id', 'different:to_warehouse_id'],
             'to_warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'product_id' => ['required_without:items', 'integer', 'exists:products,id'],
             'movement_date' => ['nullable', 'date'],
-            'quantity' => ['required', 'numeric', 'min:0.01'],
+            'quantity' => ['required_without:items', 'numeric', 'min:0.01'],
+            'items' => ['required_without:product_id', 'array', 'min:1', 'max:100'],
+            'items.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
             'reference_code' => ['nullable', 'string', 'max:80'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $validated['items'] = $validated['items'] ?? [['product_id' => $validated['product_id'], 'quantity' => $validated['quantity']]];
+
         $fromWarehouse = DB::table('warehouses')->where('is_active', true)->find($validated['from_warehouse_id']);
         $toWarehouse = DB::table('warehouses')->where('is_active', true)->find($validated['to_warehouse_id']);
-        $product = DB::table('products')->where('is_active', true)->find($validated['product_id']);
-        abort_unless($fromWarehouse && $toWarehouse && $product, 422, 'Active warehouses and product are required.');
+        $productIds = collect($validated['items'])->pluck('product_id');
+        $activeProductIds = DB::table('products')->where('is_active', true)->whereIn('id', $productIds)->pluck('id');
+        abort_unless($fromWarehouse && $toWarehouse && $activeProductIds->count() === $productIds->count(), 422, 'Active warehouses and products are required.');
 
         $movementDate = Carbon::parse($validated['movement_date'] ?? now());
 
         $result = DB::transaction(function () use ($validated, $movementDate, $request) {
             $transferCode = $this->nextTransferCode($movementDate);
-            $sourceBalance = $this->balanceFor((int) $validated['from_warehouse_id'], (int) $validated['product_id']);
-            $unitCost = (float) $sourceBalance->average_cost;
-            abort_if((float) $sourceBalance->quantity < (float) $validated['quantity'], 409, 'Insufficient stock balance.');
-
-            [$outMovement, $sourceBalance] = $this->applyMovement([
-                'movement_type' => 'transfer_out',
-                'warehouse_id' => $validated['from_warehouse_id'],
-                'product_id' => $validated['product_id'],
-                'quantity' => $validated['quantity'],
-                'unit_cost' => $unitCost,
-                'reference_code' => $transferCode,
-                'notes' => $validated['notes'] ?? null,
-            ], $movementDate, $request, "{$transferCode}-OUT");
-
-            [$inMovement, $destinationBalance] = $this->applyMovement([
-                'movement_type' => 'transfer_in',
-                'warehouse_id' => $validated['to_warehouse_id'],
-                'product_id' => $validated['product_id'],
-                'quantity' => $validated['quantity'],
-                'unit_cost' => $unitCost,
-                'reference_code' => $transferCode,
-                'notes' => $validated['notes'] ?? null,
-            ], $movementDate, $request, "{$transferCode}-IN");
-
-            return [$transferCode, $outMovement, $inMovement, $sourceBalance, $destinationBalance];
+            $lines = [];
+            foreach ($validated['items'] as $index => $item) {
+                $sourceBalance = $this->inventory->balanceFor((int) $validated['from_warehouse_id'], (int) $item['product_id']);
+                $unitCost = (float) $sourceBalance->average_cost;
+                abort_if((float) $sourceBalance->quantity < (float) $item['quantity'], 409, 'Insufficient stock balance.');
+                $line = count($validated['items']) > 1 ? '-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT) : '';
+                $common = ['product_id' => $item['product_id'], 'quantity' => $item['quantity'], 'unit_cost' => $unitCost, 'reference_type' => 'stock_transfer', 'reference_code' => $validated['reference_code'] ?? $transferCode, 'document_code' => $transferCode, 'notes' => $validated['notes'] ?? null];
+                [$outMovement, $sourceBalance] = $this->applyMovement($common + ['movement_type' => 'transfer_out', 'warehouse_id' => $validated['from_warehouse_id']], $movementDate, $request, "{$transferCode}{$line}-OUT");
+                [$inMovement, $destinationBalance] = $this->applyMovement($common + ['movement_type' => 'transfer_in', 'warehouse_id' => $validated['to_warehouse_id']], $movementDate, $request, "{$transferCode}{$line}-IN");
+                $lines[] = compact('outMovement', 'inMovement', 'sourceBalance', 'destinationBalance');
+            }
+            return [$transferCode, $lines];
         });
 
-        [$transferCode, $outMovement, $inMovement, $sourceBalance, $destinationBalance] = $result;
+        [$transferCode, $lines] = $result;
+        $first = $lines[0];
 
         return ApiResponse::success('Stock transfer recorded.', [
             'transfer_code' => $transferCode,
-            'out_movement' => $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $outMovement->id)->first()),
-            'in_movement' => $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $inMovement->id)->first()),
-            'source_balance' => $this->balancePayload($this->balanceQuery()->select($this->balanceColumns())->where('stock_balances.id', $sourceBalance->id)->first()),
-            'destination_balance' => $this->balancePayload($this->balanceQuery()->select($this->balanceColumns())->where('stock_balances.id', $destinationBalance->id)->first()),
+            'products_count' => count($lines),
+            'items' => collect($lines)->map(fn ($line) => ['out_movement' => $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $line['outMovement']->id)->first()), 'in_movement' => $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $line['inMovement']->id)->first())]),
+            'out_movement' => $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $first['outMovement']->id)->first()),
+            'in_movement' => $this->movementPayload($this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $first['inMovement']->id)->first()),
+            'source_balance' => $this->balancePayload($this->balanceQuery()->select($this->balanceColumns())->where('stock_balances.id', $first['sourceBalance']->id)->first()),
+            'destination_balance' => $this->balancePayload($this->balanceQuery()->select($this->balanceColumns())->where('stock_balances.id', $first['destinationBalance']->id)->first()),
         ], 201);
+    }
+
+    public function closingCounts(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        $query = DB::table('stock_counts')
+            ->join('warehouses', 'stock_counts.warehouse_id', '=', 'warehouses.id')
+            ->latest('stock_counts.count_date')
+            ->latest('stock_counts.id');
+
+        if ($request->filled('warehouse_id')) {
+            $query->where('stock_counts.warehouse_id', $request->query('warehouse_id'));
+        }
+
+        if ($request->filled('product_id')) {
+            $productId = (int) $request->query('product_id');
+            $query->whereExists(function ($items) use ($productId) {
+                $items->selectRaw('1')
+                    ->from('stock_count_items')
+                    ->whereColumn('stock_count_items.stock_count_id', 'stock_counts.id')
+                    ->where('stock_count_items.product_id', $productId);
+            });
+        }
+
+        if ($request->filled('date')) {
+            $query->whereDate('stock_counts.count_date', $request->query('date'));
+        }
+
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($searchQuery) use ($search) {
+                $searchQuery->where('stock_counts.code', 'like', "%{$search}%")
+                    ->orWhere('stock_counts.reference_code', 'like', "%{$search}%")
+                    ->orWhere('warehouses.code', 'like', "%{$search}%")
+                    ->orWhere('warehouses.name', 'like', "%{$search}%")
+                    ->orWhereExists(function ($items) use ($search) {
+                        $items->selectRaw('1')
+                            ->from('stock_count_items')
+                            ->join('products', 'stock_count_items.product_id', '=', 'products.id')
+                            ->whereColumn('stock_count_items.stock_count_id', 'stock_counts.id')
+                            ->where(function ($products) use ($search) {
+                                $products->where('products.sku', 'like', "%{$search}%")
+                                    ->orWhere('products.name', 'like', "%{$search}%");
+                            });
+                    });
+            });
+        }
+
+        $summary = (clone $query)->reorder()->selectRaw(
+            'COUNT(*) as records_count, COALESCE(SUM(stock_counts.quantity_added), 0) as in_quantity, COALESCE(SUM(stock_counts.quantity_removed), 0) as out_quantity, COALESCE(SUM(stock_counts.variance_value), 0) as stock_value'
+        )->first();
+
+        $paginator = $query->select([
+            'stock_counts.*',
+            'warehouses.code as warehouse_code',
+            'warehouses.name as warehouse_name',
+        ])->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+
+        return ApiResponse::success('Stock counts loaded.', [
+            'items' => collect($paginator->items())->map(fn ($count) => $this->stockCountPayload($count)),
+            'summary' => [
+                'records_count' => (int) ($summary->records_count ?? 0),
+                'in_quantity' => (float) ($summary->in_quantity ?? 0),
+                'out_quantity' => (float) ($summary->out_quantity ?? 0),
+                'stock_value' => (float) ($summary->stock_value ?? 0),
+            ],
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ]);
+    }
+
+    public function closingCountPreview(Request $request)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $warehouse = DB::table('warehouses')->where('is_active', true)->find($validated['warehouse_id']);
+        abort_unless($warehouse, 422, 'An active warehouse is required.');
+
+        $products = DB::table('products')
+            ->leftJoin('stock_balances', function ($join) use ($validated) {
+                $join->on('products.id', '=', 'stock_balances.product_id')
+                    ->where('stock_balances.warehouse_id', '=', $validated['warehouse_id']);
+            })
+            ->where('products.is_active', true)
+            ->orderBy('products.name')
+            ->get([
+                'products.id as product_id',
+                'products.sku',
+                'products.name',
+                'products.unit',
+                DB::raw('COALESCE(stock_balances.quantity, 0) as system_quantity'),
+                DB::raw('COALESCE(stock_balances.average_cost, 0) as unit_cost'),
+            ])
+            ->map(function ($product) {
+                $unitCost = (float) $product->unit_cost;
+                if ($unitCost <= 0) {
+                    $unitCost = (float) DB::table('stock_balances')
+                        ->where('product_id', $product->product_id)
+                        ->where('average_cost', '>', 0)
+                        ->orderByDesc('last_movement_at')
+                        ->value('average_cost');
+                }
+
+                return [
+                    'product_id' => (int) $product->product_id,
+                    'sku' => $product->sku,
+                    'name' => $product->name,
+                    'unit' => $product->unit,
+                    'system_quantity' => (float) $product->system_quantity,
+                    'unit_cost' => $unitCost,
+                ];
+            });
+
+        return ApiResponse::success('Stock count worksheet loaded.', [
+            'warehouse' => ['id' => (int) $warehouse->id, 'code' => $warehouse->code, 'name' => $warehouse->name],
+            'items' => $products,
+        ]);
+    }
+
+    public function showClosingCount(Request $request, int $count)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        $stockCount = DB::table('stock_counts')
+            ->join('warehouses', 'stock_counts.warehouse_id', '=', 'warehouses.id')
+            ->leftJoin('users', 'stock_counts.created_by', '=', 'users.id')
+            ->where('stock_counts.id', $count)
+            ->first([
+                'stock_counts.*',
+                'warehouses.code as warehouse_code',
+                'warehouses.name as warehouse_name',
+                'users.name as created_by_name',
+            ]);
+        abort_unless($stockCount, 404, 'Stock count not found.');
+
+        $items = DB::table('stock_count_items')
+            ->join('products', 'stock_count_items.product_id', '=', 'products.id')
+            ->leftJoin('stock_movements', 'stock_count_items.stock_movement_id', '=', 'stock_movements.id')
+            ->where('stock_count_items.stock_count_id', $count)
+            ->orderBy('products.name')
+            ->get([
+                'stock_count_items.id',
+                'stock_count_items.product_id',
+                'products.sku as product_sku',
+                'products.name as product_name',
+                'products.unit',
+                'stock_count_items.system_quantity',
+                'stock_count_items.counted_quantity',
+                'stock_count_items.variance_quantity',
+                'stock_count_items.unit_cost',
+                'stock_count_items.variance_value',
+                'stock_count_items.stock_movement_id',
+                'stock_movements.code as movement_code',
+            ])
+            ->map(fn ($item) => [
+                'id' => (int) $item->id,
+                'product_id' => (int) $item->product_id,
+                'product_sku' => $item->product_sku,
+                'product_name' => $item->product_name,
+                'unit' => $item->unit,
+                'system_quantity' => (float) $item->system_quantity,
+                'counted_quantity' => (float) $item->counted_quantity,
+                'variance_quantity' => (float) $item->variance_quantity,
+                'unit_cost' => (float) $item->unit_cost,
+                'variance_value' => (float) $item->variance_value,
+                'stock_movement_id' => $item->stock_movement_id ? (int) $item->stock_movement_id : null,
+                'movement_code' => $item->movement_code,
+            ]);
+
+        $payload = $this->stockCountPayload($stockCount);
+        $payload['created_by_name'] = $stockCount->created_by_name;
+        $payload['created_at'] = Carbon::parse($stockCount->created_at)->toDateTimeString();
+
+        return ApiResponse::success('Stock count loaded.', [
+            'count' => $payload,
+            'items' => $items,
+        ]);
     }
 
     public function storeClosingCount(Request $request)
@@ -336,49 +856,109 @@ class StockController extends Controller
 
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'product_id' => ['required', 'integer', 'exists:products,id'],
             'movement_date' => ['nullable', 'date'],
-            'counted_quantity' => ['required', 'numeric', 'min:0'],
-            'unit_cost' => ['nullable', 'numeric', 'min:0'],
             'reference_code' => ['nullable', 'string', 'max:80'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'items' => ['required', 'array', 'min:1', 'max:1000'],
+            'items.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
+            'items.*.system_quantity' => ['required', 'numeric', 'min:0'],
+            'items.*.counted_quantity' => ['required', 'numeric', 'min:0', 'max:9999999999'],
+            'items.*.unit_cost' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
         ]);
 
         $warehouse = DB::table('warehouses')->where('is_active', true)->find($validated['warehouse_id']);
-        $product = DB::table('products')->where('is_active', true)->find($validated['product_id']);
-        abort_unless($warehouse && $product, 422, 'Active warehouse and product are required.');
+        abort_unless($warehouse, 422, 'An active warehouse is required.');
+
+        $activeProductIds = DB::table('products')->where('is_active', true)->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $submittedProductIds = collect($validated['items'])->pluck('product_id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+        $expectedProductIds = collect($activeProductIds)->sort()->values()->all();
+        abort_unless($submittedProductIds === $expectedProductIds, 422, 'The stock count must include every active product exactly once.');
 
         $movementDate = Carbon::parse($validated['movement_date'] ?? now());
 
-        [$movement, $balance] = DB::transaction(function () use ($validated, $movementDate, $request) {
-            $currentBalance = $this->balanceFor((int) $validated['warehouse_id'], (int) $validated['product_id']);
-            $currentQuantity = (float) $currentBalance->quantity;
-            $countedQuantity = (float) $validated['counted_quantity'];
-            $adjustment = $countedQuantity - $currentQuantity;
-            $unitCost = (float) $currentBalance->average_cost > 0
-                ? (float) $currentBalance->average_cost
-                : (float) ($validated['unit_cost'] ?? 0);
-
-            abort_if($adjustment > 0 && $unitCost <= 0, 422, 'Unit cost is required when the physical count adds unvalued stock.');
-
-            return $this->applyMovement([
-                'movement_type' => 'adjustment',
+        $count = DB::transaction(function () use ($validated, $movementDate, $request) {
+            $code = $this->nextStockCountCode($movementDate);
+            $countId = DB::table('stock_counts')->insertGetId([
+                'code' => $code,
                 'warehouse_id' => $validated['warehouse_id'],
-                'product_id' => $validated['product_id'],
-                'quantity' => $adjustment,
-                'unit_cost' => $unitCost,
+                'count_date' => $movementDate->toDateString(),
                 'reference_code' => $validated['reference_code'] ?? null,
-                'reference_type' => 'closing_count',
+                'status' => 'completed',
+                'created_by' => $request->user()?->id,
                 'notes' => $validated['notes'] ?? null,
-            ], $movementDate, $request);
-        });
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
-        $movementPayload = $this->movementQuery()->select($this->movementColumns())->where('stock_movements.id', $movement->id)->first();
-        $balancePayload = $this->balanceQuery()->select($this->balanceColumns())->where('stock_balances.id', $balance->id)->first();
+            $totals = ['system' => 0.0, 'counted' => 0.0, 'added' => 0.0, 'removed' => 0.0, 'value' => 0.0];
+
+            foreach ($validated['items'] as $index => $item) {
+                $balance = $this->inventory->balanceFor((int) $validated['warehouse_id'], (int) $item['product_id']);
+                $systemQuantity = (float) $balance->quantity;
+                abort_if(abs($systemQuantity - (float) $item['system_quantity']) > 0.0001, 409, 'Stock changed while this count was open. Reload the worksheet and count again.');
+
+                $countedQuantity = (float) $item['counted_quantity'];
+                $variance = $countedQuantity - $systemQuantity;
+                $unitCost = (float) $balance->average_cost > 0 ? (float) $balance->average_cost : (float) ($item['unit_cost'] ?? 0);
+                abort_if($variance > 0 && $unitCost <= 0, 422, 'Unit cost is required when found stock is added.');
+
+                $movementId = null;
+                if (abs($variance) > 0.0001) {
+                    [$movement] = $this->applyMovement([
+                        'movement_type' => 'adjustment',
+                        'warehouse_id' => $validated['warehouse_id'],
+                        'product_id' => $item['product_id'],
+                        'quantity' => $variance,
+                        'unit_cost' => $unitCost,
+                        'document_code' => $code,
+                        'reference_code' => $validated['reference_code'] ?? null,
+                        'reference_type' => 'closing_count',
+                        'reference_id' => $countId,
+                        'adjustment_reason' => 'count_correction',
+                        'notes' => $validated['notes'] ?? null,
+                    ], $movementDate, $request, $code.'-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT));
+                    $movementId = $movement->id;
+                }
+
+                $varianceValue = $variance * $unitCost;
+                DB::table('stock_count_items')->insert([
+                    'stock_count_id' => $countId,
+                    'product_id' => $item['product_id'],
+                    'system_quantity' => $systemQuantity,
+                    'counted_quantity' => $countedQuantity,
+                    'variance_quantity' => $variance,
+                    'unit_cost' => $unitCost,
+                    'variance_value' => $varianceValue,
+                    'stock_movement_id' => $movementId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $totals['system'] += $systemQuantity;
+                $totals['counted'] += $countedQuantity;
+                $totals['added'] += max($variance, 0);
+                $totals['removed'] += abs(min($variance, 0));
+                $totals['value'] += $varianceValue;
+            }
+
+            DB::table('stock_counts')->where('id', $countId)->update([
+                'products_count' => count($validated['items']),
+                'system_quantity' => $totals['system'],
+                'counted_quantity' => $totals['counted'],
+                'quantity_added' => $totals['added'],
+                'quantity_removed' => $totals['removed'],
+                'variance_value' => $totals['value'],
+                'updated_at' => now(),
+            ]);
+
+            return DB::table('stock_counts')
+                ->join('warehouses', 'stock_counts.warehouse_id', '=', 'warehouses.id')
+                ->where('stock_counts.id', $countId)
+                ->first(['stock_counts.*', 'warehouses.code as warehouse_code', 'warehouses.name as warehouse_name']);
+        }, 3);
 
         return ApiResponse::success('Closing stock count recorded.', [
-            'movement' => $this->movementPayload($movementPayload),
-            'balance' => $this->balancePayload($balancePayload),
+            'count' => $this->stockCountPayload($count),
         ], 201);
     }
 
@@ -447,89 +1027,7 @@ class StockController extends Controller
 
     private function applyMovement(array $validated, Carbon $movementDate, Request $request, ?string $code = null): array
     {
-        $balance = $this->balanceFor((int) $validated['warehouse_id'], (int) $validated['product_id']);
-
-        $quantity = abs((float) $validated['quantity']);
-        $signedQuantity = $this->signedQuantity($validated['movement_type'], (float) $validated['quantity']);
-        $oldQuantity = (float) $balance->quantity;
-        $oldAverageCost = (float) $balance->average_cost;
-        $requestedCost = array_key_exists('unit_cost', $validated) && $validated['unit_cost'] !== null
-            ? (float) $validated['unit_cost']
-            : $oldAverageCost;
-        $unitCost = $requestedCost;
-
-        if ($signedQuantity < 0) {
-            abort_if($oldQuantity < abs($signedQuantity), 409, 'Insufficient stock balance.');
-            $unitCost = $requestedCost > 0 ? $requestedCost : $oldAverageCost;
-            $newQuantity = $oldQuantity + $signedQuantity;
-            $newAverageCost = $oldAverageCost;
-        } elseif ($signedQuantity > 0) {
-            $newQuantity = $oldQuantity + $signedQuantity;
-            $newAverageCost = $newQuantity > 0
-                ? (($oldQuantity * $oldAverageCost) + ($signedQuantity * $unitCost)) / $newQuantity
-                : $unitCost;
-        } else {
-            $newQuantity = $oldQuantity;
-            $newAverageCost = $oldAverageCost;
-        }
-
-        $movement = StockMovement::create([
-            'code' => $code ?? $this->nextCode($validated['movement_type'], $movementDate),
-            'warehouse_id' => $validated['warehouse_id'],
-            'product_id' => $validated['product_id'],
-            'movement_type' => $validated['movement_type'],
-            'movement_date' => $movementDate->toDateString(),
-            'quantity' => $quantity,
-            'signed_quantity' => $signedQuantity,
-            'balance_before' => $oldQuantity,
-            'balance_after' => $newQuantity,
-            'unit_cost' => $unitCost,
-            'total_cost' => abs($signedQuantity) * $unitCost,
-            'reference_type' => $validated['reference_type'] ?? null,
-            'reference_code' => $validated['reference_code'] ?? null,
-            'created_by' => $request->user()?->id,
-            'notes' => $validated['notes'] ?? null,
-        ]);
-
-        $balance->update([
-            'quantity' => $newQuantity,
-            'average_cost' => $newAverageCost,
-            'stock_value' => $newQuantity * $newAverageCost,
-            'last_movement_at' => now(),
-        ]);
-
-        return [$movement, $balance->refresh()];
-    }
-
-    private function balanceFor(int $warehouseId, int $productId): StockBalance
-    {
-        $balance = StockBalance::query()
-            ->where('warehouse_id', $warehouseId)
-            ->where('product_id', $productId)
-            ->lockForUpdate()
-            ->first();
-
-        if ($balance) {
-            return $balance;
-        }
-
-        return StockBalance::create([
-            'warehouse_id' => $warehouseId,
-            'product_id' => $productId,
-            'quantity' => 0,
-            'average_cost' => 0,
-            'stock_value' => 0,
-        ]);
-    }
-
-    private function signedQuantity(string $movementType, float $quantity): float
-    {
-        return match ($movementType) {
-            'issue', 'damage', 'transfer_out' => -abs($quantity),
-            'transfer_in' => abs($quantity),
-            'adjustment' => $quantity,
-            default => abs($quantity),
-        };
+        return $this->inventory->applyMovement($validated, $movementDate, $request->user()?->id, $code);
     }
 
     private function movementQuery()
@@ -575,6 +1073,7 @@ class StockController extends Controller
         return [
             'id' => $movement->id,
             'code' => $movement->code,
+            'document_code' => $movement->document_code,
             'warehouse_id' => $movement->warehouse_id,
             'warehouse_code' => $movement->warehouse_code,
             'warehouse_name' => $movement->warehouse_name,
@@ -583,6 +1082,7 @@ class StockController extends Controller
             'product_name' => $movement->product_name,
             'unit' => $movement->unit,
             'movement_type' => $movement->movement_type,
+            'adjustment_reason' => $movement->adjustment_reason ?: ($movement->movement_type === 'damage' ? 'damage' : null),
             'movement_date' => Carbon::parse($movement->movement_date)->toDateString(),
             'quantity' => (float) $movement->quantity,
             'signed_quantity' => (float) $movement->signed_quantity,
@@ -616,27 +1116,51 @@ class StockController extends Controller
         ];
     }
 
-    private function nextCode(string $movementType, Carbon $movementDate): string
+    private function stockCountPayload($count): array
     {
-        $prefix = match ($movementType) {
-            'opening' => 'OPN',
-            'receive' => 'RCV',
-            'issue' => 'ISS',
-            'damage' => 'DMG',
-            'adjustment' => 'ADJ',
-            'transfer_out', 'transfer_in' => 'TRF',
-            default => 'STK',
-        };
-        $prefix = $prefix.'-'.$movementDate->format('Ym').'-';
-        $next = ((int) StockMovement::query()->where('code', 'like', "{$prefix}%")->count()) + 1;
-
-        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        return [
+            'id' => (int) $count->id,
+            'code' => $count->code,
+            'warehouse_id' => (int) $count->warehouse_id,
+            'warehouse_code' => $count->warehouse_code,
+            'warehouse_name' => $count->warehouse_name,
+            'count_date' => Carbon::parse($count->count_date)->toDateString(),
+            'reference_code' => $count->reference_code,
+            'status' => $count->status,
+            'products_count' => (int) $count->products_count,
+            'system_quantity' => (float) $count->system_quantity,
+            'counted_quantity' => (float) $count->counted_quantity,
+            'quantity_added' => (float) $count->quantity_added,
+            'quantity_removed' => (float) $count->quantity_removed,
+            'variance_value' => (float) $count->variance_value,
+            'notes' => $count->notes,
+            'updated_at' => Carbon::parse($count->updated_at)->toDateTimeString(),
+        ];
     }
 
     private function nextTransferCode(Carbon $movementDate): string
     {
         $prefix = 'TRF-'.$movementDate->format('Ym').'-';
         $next = ((int) floor(StockMovement::query()->where('code', 'like', "{$prefix}%")->count() / 2)) + 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function nextReceiptCode(Carbon $movementDate): string
+    {
+        $prefix = 'REC-'.$movementDate->format('Ym').'-';
+        $next = StockMovement::query()
+            ->where('document_code', 'like', "{$prefix}%")
+            ->distinct()
+            ->count('document_code') + 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function nextStockCountCode(Carbon $movementDate): string
+    {
+        $prefix = 'CNT-'.$movementDate->format('Ym').'-';
+        $next = DB::table('stock_counts')->where('code', 'like', "{$prefix}%")->count() + 1;
 
         return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }

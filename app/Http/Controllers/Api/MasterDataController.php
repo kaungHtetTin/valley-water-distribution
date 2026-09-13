@@ -94,6 +94,105 @@ class MasterDataController extends Controller
         ]);
     }
 
+    public function productPriceMatrix(Request $request)
+    {
+        $this->authorizeOffice($request, 'office.master-data.view');
+
+        $products = DB::table('products')
+            ->whereNull('deleted_at')
+            ->when(trim((string) $request->query('search')), function ($query, $search) {
+                $query->where(function ($query) use ($search) {
+                    $query->where('sku', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('name')
+            ->paginate(min(max((int) $request->query('per_page', 25), 1), 100));
+
+        $priceTypes = DB::table('price_types')
+            ->where('is_active', true)
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'currency']);
+
+        $productIds = collect($products->items())->pluck('id');
+        $prices = DB::table('product_prices')
+            ->whereIn('product_id', $productIds)
+            ->where('is_active', true)
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->get(['id', 'product_id', 'price_type_id', 'amount', 'effective_from'])
+            ->groupBy('product_id')
+            ->map(fn ($items) => $items->unique('price_type_id')->values());
+
+        $items = collect($products->items())->map(fn ($product) => [
+            'id' => $product->id,
+            'sku' => $product->sku,
+            'name' => $product->name,
+            'unit' => $product->unit,
+            'is_active' => (bool) $product->is_active,
+            'prices' => $prices->get($product->id, collect()),
+        ]);
+
+        return ApiResponse::success('Product price matrix loaded.', [
+            'items' => $items,
+            'price_types' => $priceTypes,
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+            ],
+        ]);
+    }
+
+    public function updateProductPriceMatrix(Request $request)
+    {
+        $this->authorizeOffice($request, 'office.master-data.manage');
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'effective_from' => ['required', 'date'],
+            'prices' => ['required', 'array', 'min:1'],
+            'prices.*.price_type_id' => ['required', 'integer', 'exists:price_types,id'],
+            'prices.*.amount' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $now = now();
+        DB::transaction(function () use ($request, $validated, $now) {
+            foreach ($validated['prices'] as $price) {
+                $values = [
+                    'amount' => $price['amount'],
+                    'is_active' => true,
+                    'updated_at' => $now,
+                ];
+                if (Schema::hasColumn('product_prices', 'updated_by')) {
+                    $values['updated_by'] = $request->user()->id;
+                }
+
+                $existing = DB::table('product_prices')->where([
+                    'product_id' => $validated['product_id'],
+                    'price_type_id' => $price['price_type_id'],
+                    'effective_from' => $validated['effective_from'],
+                ])->exists();
+
+                if (! $existing) {
+                    $values['created_at'] = $now;
+                    if (Schema::hasColumn('product_prices', 'created_by')) {
+                        $values['created_by'] = $request->user()->id;
+                    }
+                }
+
+                DB::table('product_prices')->updateOrInsert([
+                    'product_id' => $validated['product_id'],
+                    'price_type_id' => $price['price_type_id'],
+                    'effective_from' => $validated['effective_from'],
+                ], $values);
+            }
+        });
+
+        return ApiResponse::success('Product prices updated.');
+    }
+
     public function store(Request $request, string $resource)
     {
         $this->authorizeOffice($request, 'office.master-data.manage');

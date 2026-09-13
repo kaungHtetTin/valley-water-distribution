@@ -1,8 +1,9 @@
-import { ArrowLeft, CalendarDays, CheckCircle2, ChevronRight, MapPin, Navigation, Package, Plus, RefreshCw, Save, Search, Truck, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Ban, CalendarDays, CheckCircle2, ChevronRight, MapPin, Navigation, Package, Pencil, Plus, RefreshCw, Save, Search, TriangleAlert, Truck, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { DetailPage, DetailPanel } from './components/DetailPage';
 
 const statuses = ['planned', 'assigned', 'loading', 'on_route', 'delivered', 'partially_delivered', 'failed', 'cancelled'];
-const blank = { invoice_id: '', warehouse_id: '', route_id: '', driver_id: '', vehicle_id: '', planned_date: new Date().toISOString().slice(0, 10), delivery_address: '', notes: '' };
+const blank = { invoice_ids: [], warehouse_id: '', route_id: '', driver_id: '', vehicle_id: '', planned_date: new Date().toISOString().slice(0, 10), delivery_address: '', notes: '' };
 const api = () => window.ValleyRuntime?.api?.deliveries || '/api/deliveries';
 const errorMessage = (error) => error.response?.data?.message || 'The delivery request could not be completed.';
 const number = (value) => Number(value || 0).toLocaleString();
@@ -11,18 +12,18 @@ const date = (value) => value ? new Date(`${value}T00:00:00`).toLocaleDateString
 const statusLabel = (value) => String(value || '').replaceAll('_', ' ');
 const statusFamily = (value) => ['delivered'].includes(value) ? 'success' : ['failed', 'cancelled'].includes(value) ? 'danger' : ['loading', 'on_route'].includes(value) ? 'info' : ['partially_delivered'].includes(value) ? 'warning' : 'neutral';
 
-export function DeliveryPlanningScreen({ canManage = false, historyOnly = false, locale = 'en' }) {
+export function DeliveryPlanningScreen({ canManage = false, historyOnly = false, locale = 'en', navigate, detailId = null }) {
     const localized = locale === 'my';
     const [meta, setMeta] = useState({ loading: true, invoices: [], warehouses: [], routes: [], drivers: [], vehicles: [], error: '' });
     const [filters, setFilters] = useState({ search: '', status: '', driver_id: '', date: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, meta: {}, error: '' });
     const [page, setPage] = useState(1);
     const [refresh, setRefresh] = useState(0);
-    const [form, setForm] = useState(blank);
-    const [formOpen, setFormOpen] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [formError, setFormError] = useState('');
-    const [detail, setDetail] = useState({ loading: false, delivery: null, items: [], error: '' });
+    const [detail, setDetail] = useState({ loading: false, delivery: null, trip: null, stops: [], stock: [], items: [], error: '' });
+    const [selectedStopId, setSelectedStopId] = useState(null);
+    const [cancelOpen, setCancelOpen] = useState(false);
+    const [processing, setProcessing] = useState(false);
+    const [actionError, setActionError] = useState('');
 
     const loadMeta = () => window.axios.get(`${api()}/meta`).then(({ data }) => setMeta({ loading: false, ...data.data, error: '' })).catch((error) => setMeta({ loading: false, invoices: [], warehouses: [], routes: [], drivers: [], vehicles: [], error: errorMessage(error) }));
     useEffect(() => { loadMeta(); }, [refresh]);
@@ -34,27 +35,290 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
     }, [filters, historyOnly, page, refresh]);
     useEffect(() => { setPage(1); }, [filters]);
 
-    const openForm = () => {
-        setForm({ ...blank, invoice_id: meta.invoices[0]?.id || '', warehouse_id: meta.warehouses[0]?.id || '', route_id: meta.routes[0]?.id || '', driver_id: meta.drivers[0]?.id || '', vehicle_id: meta.vehicles[0]?.id || '', planned_date: new Date().toISOString().slice(0, 10) });
-        setFormError(''); setFormOpen(true);
+    const openForm = () => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries/new`);
+    const loadDetail = (id) => {
+        setDetail({ loading: true, delivery: null, trip: null, stops: [], stock: [], items: [], error: '' });
+        window.axios.get(`${api()}/${id}`).then(({ data }) => {
+            const stops = data.data.stops || [];
+            setDetail({ loading: false, delivery: data.data.delivery, trip: data.data.trip, stops, stock: data.data.stock || [], items: data.data.items, error: '' });
+            setSelectedStopId(stops[0]?.id || null);
+        }).catch((error) => setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], items: [], error: errorMessage(error) }));
     };
-    const save = (event) => {
-        event.preventDefault(); setSaving(true); setFormError('');
-        window.axios.post(api(), form).then(() => { setSaving(false); setFormOpen(false); setRefresh((value) => value + 1); }).catch((error) => { setSaving(false); setFormError(errorMessage(error)); });
-    };
-    const show = (id) => {
-        setDetail({ loading: true, delivery: null, items: [], error: '' });
-        window.axios.get(`${api()}/${id}`).then(({ data }) => setDetail({ loading: false, delivery: data.data.delivery, items: data.data.items, error: '' })).catch((error) => setDetail({ loading: false, delivery: null, items: [], error: errorMessage(error) }));
+    const show = (id) => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries${historyOnly ? '/history' : ''}/${id}`);
+
+    useEffect(() => {
+        setSelectedStopId(null);
+        if (detailId) loadDetail(detailId);
+        else setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], items: [], error: '' });
+    }, [detailId]);
+
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/deliveries${historyOnly ? '/history' : ''}`;
+    const selectedStop = detail.stops.find((stop) => stop.id === selectedStopId) || detail.stops[0] || null;
+    const tripStatus = detail.trip?.status || detail.delivery?.status;
+    const canChangePlan = canManage && ['planned', 'assigned'].includes(tripStatus) && detail.stops.every((stop) => Number(stop.loaded_quantity || 0) === 0);
+    const cancelTrip = () => {
+        if (!detail.delivery || processing) return;
+        setProcessing(true); setActionError('');
+        window.axios.post(`${api()}/${detail.delivery.id}/cancel`).then(({ data }) => {
+            const stops = data.data.stops || [];
+            setDetail({ loading: false, delivery: data.data.delivery, trip: data.data.trip, stops, stock: data.data.stock || [], items: data.data.items || [], error: '' });
+            setCancelOpen(false);
+        }).catch((error) => setActionError(errorMessage(error))).finally(() => setProcessing(false));
     };
 
+    if (detailId) return (<>
+        <DetailPage
+            eyebrow="Delivery operations"
+            title={detail.trip?.code || detail.delivery?.trip_code || detail.delivery?.code || 'Loading'}
+            subtitle={detail.delivery ? `${detail.trip?.orders_count || detail.stops.length} delivery stops · ${detail.delivery.route_name}` : 'Trip detail'}
+            onBack={() => navigate(listPath)}
+            aside={detail.delivery && <DetailPanel eyebrow="Trip summary"><div className="delivery-trip-summary"><span><small>Stops</small><strong>{number(detail.trip?.orders_count || detail.stops.length)}</strong></span><span><small>Required units</small><strong>{number(detail.trip?.total_quantity || 0)}</strong></span><span className="delivery-trip-summary-status"><small>Current status</small><strong><span className={`status ${statusFamily(detail.trip?.status || detail.delivery.status)}`}>{statusLabel(detail.trip?.status || detail.delivery.status)}</span></strong></span></div></DetailPanel>}
+            actions={detail.delivery && canManage ? <>{actionError && <p className="form-alert">{actionError}</p>}{canChangePlan ? <><button className="button primary" type="button" onClick={() => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries/${detail.delivery.id}/edit`)}><Pencil size={15} />Edit trip plan</button><button className="button danger" type="button" onClick={() => setCancelOpen(true)}><Ban size={15} />Cancel trip</button></> : <p className="muted delivery-plan-locked">Planning is locked after loading starts.</p>}</> : null}
+            wideContent={detail.delivery && <div className="delivery-trip-detail-tables">
+                <div className="delivery-trip-stop-browser">
+                    <DetailPanel eyebrow="Trip stops" title={`${detail.stops.length} customer stops`} className="delivery-trip-stop-list-panel">
+                        <div className="delivery-stop-browser-intro"><span>Select a customer stop</span><strong>{number(detail.trip?.total_quantity)} units</strong></div>
+                        <div className="master-table-wrap"><table className="master-table delivery-stop-browser-table"><colgroup><col /><col /><col /><col /></colgroup><thead><tr><th>#</th><th>Customer / destination</th><th className="numeric">Units</th><th>Status</th></tr></thead><tbody>{detail.stops.map((stop, index) => <tr className={selectedStop?.id === stop.id ? 'is-selected' : ''} key={stop.id} tabIndex="0" aria-selected={selectedStop?.id === stop.id} onClick={() => setSelectedStopId(stop.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedStopId(stop.id); } }}><td><span className="delivery-stop-index">{index + 1}</span></td><td className="delivery-stop-customer-cell"><strong>{stop.shop_name}</strong><span className="delivery-stop-phone">{stop.recipient_phone || 'No phone number'}</span><span className="delivery-stop-address"><MapPin size={12} />{stop.delivery_address || 'No delivery address'}</span></td><td className="numeric"><strong>{number(stop.total_quantity)}</strong></td><td><span className={`status ${statusFamily(stop.status)}`}>{statusLabel(stop.status)}</span></td></tr>)}</tbody></table></div>
+                    </DetailPanel>
+                    <DetailPanel eyebrow="Stop products" title={selectedStop?.shop_name || 'Select a stop'} className="delivery-trip-stop-products-panel">
+                        {selectedStop ? <>
+                            <div className="delivery-stop-selected-summary"><span><MapPin size={14} />{selectedStop.delivery_address || 'No delivery address'}</span><div><span><small>Order</small><strong>{selectedStop.order_code || '-'}</strong></span><span><small>Invoice</small><strong>{selectedStop.invoice_code}</strong></span><span><small>Products</small><strong>{number(selectedStop.items?.length)}</strong></span><span><small>Units</small><strong>{number(selectedStop.total_quantity)}</strong></span></div></div>
+                            <div className="master-table-wrap"><table className="master-table delivery-stop-product-table"><colgroup><col /><col /><col /><col /></colgroup><thead><tr><th>Product</th><th>SKU / unit</th><th className="numeric">Planned</th><th className="numeric">Loaded</th></tr></thead><tbody>{(selectedStop.items || []).map((item) => <tr key={item.id}><td><strong>{item.product_name}</strong></td><td><strong>{item.product_sku}</strong><span className="muted">{item.unit}</span></td><td className="numeric"><strong>{number(item.planned_quantity)}</strong></td><td className="numeric">{number(item.loaded_quantity)}</td></tr>)}</tbody></table></div>
+                        </> : <State title="Select a customer stop" />}
+                    </DetailPanel>
+                </div>
+                <DetailPanel eyebrow="Stock plan" title={`${detail.stock.length} products required`} className="delivery-trip-stock-panel">
+                    <div className="master-table-wrap"><table className="master-table delivery-trip-stock-table"><colgroup><col /><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th>Product</th><th>SKU / unit</th><th className="numeric">Required</th><th className="numeric">Loaded</th><th className="numeric">Delivered</th><th className="numeric">Returned</th><th className="numeric">Damaged</th></tr></thead><tbody>{detail.stock.map((item) => <tr key={item.product_id}><td><strong>{item.product_name}</strong></td><td>{item.product_sku} · {item.unit}</td><td className="numeric"><strong>{number(item.planned_quantity)}</strong></td><td className="numeric">{number(item.loaded_quantity)}</td><td className="numeric">{number(item.delivered_quantity)}</td><td className="numeric">{number(item.returned_quantity)}</td><td className="numeric">{number(item.damaged_quantity)}</td></tr>)}</tbody><tfoot><tr><th colSpan="2">Total units</th><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.planned_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.loaded_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.delivered_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.returned_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.damaged_quantity || 0), 0))}</strong></td></tr></tfoot></table></div>
+                </DetailPanel>
+            </div>}
+        >
+            {detail.loading ? <State title="Loading delivery trip" loading /> : detail.error ? <State title={detail.error} /> : detail.delivery && <DetailPanel eyebrow="Details" title="Trip information"><dl className="record-page-facts"><Info label="Planned date" value={date(detail.trip?.planned_date || detail.delivery.planned_date)} /><Info label="Warehouse" value={`${detail.delivery.warehouse_code} · ${detail.delivery.warehouse_name}`} /><Info label="Route" value={`${detail.delivery.route_code} · ${detail.delivery.route_name}`} /><Info label="Driver" value={`${detail.delivery.driver_code} · ${detail.delivery.driver_name}`} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} · ${detail.delivery.plate_no}`} /><Info label="Status" value={statusLabel(detail.trip?.status || detail.delivery.status)} /></dl></DetailPanel>}
+        </DetailPage>
+        {cancelOpen && <TripCancelConfirmation code={detail.trip?.code || detail.delivery?.trip_code || detail.delivery?.code} processing={processing} onConfirm={cancelTrip} onDismiss={() => setCancelOpen(false)} />}
+    </>);
+
     return <section className="page delivery-workspace">
-        <div className="master-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်ရေးလုပ်ငန်း' : 'Delivery operations'}</p><h1>{historyOnly ? (localized ? 'ပို့ဆောင်မှုမှတ်တမ်း' : 'Delivery history') : (localized ? 'ပို့ဆောင်မှုစီစဉ်ခြင်း' : 'Delivery planning')}</h1><span className="muted">{historyOnly ? (localized ? 'ပြီးဆုံး၊ တစ်စိတ်တစ်ပိုင်းနှင့် မအောင်မြင်သော ပို့ဆောင်မှုများကို ပြန်လည်ကြည့်ရှုပါ။' : 'Review completed, partial, failed, and cancelled deliveries.') : (localized ? 'Invoice များကို ဂိုဒေါင်၊ လမ်းကြောင်း၊ ယာဉ်မောင်းနှင့် ယာဉ်သို့ တာဝန်ပေးပါ။' : 'Assign issued invoices to warehouse, route, driver, and vehicle.')}</span></div>{canManage && !historyOnly && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || !meta.invoices.length}><Plus size={16} />{localized ? 'တာဝန်အသစ်' : 'New assignment'}</button>}</div>
+        <div className="master-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်ရေးလုပ်ငန်း' : 'Delivery operations'}</p><h1>{historyOnly ? (localized ? 'ပို့ဆောင်မှုမှတ်တမ်း' : 'Delivery history') : (localized ? 'ပို့ဆောင်မှုစီစဉ်ခြင်း' : 'Trip planning')}</h1><span className="muted">{historyOnly ? (localized ? 'ပြီးဆုံး၊ တစ်စိတ်တစ်ပိုင်းနှင့် မအောင်မြင်သော ပို့ဆောင်မှုများကို ပြန်လည်ကြည့်ရှုပါ။' : 'Review completed, partial, failed, and cancelled deliveries.') : 'Select ready orders, assign one vehicle and driver, and review the combined stock requirement.'}</span></div>{canManage && !historyOnly && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || !meta.invoices.length}><Plus size={16} />New trip</button>}</div>
         <div className="metrics delivery-metrics"><Metric label="Deliveries" value={number(state.summary.deliveries_count)} hint="All statuses" icon={Truck} /><Metric label="Planned quantity" value={number(state.summary.total_quantity)} hint="Units" icon={Package} /><Metric label="Pending" value={number(state.summary.pending_count)} hint="Planned or assigned" icon={CalendarDays} /><Metric label="Delivered" value={number(state.summary.delivered_count)} hint="Completed" icon={Truck} /></div>
         <section className="master-panel"><div className="master-panel-heading"><div><p className="eyebrow">{historyOnly ? (localized ? 'မှတ်တမ်း' : 'History') : (localized ? 'အစီအစဉ်' : 'Schedule')}</p><h2>{historyOnly ? (localized ? 'ပြီးဆုံးသော ပို့ဆောင်မှုများ' : 'Completed delivery records') : (localized ? 'ပို့ဆောင်မှုတာဝန်များ' : 'Delivery assignments')}</h2></div></div><div className="master-toolbar delivery-toolbar"><label className="master-search"><Search size={14} /><input placeholder="Search delivery, invoice, shop, driver" value={filters.search} onChange={(e) => setFilters((v) => ({ ...v, search: e.target.value }))} /></label><select value={filters.status} onChange={(e) => setFilters((v) => ({ ...v, status: e.target.value }))}><option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select><select value={filters.driver_id} onChange={(e) => setFilters((v) => ({ ...v, driver_id: e.target.value }))}><option value="">All drivers</option>{meta.drivers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(e) => setFilters((v) => ({ ...v, date: e.target.value }))} /></label><button className="button" type="button" onClick={() => setRefresh((v) => v + 1)}><RefreshCw size={15} />Refresh</button></div>
             {state.loading ? <State title="Loading delivery assignments" loading /> : state.error || meta.error ? <State title={state.error || meta.error} /> : !state.items.length ? <State title="No deliveries match this view." /> : <><div className="master-table-wrap"><table className="master-table delivery-table"><thead><tr><th>Delivery</th><th>Customer / invoice</th><th>Plan</th><th>Driver / vehicle</th><th>Route / warehouse</th><th>Quantity</th><th>Status</th></tr></thead><tbody>{state.items.map((item) => <tr key={item.id} onClick={() => show(item.id)} tabIndex="0" onKeyDown={(e) => e.key === 'Enter' && show(item.id)}><td><strong>{item.code}</strong><span className="muted">{date(item.planned_date)}</span></td><td><strong>{item.shop_name}</strong><span className="muted">{item.invoice_code} · {money(item.invoice_total)}</span></td><td>{date(item.planned_date)}</td><td><strong>{item.driver_name}</strong><span className="muted">{item.vehicle_code} · {item.plate_no}</span></td><td><strong>{item.route_name}</strong><span className="muted">{item.warehouse_code}</span></td><td className="numeric">{number(item.total_quantity)}</td><td><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span></td></tr>)}</tbody></table></div><Pagination meta={state.meta} page={page} setPage={setPage} /></>}
         </section>
-        {formOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setFormOpen(false)}><form className="master-dialog delivery-dialog" onSubmit={save}><header><h2>New delivery assignment</h2><button className="icon-button" type="button" aria-label="Close" onClick={() => setFormOpen(false)}><X size={16} /></button></header><div className="master-form-body">{formError && <p className="form-alert">{formError}</p>}<div className="master-form-grid"><Field label="Issued invoice"><select required value={form.invoice_id} onChange={(e) => setForm((v) => ({ ...v, invoice_id: e.target.value }))}>{meta.invoices.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}</select></Field><Field label="Planned date"><input required type="date" value={form.planned_date} onChange={(e) => setForm((v) => ({ ...v, planned_date: e.target.value }))} /></Field><Select label="Warehouse" name="warehouse_id" items={meta.warehouses} form={form} setForm={setForm} /><Select label="Route" name="route_id" items={meta.routes} form={form} setForm={setForm} /><Select label="Driver" name="driver_id" items={meta.drivers} form={form} setForm={setForm} /><Select label="Vehicle" name="vehicle_id" items={meta.vehicles} form={form} setForm={setForm} /><Field label="Delivery address" wide><textarea value={form.delivery_address} onChange={(e) => setForm((v) => ({ ...v, delivery_address: e.target.value }))} /></Field><Field label="Notes" wide><textarea value={form.notes} onChange={(e) => setForm((v) => ({ ...v, notes: e.target.value }))} /></Field></div></div><footer><button className="button" type="button" onClick={() => setFormOpen(false)}>Cancel</button><button className="button primary" disabled={saving}><Save size={15} />Assign delivery</button></footer></form></div>}
-        {(detail.loading || detail.delivery || detail.error) && <div className="drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setDetail({ loading: false, delivery: null, items: [], error: '' })}><aside className="record-drawer delivery-drawer"><header><div><p className="eyebrow">Delivery detail</p><h2>{detail.delivery?.code || 'Loading'}</h2></div><button className="icon-button" type="button" aria-label="Close detail" onClick={() => setDetail({ loading: false, delivery: null, items: [], error: '' })}><X size={16} /></button></header>{detail.loading ? <State title="Loading delivery" loading /> : detail.error ? <State title={detail.error} /> : <div className="delivery-detail-body"><dl><Info label="Status" value={statusLabel(detail.delivery.status)} /><Info label="Invoice" value={detail.delivery.invoice_code} /><Info label="Customer" value={detail.delivery.shop_name} /><Info label="Planned date" value={date(detail.delivery.planned_date)} /><Info label="Driver" value={detail.delivery.driver_name} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} · ${detail.delivery.plate_no}`} /><Info label="Route" value={detail.delivery.route_name} /><Info label="Warehouse" value={detail.delivery.warehouse_name} /></dl><h3>Delivery items</h3>{detail.items.map((item) => <article key={item.id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></span><strong>{number(item.planned_quantity)}</strong></article>)}</div>}</aside></div>}
+    </section>;
+}
+
+export function TripEditPage({ deliveryId, locale = 'en', navigate }) {
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/deliveries`;
+    const [state, setState] = useState({ loading: true, meta: null, trip: null, delivery: null, error: '' });
+    const [form, setForm] = useState({ ...blank });
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        let mounted = true;
+        Promise.all([window.axios.get(`${api()}/meta`), window.axios.get(`${api()}/${deliveryId}`)])
+            .then(([metaResponse, detailResponse]) => {
+                if (!mounted) return;
+                const detailData = detailResponse.data.data;
+                const delivery = detailData.delivery;
+                const trip = detailData.trip;
+                setState({ loading: false, meta: metaResponse.data.data, trip, delivery, error: '' });
+                setForm({
+                    warehouse_id: String(trip?.warehouse_id || delivery.warehouse_id || ''),
+                    route_id: String(trip?.route_id || delivery.route_id || ''),
+                    driver_id: String(trip?.driver_id || delivery.driver_id || ''),
+                    vehicle_id: String(trip?.vehicle_id || delivery.vehicle_id || ''),
+                    planned_date: trip?.planned_date || delivery.planned_date || '',
+                    notes: trip?.notes || delivery.notes || '',
+                });
+            })
+            .catch((error) => mounted && setState({ loading: false, meta: null, trip: null, delivery: null, error: errorMessage(error) }));
+        return () => { mounted = false; };
+    }, [deliveryId]);
+
+    const save = (event) => {
+        event.preventDefault();
+        if (saving) return;
+        setSaving(true); setState((current) => ({ ...current, error: '' }));
+        window.axios.patch(`${api()}/${deliveryId}/trip`, form)
+            .then(() => navigate(`${listPath}/${deliveryId}`))
+            .catch((error) => { setSaving(false); setState((current) => ({ ...current, error: errorMessage(error) })); });
+    };
+
+    if (state.loading) return <section className="page trip-wizard-page"><State title="Loading trip plan" loading /></section>;
+    if (!state.meta || !state.delivery) return <section className="page trip-wizard-page"><State title={state.error || 'Trip plan could not be loaded.'} /></section>;
+
+    return <section className="page trip-wizard-page trip-edit-page">
+        <div className="master-heading trip-wizard-heading"><div><p className="eyebrow">Delivery operations</p><h1>Edit trip plan</h1><span className="muted">{state.trip?.code || state.delivery.trip_code || state.delivery.code} · Change the schedule and assignment before loading starts.</span></div><button className="button" type="button" onClick={() => navigate(`${listPath}/${deliveryId}`)}><ArrowLeft size={15} />Back</button></div>
+        {state.error && <p className="form-alert" role="alert">{state.error}</p>}
+        <form className="master-panel trip-edit-form" onSubmit={save}>
+            <div className="master-panel-heading"><div><p className="eyebrow">Trip plan</p><h2>Schedule and assignment</h2></div><span className={`status ${statusFamily(state.trip?.status || state.delivery.status)}`}>{statusLabel(state.trip?.status || state.delivery.status)}</span></div>
+            <div className="trip-wizard-form master-form-grid">
+                <Field label="Planned date"><input required type="date" value={form.planned_date} onChange={(event) => setForm((current) => ({ ...current, planned_date: event.target.value }))} /></Field>
+                <Select label="Warehouse" name="warehouse_id" items={state.meta.warehouses} form={form} setForm={setForm} />
+                <Select label="Route" name="route_id" items={state.meta.routes} form={form} setForm={setForm} />
+                <Select label="Driver" name="driver_id" items={state.meta.drivers} form={form} setForm={setForm} />
+                <Select label="Vehicle" name="vehicle_id" items={state.meta.vehicles} form={form} setForm={setForm} />
+                <Field label="Trip notes" wide><textarea rows="4" maxLength="500" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
+            </div>
+            <footer className="trip-edit-actions"><button className="button" type="button" disabled={saving} onClick={() => navigate(`${listPath}/${deliveryId}`)}>Cancel</button><button className="button primary" disabled={saving}><Save size={15} />{saving ? 'Saving…' : 'Save trip plan'}</button></footer>
+        </form>
+    </section>;
+}
+
+function TripCancelConfirmation({ code, processing, onConfirm, onDismiss }) {
+    const titleId = useId();
+    useEffect(() => {
+        const closeOnEscape = (event) => { if (event.key === 'Escape' && !processing) onDismiss(); };
+        window.addEventListener('keydown', closeOnEscape);
+        return () => window.removeEventListener('keydown', closeOnEscape);
+    }, [onDismiss, processing]);
+
+    return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !processing && onDismiss()}>
+        <section className="master-dialog order-cancel-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+            <header><div><p className="eyebrow">Trip planning</p><h2 id={titleId}>Cancel trip</h2></div><button className="icon-button" type="button" disabled={processing} aria-label="Keep trip" onClick={onDismiss}><X size={17} /></button></header>
+            <div className="order-cancel-dialog-body"><span className="order-cancel-dialog-icon"><TriangleAlert size={22} /></span><div><strong>Cancel {code}?</strong><p>The assigned orders will return to the ready-to-plan list. This cancelled trip remains in delivery history.</p></div></div>
+            <footer><button className="button" type="button" disabled={processing} onClick={onDismiss}>Keep trip</button><button className="button danger" type="button" disabled={processing} onClick={onConfirm}><Ban size={15} />{processing ? 'Cancelling…' : 'Confirm cancellation'}</button></footer>
+        </section>
+    </div>;
+}
+
+export function TripWizardPage({ locale = 'en', navigate }) {
+    const localized = locale === 'my';
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/deliveries`;
+    const [step, setStep] = useState(1);
+    const [meta, setMeta] = useState({ loading: true, invoices: [], warehouses: [], routes: [], drivers: [], vehicles: [], error: '' });
+    const [form, setForm] = useState(blank);
+    const [orderSearch, setOrderSearch] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let mounted = true;
+        window.axios.get(`${api()}/meta`).then(({ data }) => {
+            if (!mounted) return;
+            const nextMeta = { loading: false, ...data.data, error: '' };
+            setMeta(nextMeta);
+            setForm((current) => ({
+                ...current,
+                warehouse_id: current.warehouse_id || nextMeta.warehouses[0]?.id || '',
+                route_id: current.route_id || nextMeta.invoices[0]?.route_id || nextMeta.routes[0]?.id || '',
+                driver_id: current.driver_id || nextMeta.drivers[0]?.id || '',
+                vehicle_id: current.vehicle_id || nextMeta.vehicles[0]?.id || '',
+            }));
+        }).catch((requestError) => mounted && setMeta({ loading: false, invoices: [], warehouses: [], routes: [], drivers: [], vehicles: [], error: errorMessage(requestError) }));
+        return () => { mounted = false; };
+    }, []);
+
+    useEffect(() => {
+        if (!form.route_id || !meta.invoices.length) return;
+        setForm((current) => ({
+            ...current,
+            invoice_ids: current.invoice_ids.filter((id) => meta.invoices.some((invoice) => invoice.id === id && Number(invoice.route_id) === Number(current.route_id))),
+        }));
+    }, [form.route_id, meta.invoices]);
+
+    const selectedOrders = useMemo(() => meta.invoices.filter((invoice) => form.invoice_ids.includes(invoice.id)), [meta.invoices, form.invoice_ids]);
+    const visibleOrders = useMemo(() => {
+        const query = orderSearch.trim().toLowerCase();
+        const routeOrders = meta.invoices.filter((invoice) => Number(invoice.route_id) === Number(form.route_id));
+        if (!query) return routeOrders;
+        return routeOrders.filter((invoice) => [invoice.order_code, invoice.code, invoice.shop_name, invoice.delivery_address].some((value) => String(value || '').toLowerCase().includes(query)));
+    }, [form.route_id, meta.invoices, orderSearch]);
+    const plannedStock = useMemo(() => Object.values(selectedOrders.flatMap((invoice) => invoice.items || []).reduce((totals, item) => {
+        const current = totals[item.product_id] || { ...item, quantity: 0 };
+        current.quantity += Number(item.quantity || 0);
+        totals[item.product_id] = current;
+        return totals;
+    }, {})), [selectedOrders]);
+    const selectedQuantity = plannedStock.reduce((sum, item) => sum + item.quantity, 0);
+    const selectedValue = selectedOrders.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    const lookup = (items, id) => items.find((item) => Number(item.id) === Number(id));
+
+    const toggleOrder = (id) => setForm((current) => ({
+        ...current,
+        invoice_ids: current.invoice_ids.includes(id) ? current.invoice_ids.filter((value) => value !== id) : [...current.invoice_ids, id],
+    }));
+    const toggleVisible = () => {
+        const visibleIds = visibleOrders.map((item) => item.id);
+        const allSelected = visibleIds.length > 0 && visibleIds.every((id) => form.invoice_ids.includes(id));
+        setForm((current) => ({
+            ...current,
+            invoice_ids: allSelected
+                ? current.invoice_ids.filter((id) => !visibleIds.includes(id))
+                : [...new Set([...current.invoice_ids, ...visibleIds])],
+        }));
+    };
+    const next = () => {
+        setError('');
+        if (step === 1 && (!form.planned_date || !form.warehouse_id || !form.route_id || !form.driver_id || !form.vehicle_id)) {
+            setError('Complete every required trip field before selecting orders.');
+            return;
+        }
+        if (step === 2 && !form.invoice_ids.length) {
+            setError('Select at least one ready order for this trip.');
+            return;
+        }
+        setStep((current) => Math.min(current + 1, 3));
+        window.scrollTo({ top: 0, behavior: 'auto' });
+    };
+    const back = () => { setError(''); setStep((current) => Math.max(current - 1, 1)); window.scrollTo({ top: 0, behavior: 'auto' }); };
+    const submit = () => {
+        setSaving(true); setError('');
+        window.axios.post(api(), form)
+            .then(() => navigate(listPath))
+            .catch((requestError) => { setSaving(false); setError(errorMessage(requestError)); });
+    };
+
+    if (meta.loading) return <section className="page trip-wizard-page"><State title="Loading trip setup" loading /></section>;
+    if (meta.error) return <section className="page trip-wizard-page"><State title={meta.error} /></section>;
+
+    const steps = [
+        { number: 1, label: 'Basic information', hint: 'Schedule and assignment' },
+        { number: 2, label: 'Order selection', hint: 'Choose ready orders' },
+        { number: 3, label: 'Trip review', hint: 'Verify and submit' },
+    ];
+
+    return <section className="page trip-wizard-page">
+        <div className="master-heading trip-wizard-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်ရေးလုပ်ငန်း' : 'Delivery operations'}</p><h1>Create delivery trip</h1><span className="muted">Build one clear load plan from ready customer orders.</span></div><button className="button" type="button" onClick={() => navigate(listPath)}><X size={15} />Cancel</button></div>
+
+        <ol className="trip-wizard-steps" aria-label="Trip creation progress">
+            {steps.map((item) => <li className={`${step === item.number ? 'is-current' : ''} ${step > item.number ? 'is-complete' : ''}`} aria-current={step === item.number ? 'step' : undefined} key={item.number}><button type="button" disabled={item.number > step} onClick={() => item.number < step && setStep(item.number)}><span>{step > item.number ? <CheckCircle2 size={15} /> : item.number}</span><strong>{item.label}</strong><small>{item.hint}</small></button></li>)}
+        </ol>
+
+        {error && <p className="form-alert trip-wizard-error" role="alert">{error}</p>}
+
+        <section className="master-panel trip-wizard-panel">
+            {step === 1 && <><div className="master-panel-heading"><div><p className="eyebrow">Step 1 of 3</p><h2>Basic trip information</h2><span className="muted">Set when, where, and who will operate this trip.</span></div></div><div className="trip-wizard-form master-form-grid"><Field label="Planned date"><input required type="date" value={form.planned_date} onChange={(event) => setForm((current) => ({ ...current, planned_date: event.target.value }))} /></Field><Select label="Warehouse" name="warehouse_id" items={meta.warehouses} form={form} setForm={setForm} /><Select label="Route" name="route_id" items={meta.routes} form={form} setForm={setForm} /><Select label="Driver" name="driver_id" items={meta.drivers} form={form} setForm={setForm} /><Select label="Vehicle" name="vehicle_id" items={meta.vehicles} form={form} setForm={setForm} /><Field label="Trip notes" wide><textarea rows="4" placeholder="Loading or route instructions" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></Field></div></>}
+
+            {step === 2 && <><div className="master-panel-heading"><div><p className="eyebrow">Step 2 of 3</p><h2>Select ready orders</h2><span className="muted">Only issued orders that are not assigned to another trip are available.</span></div><strong>{selectedOrders.length} selected</strong></div><div className="trip-order-toolbar"><label className="master-search"><Search size={14} /><input placeholder="Search order, invoice, or customer" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} /></label><button className="button" type="button" disabled={!visibleOrders.length} onClick={toggleVisible}>{visibleOrders.length > 0 && visibleOrders.every((item) => form.invoice_ids.includes(item.id)) ? 'Clear visible' : 'Select visible'}</button></div>{!visibleOrders.length ? <State title="No ready orders match this search." /> : <div className="master-table-wrap"><table className="master-table trip-order-table"><thead><tr><th aria-label="Select order"></th><th>Order</th><th>Customer</th><th>Invoice</th><th className="numeric">Items</th><th className="numeric">Quantity</th><th className="numeric">Value</th></tr></thead><tbody>{visibleOrders.map((invoice) => { const quantity = (invoice.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0); return <tr className={form.invoice_ids.includes(invoice.id) ? 'is-selected' : ''} key={invoice.id} onClick={() => toggleOrder(invoice.id)}><td><input aria-label={`Select ${invoice.order_code || invoice.code}`} type="checkbox" checked={form.invoice_ids.includes(invoice.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleOrder(invoice.id)} /></td><td><strong>{invoice.order_code || '-'}</strong></td><td>{invoice.shop_name}</td><td>{invoice.code}</td><td className="numeric">{invoice.items?.length || 0}</td><td className="numeric">{number(quantity)}</td><td className="numeric">{money(invoice.total)}</td></tr>; })}</tbody></table></div>}</>}
+
+            {step === 3 && <>
+                <div className="master-panel-heading">
+                    <div><p className="eyebrow">Step 3 of 3</p><h2>Review trip</h2><span className="muted">Confirm the assignment, delivery stops, and planned warehouse issue.</span></div>
+                    <span className="status neutral">Ready to submit</span>
+                </div>
+                <div className="trip-review-grid">
+                    <section><h3>Trip information</h3><dl className="trip-review-facts"><Info label="Planned date" value={date(form.planned_date)} /><Info label="Warehouse" value={lookup(meta.warehouses, form.warehouse_id)?.label} /><Info label="Route" value={lookup(meta.routes, form.route_id)?.label} /><Info label="Driver" value={lookup(meta.drivers, form.driver_id)?.label} /><Info label="Vehicle" value={lookup(meta.vehicles, form.vehicle_id)?.label} /><Info label="Notes" value={form.notes || 'No trip notes'} /></dl></section>
+                    <aside><h3>Trip totals</h3><div className="trip-review-totals"><span><small>Orders</small><strong>{selectedOrders.length}</strong></span><span><small>Products</small><strong>{plannedStock.length}</strong></span><span><small>Units</small><strong>{number(selectedQuantity)}</strong></span><span><small>Order value</small><strong>{money(selectedValue)}</strong></span></div></aside>
+                </div>
+                <div className="trip-review-section">
+                    <div className="trip-section-heading"><span>Delivery stops</span><strong>{selectedOrders.length} orders</strong></div>
+                    <div className="master-table-wrap">
+                        <table className="master-table trip-stop-table">
+                            <colgroup><col /><col /><col /><col /><col /><col /></colgroup>
+                            <thead><tr><th>Order</th><th>Customer</th><th>Delivery address</th><th>Invoice</th><th className="numeric">Quantity</th><th className="numeric">Value</th></tr></thead>
+                            <tbody>{selectedOrders.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.order_code || '-'}</strong></td><td><strong>{invoice.shop_name}</strong><span className="muted">{invoice.recipient_phone || 'No phone'}</span></td><td className="trip-stop-address">{invoice.delivery_address || <span className="muted">No delivery address</span>}</td><td>{invoice.code}</td><td className="numeric">{number((invoice.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0))}</td><td className="numeric"><strong>{money(invoice.total)}</strong></td></tr>)}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div className="trip-review-section">
+                    <div className="trip-section-heading"><span>Planned stock issue</span><strong>{number(selectedQuantity)} units</strong></div>
+                    <div className="master-table-wrap"><table className="master-table"><thead><tr><th>Product</th><th>SKU</th><th>Unit</th><th className="numeric">Quantity</th></tr></thead><tbody>{plannedStock.map((item) => <tr key={item.product_id}><td><strong>{item.product_name}</strong></td><td>{item.product_sku}</td><td>{item.unit}</td><td className="numeric"><strong>{number(item.quantity)}</strong></td></tr>)}</tbody></table></div>
+                    <p className="trip-stock-note"><Package size={15} />Stock is not deducted during planning. The automatic issue is posted when the driver confirms loading.</p>
+                </div>
+            </>}
+        </section>
+
+        <footer className="trip-wizard-actions"><span>Step {step} of 3</span><div><button className="button" type="button" onClick={step === 1 ? () => navigate(listPath) : back}><ArrowLeft size={15} />{step === 1 ? 'Cancel' : 'Back'}</button>{step < 3 ? <button className="button primary" type="button" onClick={next}>Continue<ChevronRight size={15} /></button> : <button className="button primary" type="button" disabled={saving} onClick={submit}><Save size={15} />{saving ? 'Creating trip…' : 'Create trip'}</button>}</div></footer>
     </section>;
 }
 

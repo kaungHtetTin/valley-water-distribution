@@ -127,7 +127,7 @@ class VehicleCostController extends Controller
     public function routeHistory(Request $request)
     {
         $this->authorizePermission($request, 'office.vehicle-costs.view');
-        $query = DB::table('deliveries')->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')->join('routes', 'deliveries.route_id', '=', 'routes.id')->join('employees', 'deliveries.driver_id', '=', 'employees.id')->join('customers', 'deliveries.customer_id', '=', 'customers.id');
+        $query = DB::table('deliveries')->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')->join('routes', 'deliveries.route_id', '=', 'routes.id')->join('employees', 'deliveries.driver_id', '=', 'employees.id')->leftJoin('customers', 'deliveries.customer_id', '=', 'customers.id');
         if ($request->filled('vehicle_id')) {
             $query->where('deliveries.vehicle_id', $request->query('vehicle_id'));
         }
@@ -137,7 +137,7 @@ class VehicleCostController extends Controller
         if ($request->filled('date_to')) {
             $query->whereDate('deliveries.planned_date', '<=', $request->query('date_to'));
         }
-        $items = $query->orderByDesc('deliveries.planned_date')->get(['deliveries.id', 'deliveries.code', 'deliveries.planned_date', 'deliveries.status', 'deliveries.total_quantity', 'deliveries.delivered_quantity', 'deliveries.start_odometer_km', 'deliveries.end_odometer_km', 'deliveries.distance_km', 'vehicles.id as vehicle_id', 'vehicles.code as vehicle_code', 'vehicles.plate_no', 'routes.name as route_name', 'employees.name as driver_name', 'customers.shop_name'])->map(function ($item) {
+        $items = $query->orderByDesc('deliveries.planned_date')->get(['deliveries.id', 'deliveries.code', 'deliveries.planned_date', 'deliveries.status', 'deliveries.total_quantity', 'deliveries.delivered_quantity', 'deliveries.start_odometer_km', 'deliveries.end_odometer_km', 'deliveries.distance_km', 'vehicles.id as vehicle_id', 'vehicles.code as vehicle_code', 'vehicles.plate_no', 'routes.name as route_name', 'employees.name as driver_name', DB::raw('COALESCE(deliveries.recipient_name, customers.shop_name) as shop_name')])->map(function ($item) {
             foreach (['total_quantity', 'delivered_quantity', 'start_odometer_km', 'end_odometer_km', 'distance_km'] as $field) {
                 $item->{$field} = $item->{$field} === null ? null : (float) $item->{$field};
             }

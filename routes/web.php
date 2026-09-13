@@ -47,6 +47,8 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::put('/settings/company', [CompanySettingsController::class, 'update']);
 
     Route::get('/master-data/meta', [MasterDataController::class, 'meta']);
+    Route::get('/master-data/product-prices/matrix', [MasterDataController::class, 'productPriceMatrix']);
+    Route::put('/master-data/product-prices/matrix', [MasterDataController::class, 'updateProductPriceMatrix']);
     Route::get('/master-data/{resource}', [MasterDataController::class, 'index']);
     Route::post('/master-data/{resource}', [MasterDataController::class, 'store']);
     Route::get('/master-data/{resource}/{id}', [MasterDataController::class, 'show'])->whereNumber('id');
@@ -102,7 +104,13 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/stock/meta', [StockController::class, 'meta']);
     Route::get('/stock/movements', [StockController::class, 'movements']);
     Route::post('/stock/movements', [StockController::class, 'storeMovement']);
+    Route::get('/stock/receipts', [StockController::class, 'receipts']);
+    Route::get('/stock/transfers', [StockController::class, 'transfers']);
+    Route::post('/stock/receipts', [StockController::class, 'storeReceipt']);
     Route::post('/stock/transfers', [StockController::class, 'storeTransfer']);
+    Route::get('/stock/closing-counts', [StockController::class, 'closingCounts']);
+    Route::get('/stock/closing-counts/preview', [StockController::class, 'closingCountPreview']);
+    Route::get('/stock/closing-counts/{count}', [StockController::class, 'showClosingCount'])->whereNumber('count');
     Route::post('/stock/closing-counts', [StockController::class, 'storeClosingCount']);
     Route::get('/stock/balances', [StockController::class, 'balances']);
     Route::get('/stock/value', [StockController::class, 'stockValue']);
@@ -114,6 +122,8 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/deliveries', [DeliveryController::class, 'index']);
     Route::post('/deliveries', [DeliveryController::class, 'store']);
     Route::get('/deliveries/{delivery}', [DeliveryController::class, 'show']);
+    Route::patch('/deliveries/{delivery}/trip', [DeliveryController::class, 'updateTrip']);
+    Route::post('/deliveries/{delivery}/cancel', [DeliveryController::class, 'cancelTrip']);
 
     Route::get('/finance/meta', [FinanceController::class, 'meta']);
     Route::get('/finance/collections', [FinanceController::class, 'collections']);
@@ -161,6 +171,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/attendance/records/{id}', [AttendanceRecordController::class, 'show'])->whereNumber('id');
 
     Route::get('/payroll-history', [PayrollController::class, 'salaryHistory']);
+    Route::get('/payroll-history/{id}', [PayrollController::class, 'salaryHistoryShow'])->whereNumber('id');
     Route::get('/payrolls', [PayrollController::class, 'index']);
     Route::post('/payrolls/generate', [PayrollController::class, 'generate']);
     Route::get('/payrolls/{payroll}', [PayrollController::class, 'show']);

@@ -11,7 +11,7 @@ class PhaseFourInvoiceTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_office_can_create_invoice_from_confirmed_order()
+    public function test_confirming_order_automatically_creates_an_issued_financial_record()
     {
         $this->seed();
         $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
@@ -23,7 +23,8 @@ class PhaseFourInvoiceTest extends TestCase
             'customer_id' => $customerId,
             'order_date' => '2026-08-20',
             'requested_delivery_date' => '2026-08-21',
-            'payment_type' => 'cash',
+            'payment_type' => 'credit',
+            'credit_due_date' => '2026-08-28',
             'items' => [
                 [
                     'product_id' => $productId,
@@ -35,23 +36,13 @@ class PhaseFourInvoiceTest extends TestCase
 
         $orderId = $createdOrder->json('data.order.id');
 
-        $this->postJson("/api/orders/{$orderId}/confirm")
+        $confirmed = $this->postJson("/api/orders/{$orderId}/confirm")
             ->assertOk()
-            ->assertJsonPath('data.order.status', 'confirmed');
+            ->assertJsonPath('data.order.status', 'invoiced')
+            ->assertJsonPath('data.financial_record.status', 'issued');
 
-        $createdInvoice = $this->postJson('/api/invoices/from-order', [
-            'order_id' => $orderId,
-            'invoice_date' => '2026-08-21',
-            'due_date' => '2026-08-28',
-            'notes' => 'Invoice test',
-        ])->assertCreated()
-            ->assertJsonPath('data.invoice.status', 'draft')
-            ->assertJsonPath('data.invoice.total', 24000)
-            ->assertJsonPath('data.items.0.product_sku', 'VAL-5G')
-            ->assertJsonPath('data.items.0.line_total', 24000);
-
-        $invoiceId = $createdInvoice->json('data.invoice.id');
-        $invoiceCode = $createdInvoice->json('data.invoice.code');
+        $invoiceId = $confirmed->json('data.financial_record.id');
+        $invoiceCode = $confirmed->json('data.financial_record.code');
 
         $this->assertStringStartsWith('INV-202608-', $invoiceCode);
         $this->assertDatabaseHas('orders', [
@@ -62,13 +53,15 @@ class PhaseFourInvoiceTest extends TestCase
             'id' => $invoiceId,
             'order_id' => $orderId,
             'total' => 24000,
+            'due_date' => '2026-08-28 00:00:00',
+            'status' => 'issued',
         ]);
 
-        $this->getJson("/api/invoices?search={$invoiceCode}&status=draft")
+        $this->getJson("/api/invoices?search={$invoiceCode}&status=issued")
             ->assertOk()
             ->assertJsonPath('data.meta.total', 1)
             ->assertJsonPath('data.items.0.code', $invoiceCode)
-            ->assertJsonPath('data.summary.draft_count', 1);
+            ->assertJsonPath('data.summary.issued_count', 1);
 
         $this->getJson("/api/invoices/{$invoiceId}")
             ->assertOk()
@@ -77,7 +70,7 @@ class PhaseFourInvoiceTest extends TestCase
 
         $this->postJson('/api/invoices/from-order', [
             'order_id' => $orderId,
-            'invoice_date' => '2026-08-21',
+            'invoice_date' => '2026-08-20',
         ])->assertConflict();
     }
 
