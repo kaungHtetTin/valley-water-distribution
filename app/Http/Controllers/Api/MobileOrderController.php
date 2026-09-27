@@ -47,7 +47,8 @@ class MobileOrderController extends Controller
             ->orderBy('products.name')
             ->get(['products.id', 'products.sku', 'products.name', 'products.unit'])
             ->map(function ($product) {
-                $product->label = "{$product->sku} - {$product->name}";
+                $product->available_stock = (float) DB::table('stock_balances')->where('product_id', $product->id)->sum('quantity');
+                $product->label = "{$product->sku} - {$product->name} ({$product->available_stock} {$product->unit})";
                 $product->prices = DB::table('product_prices')
                     ->where('product_id', $product->id)
                     ->where('is_active', true)
@@ -83,6 +84,14 @@ class MobileOrderController extends Controller
 
         if ($request->filled('customer_id') && $scope['app'] === 'sales') {
             $query->where('orders.customer_id', $request->query('customer_id'));
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('orders.order_date', '>=', $request->query('date_from'));
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('orders.order_date', '<=', $request->query('date_to'));
         }
 
         if ($search = trim((string) $request->query('search'))) {
@@ -138,7 +147,6 @@ class MobileOrderController extends Controller
         $customerId = $scope['app'] === 'client' ? $scope['customer_id'] : ($validated['customer_id'] ?? null);
         $customer = $customerId ? DB::table('customers')->where('is_active', true)->find($customerId) : null;
         abort_if($customerId && ! $customer, 422, 'The selected customer is not active.');
-        abort_if(! $customer && $validated['payment_type'] === 'credit', 422, 'Credit orders require a registered customer.');
         abort_if($scope['app'] === 'sales' && $customer && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
         $destination = $this->resolveDestination($validated, $customer);
         abort_if($scope['app'] === 'sales' && (int) $destination['route_id'] !== (int) $scope['route_id'], 403, 'Orders must stay inside the assigned sales route.');
@@ -161,9 +169,9 @@ class MobileOrderController extends Controller
                 'source_app' => $scope['app'],
                 'order_date' => $orderDate->toDateString(),
                 'requested_delivery_date' => $validated['requested_delivery_date'] ?? null,
-                'credit_due_date' => $validated['payment_type'] === 'credit' ? ($validated['credit_due_date'] ?? $orderDate->copy()->addDays(7)->toDateString()) : null,
-                'payment_type' => $validated['payment_type'],
-                'status' => 'pending',
+                'credit_due_date' => null,
+                'payment_type' => 'unsettled',
+                'status' => ($validated['save_as'] ?? 'pending') === 'draft' ? 'draft' : 'pending',
                 'subtotal' => $totals['subtotal'],
                 'discount_total' => $totals['discount_total'],
                 'tax_total' => 0,
@@ -186,6 +194,67 @@ class MobileOrderController extends Controller
             'order' => $this->payload($orderPayload),
             'items' => $order->items()->orderBy('id')->get()->map(fn ($item) => $this->itemPayload($item)),
         ], 201);
+    }
+
+    public function update(Request $request, Order $order)
+    {
+        $scope = $this->scope($request, 'create');
+        abort_unless($this->orderInScope($order, $scope), 404);
+        abort_unless(in_array($order->status, ['draft', 'pending'], true), 422, 'Only draft or pending orders can be edited.');
+        abort_if($scope['app'] === 'sales' && $order->source_app !== 'sales', 403, 'Only sales-app orders can be edited here.');
+
+        $validated = $request->validate($this->rules($scope['app']));
+        $customerId = $scope['app'] === 'client' ? $scope['customer_id'] : ($validated['customer_id'] ?? null);
+        $customer = $customerId ? DB::table('customers')->where('is_active', true)->find($customerId) : null;
+        abort_if($customerId && ! $customer, 422, 'The selected customer is not active.');
+        abort_if($scope['app'] === 'sales' && $customer && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
+        $destination = $this->resolveDestination($validated, $customer);
+        abort_if($scope['app'] === 'sales' && (int) $destination['route_id'] !== (int) $scope['route_id'], 403, 'Orders must stay inside the assigned sales route.');
+        $orderDate = Carbon::parse($validated['order_date'] ?? $order->order_date);
+        $priceTypeId = $validated['price_type_id'] ?? $customer?->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
+        $items = $this->normalizeItems($validated['items'], $priceTypeId, $orderDate);
+
+        DB::transaction(function () use ($customer, $destination, $items, $orderDate, $priceTypeId, $order, $validated) {
+            $totals = $this->totals($items);
+            $order->update([
+                'customer_id' => $customer?->id,
+                'area_id' => $destination['area_id'],
+                'route_id' => $destination['route_id'],
+                'price_type_id' => $priceTypeId,
+                'recipient_name' => $destination['recipient_name'],
+                'recipient_phone' => $destination['recipient_phone'],
+                'delivery_address' => $destination['delivery_address'],
+                'order_date' => $orderDate->toDateString(),
+                'requested_delivery_date' => $validated['requested_delivery_date'] ?? null,
+                'credit_due_date' => null,
+                'payment_type' => 'unsettled',
+                'status' => ($validated['save_as'] ?? 'pending') === 'draft' ? 'draft' : 'pending',
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'total' => $totals['total'],
+                'notes' => $validated['notes'] ?? null,
+            ]);
+            $order->items()->delete();
+            foreach ($items as $item) $order->items()->create($item);
+        });
+
+        $orderPayload = $this->baseQuery()->select($this->columns())->where('orders.id', $order->id)->first();
+
+        return ApiResponse::success('Mobile order updated.', [
+            'order' => $this->payload($orderPayload),
+            'items' => $order->items()->orderBy('id')->get()->map(fn ($item) => $this->itemPayload($item)),
+        ]);
+    }
+
+    public function cancel(Request $request, Order $order)
+    {
+        $scope = $this->scope($request, 'create');
+        abort_unless($this->orderInScope($order, $scope), 404);
+        abort_unless(in_array($order->status, ['draft', 'pending'], true), 422, 'Only draft or pending orders can be cancelled.');
+        abort_if($scope['app'] === 'sales' && $order->source_app !== 'sales', 403, 'Only sales-app orders can be cancelled here.');
+        $order->update(['status' => 'cancelled']);
+
+        return ApiResponse::success('Order cancelled.', ['order' => $this->payload($this->baseQuery()->select($this->columns())->where('orders.id', $order->id)->first())]);
     }
 
     private function scope(Request $request, string $action): array
@@ -219,12 +288,14 @@ class MobileOrderController extends Controller
             'order_date' => ['nullable', 'date'],
             'requested_delivery_date' => ['nullable', 'date'],
             'credit_due_date' => ['nullable', 'date', 'after_or_equal:order_date'],
-            'payment_type' => ['required', Rule::in(['cash', 'credit'])],
+            'payment_type' => ['nullable', Rule::in(['cash', 'credit', 'unsettled'])],
             'notes' => ['nullable', 'string', 'max:500'],
+            'save_as' => ['nullable', Rule::in(['draft', 'pending'])],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
             'items.*.item_type' => ['nullable', Rule::in(['sale', 'foc'])],
+            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
             'items.*.remarks' => ['nullable', 'string', 'max:150'],
         ];
     }
@@ -238,6 +309,8 @@ class MobileOrderController extends Controller
             $itemType = $item['item_type'] ?? 'sale';
             $unitPrice = $itemType === 'foc' ? 0 : $this->priceForProduct($product->id, $priceTypeId, $orderDate);
             $lineTotal = $quantity * $unitPrice;
+            $discount = $itemType === 'foc' ? 0 : (float) ($item['discount_amount'] ?? 0);
+            abort_if($discount > $lineTotal, 422, 'Item discount cannot exceed its subtotal.');
 
             return [
                 'product_id' => $product->id,
@@ -247,8 +320,8 @@ class MobileOrderController extends Controller
                 'item_type' => $itemType,
                 'quantity' => $quantity,
                 'unit_price' => $unitPrice,
-                'discount_amount' => 0,
-                'line_total' => $lineTotal,
+                'discount_amount' => $discount,
+                'line_total' => max($lineTotal - $discount, 0),
                 'remarks' => $item['remarks'] ?? null,
             ];
         })->all();
@@ -383,6 +456,7 @@ class MobileOrderController extends Controller
             'item_type' => $item->item_type,
             'quantity' => (float) $item->quantity,
             'unit_price' => (float) $item->unit_price,
+            'discount_amount' => (float) $item->discount_amount,
             'line_total' => (float) $item->line_total,
             'remarks' => $item->remarks,
         ];

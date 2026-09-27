@@ -16,9 +16,7 @@ class DashboardController extends Controller
 {
     private const DASHBOARDS = ['owner', 'sales', 'stock', 'delivery', 'finance'];
 
-    public function __construct(private readonly CustomerCreditService $customerCredit)
-    {
-    }
+    public function __construct(private readonly CustomerCreditService $customerCredit) {}
 
     public function summary(Request $request, string $dashboard)
     {
@@ -48,6 +46,7 @@ class DashboardController extends Controller
 
     public function mobile(Request $request)
     {
+        $this->validatePeriod($request);
         $user = $request->user();
         $app = match ($user->role) {
             'Customer' => 'client',
@@ -59,7 +58,7 @@ class DashboardController extends Controller
         $this->authorizePermission($request, "{$app}.home.view");
         $data = $this->cached($request, "mobile:{$app}:{$user->id}", fn () => match ($app) {
             'client' => $this->clientMobile($user),
-            'sales' => $this->salesMobile($user),
+            'sales' => $this->salesMobile($user, $request),
             'driver' => $this->driverMobile($user),
         });
 
@@ -229,18 +228,77 @@ class DashboardController extends Controller
         return ['summary' => ['current_order_status' => data_get($orders->first(), 'status'), 'current_order_code' => data_get($orders->first(), 'code'), 'outstanding_balance' => $this->customerOutstanding($user->customer_id), 'recent_orders_count' => $orders->count()], 'recent_orders' => $orders];
     }
 
-    private function salesMobile(User $user): array
+    private function salesMobile(User $user, Request $request): array
     {
         abort_unless($user->employee_id, 403);
         $employee = DB::table('employees')->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')->where('employees.id', $user->employee_id)->first(['employees.id', 'employees.assigned_route_id', 'routes.code as route_code', 'routes.name as route_name']);
-        $month = now()->startOfMonth();
+        $date = now();
+        $month = $date->copy()->startOfMonth();
         $from = $month->toDateString();
         $to = $month->copy()->endOfMonth()->toDateString();
-        $sales = (float) $this->invoiceRows($from, $to)->where('route_id', $employee->assigned_route_id)->sum('total');
+        $yearFrom = $date->copy()->startOfYear()->toDateString();
+        $yearTo = $date->copy()->endOfYear()->toDateString();
+        $yearRows = $this->invoiceRows($yearFrom, $yearTo)->where('route_id', $employee->assigned_route_id);
+        $monthRows = $yearRows->whereBetween('invoice_date', [$from, $to]);
+        $sales = (float) $monthRows->sum('total');
+        $yearSales = (float) $yearRows->sum('total');
         $target = (float) DB::table('sales_targets')->where('employee_id', $employee->id)->whereDate('target_month', $from)->value('target_amount');
         $ordersCount = DB::table('orders')->where('created_by', $user->id)->where('source_app', 'sales')->whereBetween('order_date', [$from, $to])->count();
+        $monthTrend = collect(range(1, 5))->map(function ($week) use ($monthRows) {
+            $startDay = (($week - 1) * 7) + 1;
+            $endDay = min($week * 7, 31);
 
-        return ['summary' => ['monthly_sales' => $sales, 'target' => $target, 'achievement' => $target > 0 ? round($sales / $target * 100, 1) : null, 'orders_count' => $ordersCount, 'new_customers' => DB::table('customers')->where('route_id', $employee->assigned_route_id)->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(), 'assigned_route' => $employee->route_name, 'route_code' => $employee->route_code], 'trend' => $this->chartData(new Request(['date' => now()->toDateString()]), 'sales')['sales_trend']];
+            return ['label' => "W{$week}", 'value' => (float) $monthRows->filter(function ($row) use ($startDay, $endDay) {
+                $day = Carbon::parse($row->invoice_date)->day;
+
+                return $day >= $startDay && $day <= $endDay;
+            })->sum('total')];
+        });
+        $yearTrend = collect(range(1, 12))->map(function ($monthNumber) use ($date, $yearRows) {
+            return [
+                'label' => Carbon::create($date->year, $monthNumber)->format('M'),
+                'value' => (float) $yearRows->filter(fn ($row) => Carbon::parse($row->invoice_date)->month === $monthNumber)->sum('total'),
+            ];
+        });
+        $periodFrom = $request->query('date_from', $from);
+        $periodTo = $request->query('date_to', $date->toDateString());
+        $periodRows = $this->invoiceRows($periodFrom, $periodTo)->where('route_id', $employee->assigned_route_id);
+        $periodOrderCount = $periodRows->pluck('order_id')->filter()->unique()->count();
+        $topCustomers = $periodRows->whereNotNull('customer_id')->groupBy('customer_id')->map(function ($rows) {
+            $first = $rows->first();
+
+            return ['customer_id' => $first->customer_id, 'code' => $first->customer_code, 'name' => $first->shop_name, 'sales' => (float) $rows->sum('total')];
+        })->sortByDesc('sales')->take(5)->values();
+        $topProducts = DB::table('invoice_items')
+            ->whereIn('invoice_id', $periodRows->pluck('id'))
+            ->groupBy('product_id', 'product_sku', 'product_name')
+            ->orderByDesc(DB::raw('SUM(quantity)'))
+            ->limit(5)
+            ->get(['product_id', 'product_sku as sku', 'product_name as name', DB::raw('SUM(quantity) as quantity'), DB::raw('SUM(line_total) as sales')])
+            ->map(fn ($item) => ['product_id' => $item->product_id, 'sku' => $item->sku, 'name' => $item->name, 'quantity' => (float) $item->quantity, 'sales' => (float) $item->sales]);
+
+        return [
+            'period' => ['date_from' => $periodFrom, 'date_to' => $periodTo],
+            'summary' => [
+                'daily_sales' => (float) $yearRows->where('invoice_date', $date->toDateString())->sum('total'),
+                'monthly_sales' => $sales,
+                'yearly_sales' => $yearSales,
+                'period_sales' => (float) $periodRows->sum('total'),
+                'average_order_value' => $periodOrderCount ? round($periodRows->sum('total') / $periodOrderCount, 2) : 0,
+                'target' => $target,
+                'achievement' => $target > 0 ? round($sales / $target * 100, 1) : null,
+                'orders_count' => $ordersCount,
+                'period_orders' => $periodOrderCount,
+                'new_customers' => DB::table('customers')->where('route_id', $employee->assigned_route_id)->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(),
+                'assigned_route' => $employee->route_name,
+                'route_code' => $employee->route_code,
+            ],
+            'month_trend' => $monthTrend,
+            'year_trend' => $yearTrend,
+            'trend' => $yearTrend->slice(max($date->month - 6, 0), 6)->values(),
+            'top_customers' => $topCustomers,
+            'top_products' => $topProducts,
+        ];
     }
 
     private function driverMobile(User $user): array
@@ -249,18 +307,64 @@ class DashboardController extends Controller
         $date = now();
         $from = $date->copy()->startOfMonth()->toDateString();
         $to = $date->copy()->endOfMonth()->toDateString();
-        $deliveries = DB::table('deliveries')->join('routes', 'deliveries.route_id', '=', 'routes.id')->where('deliveries.driver_id', $user->employee_id)->whereBetween('planned_date', [$from, $to])->get(['deliveries.*', 'routes.name as route_name']);
+        $deliveries = DB::table('deliveries')
+            ->leftJoin('delivery_trips', 'deliveries.trip_id', '=', 'delivery_trips.id')
+            ->join('routes', 'deliveries.route_id', '=', 'routes.id')
+            ->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')
+            ->where('deliveries.driver_id', $user->employee_id)
+            ->whereBetween('deliveries.planned_date', [$from, $to])
+            ->get(['deliveries.*', 'delivery_trips.code as trip_code', 'delivery_trips.status as trip_status', 'routes.name as route_name', 'vehicles.code as vehicle_code', 'vehicles.plate_no']);
+        $trips = $deliveries
+            ->groupBy(fn ($delivery) => $delivery->trip_id ? 'trip-'.$delivery->trip_id : 'delivery-'.$delivery->id)
+            ->map(function ($stops) {
+                $first = $stops->sortBy('stop_sequence')->first();
+
+                return [
+                    'id' => $first->id,
+                    'code' => $first->trip_code ?: $first->code,
+                    'date' => $first->planned_date,
+                    'status' => $first->trip_status ?: $first->status,
+                    'route_name' => $first->route_name,
+                    'quantity' => (float) $stops->sum('delivered_quantity'),
+                    'loaded_quantity' => (float) $stops->sum('loaded_quantity'),
+                    'stops_count' => $stops->count(),
+                    'completed_stops' => $stops->filter(fn ($stop) => in_array($stop->status, ['delivered', 'partially_delivered', 'failed'], true))->count(),
+                    'vehicle_code' => $first->vehicle_code,
+                    'plate_no' => $first->plate_no,
+                ];
+            })->values();
         $expenses = DB::table('expenses')->where('employee_id', $user->employee_id)->whereBetween('expense_date', [$from, $to])->count();
         $collections = DB::table('collections')->where('employee_id', $user->employee_id)->whereBetween('collection_date', [$from, $to])->count();
+        $cashHoldAmount = (float) DB::table('collections')->where('employee_id', $user->employee_id)->where('source_app', 'driver')->where('payment_method', 'cash')->where('status', 'submitted')->sum('amount');
+        $routes = $trips->pluck('route_name')->filter()->unique()->values();
+        $routeSummary = $routes->count() > 1
+            ? $routes->count().' assigned routes'
+            : ($routes->first() ?? DB::table('employees')->join('routes', 'employees.assigned_route_id', '=', 'routes.id')->where('employees.id', $user->employee_id)->value('routes.name'));
+        $todayTrips = $trips->where('date', $date->toDateString())->values();
+        $currentTrip = $trips->firstWhere('status', 'on_route')
+            ?? $todayTrips->firstWhere('status', 'loading')
+            ?? $todayTrips->firstWhere('status', 'assigned');
 
-        return ['summary' => ['today_deliveries' => $deliveries->where('planned_date', $date->toDateString())->count(), 'completed_deliveries' => $deliveries->whereIn('status', ['delivered', 'partially_delivered'])->count(), 'delivered_quantity' => (float) $deliveries->sum('delivered_quantity'), 'assigned_route' => $deliveries->first()->route_name ?? DB::table('employees')->join('routes', 'employees.assigned_route_id', '=', 'routes.id')->where('employees.id', $user->employee_id)->value('routes.name'), 'submitted_expenses' => $expenses, 'submitted_collections' => $collections], 'deliveries' => $deliveries->sortByDesc('planned_date')->take(4)->values()->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'date' => $item->planned_date, 'status' => $item->status, 'route_name' => $item->route_name, 'quantity' => (float) $item->delivered_quantity])];
+        return ['summary' => [
+            'today_deliveries' => $todayTrips->count(),
+            'today_completed_deliveries' => $todayTrips->whereIn('status', ['delivered', 'partially_delivered', 'failed'])->count(),
+            'today_stops_count' => (int) $todayTrips->sum('stops_count'),
+            'today_completed_stops' => (int) $todayTrips->sum('completed_stops'),
+            'completed_deliveries' => $trips->whereIn('status', ['delivered', 'partially_delivered', 'failed'])->count(),
+            'delivered_quantity' => (float) $trips->sum('quantity'),
+            'current_trip' => $currentTrip,
+            'assigned_route' => $routeSummary,
+            'submitted_expenses' => $expenses,
+            'submitted_collections' => $collections,
+            'cash_hold_amount' => $cashHoldAmount,
+        ], 'today_trips' => $todayTrips, 'deliveries' => $trips->sortByDesc('date')->take(4)->values()];
     }
 
     private function invoiceRows(string $from, string $to)
     {
         return DB::table('invoices')->leftJoin('customers', 'invoices.customer_id', '=', 'customers.id')->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')->leftJoin('routes', function ($join) {
             $join->on('routes.id', '=', DB::raw('COALESCE(invoices.route_id, orders.route_id, customers.route_id)'));
-        })->leftJoin('areas', 'routes.area_id', '=', 'areas.id')->where('invoices.status', '!=', 'cancelled')->whereBetween('invoices.invoice_date', [$from, $to])->get(['invoices.id', 'invoices.order_id', 'invoices.customer_id', 'invoices.total', 'customers.code as customer_code', DB::raw('COALESCE(invoices.recipient_name, orders.recipient_name, customers.shop_name) as shop_name'), DB::raw('COALESCE(invoices.route_id, orders.route_id, customers.route_id) as route_id'), 'routes.name as route_name', 'areas.name as area_name'])->map(function ($item) {
+        })->leftJoin('areas', 'routes.area_id', '=', 'areas.id')->whereIn('orders.payment_type', ['cash', 'credit'])->where('invoices.status', '!=', 'cancelled')->whereBetween('invoices.invoice_date', [$from, $to])->get(['invoices.id', 'invoices.order_id', 'invoices.customer_id', 'invoices.invoice_date', 'invoices.total', 'customers.code as customer_code', DB::raw('COALESCE(invoices.recipient_name, orders.recipient_name, customers.shop_name) as shop_name'), DB::raw('COALESCE(invoices.route_id, orders.route_id, customers.route_id) as route_id'), 'routes.name as route_name', 'areas.name as area_name'])->map(function ($item) {
             $item->total = (float) $item->total;
 
             return $item;
@@ -269,7 +373,7 @@ class DashboardController extends Controller
 
     private function salesBetween(string $from, string $to): float
     {
-        return (float) DB::table('invoices')->where('status', '!=', 'cancelled')->whereBetween('invoice_date', [$from, $to])->sum('total');
+        return (float) DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->whereIn('orders.payment_type', ['cash', 'credit'])->where('invoices.status', '!=', 'cancelled')->whereBetween('invoices.invoice_date', [$from, $to])->sum('invoices.total');
     }
 
     private function outstanding(string $through): float
@@ -278,7 +382,14 @@ class DashboardController extends Controller
         $returnCredits = (float) DB::table('orders as returns')->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')->where('returns.status', 'confirmed')->whereDate('returns.order_date', '<=', $through)->where(fn ($query) => $query->where('originals.payment_type', 'credit')->orWhere('returns.return_settlement_method', 'customer_credit'))->sum('returns.total');
         $returnRefunds = (float) DB::table('orders as returns')->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')->where('returns.status', 'confirmed')->where('originals.payment_type', 'credit')->whereDate('returns.order_date', '<=', $through)->sum('returns.refund_amount');
 
-        return max($creditSales + $returnRefunds - (float) DB::table('collections')->where('status', 'approved')->whereDate('collection_date', '<=', $through)->sum('amount') - $returnCredits, 0);
+        $creditCollections = (float) DB::table('collections')->where('status', 'approved')->whereDate('collection_date', '<=', $through)->where(function ($query) {
+            $query->whereNull('invoice_id')->orWhereExists(function ($subquery) {
+                $subquery->selectRaw('1')->from('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')
+                    ->whereColumn('invoices.id', 'collections.invoice_id')->where('orders.payment_type', 'credit');
+            });
+        })->sum('amount');
+
+        return max($creditSales + $returnRefunds - $creditCollections - $returnCredits, 0);
     }
 
     private function customerOutstanding(int $customerId): float

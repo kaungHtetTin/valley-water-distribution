@@ -1,32 +1,29 @@
 import {
     AlertCircle,
-    ArrowLeft,
     Building2,
     Check,
     CheckCircle2,
     ChevronLeft,
     ChevronRight,
-    Eye,
     MapPinned,
     Pencil,
     Plus,
     RefreshCw,
     Save,
     Search,
-    ShoppingCart,
     Store,
+    Target,
     Trash2,
+    TrendingUp,
     Truck,
     User,
     X,
     ImagePlus,
     Palette,
-    Phone,
-    Play,
-    SkipForward,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
+import { ShellBackButton } from './components/ShellBackButton';
 
 const uiCopy = {
     en: {
@@ -225,7 +222,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
     if (!definition) return <WorkspaceState icon={AlertCircle} title={text(locale, 'screenNotFound')} />;
     if (resourceKey === 'product-prices') return <ProductPriceMatrix definition={definition} locale={locale} canManage={canManage} />;
     if (detailId) return viewing ? <>
-        <RecordDetailPage record={viewing} definition={definition} locale={locale} onBack={() => onNavigate?.(listPath)} onEdit={canManage ? () => setEditing({ mode: 'edit', values: { ...viewing } }) : null} />
+        <RecordDetailPage record={viewing} definition={definition} resourceKey={resourceKey} locale={locale} canManage={canManage} onBack={() => onNavigate?.(listPath)} onEdit={canManage ? () => setEditing({ mode: 'edit', values: { ...viewing } }) : null} />
         {editing && <MasterForm definition={definition} resourceKey={resourceKey} options={setup.options} editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onNavigate?.(listPath); }} />}
     </> : <WorkspaceState icon={records.error ? AlertCircle : RefreshCw} title={records.error || text(locale, 'loading')} loading={!records.error} />;
 
@@ -278,22 +275,21 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
 
                 {records.error && <div className="inline-error"><AlertCircle size={15} /> {records.error}</div>}
                 {records.loading ? (
-                    <TableLoading columns={definition.list.length + 1} />
+                    <TableLoading columns={definition.list.length + (canManage ? 1 : 0)} />
                 ) : records.items.length === 0 ? (
                     <WorkspaceState icon={Search} title={text(locale, 'empty')} compact />
                 ) : (
                     <div className="master-table-wrap">
                         <table className="master-table">
-                            <thead><tr>{definition.list.map((column) => <th key={column}>{columnLabel(column, definition, locale)}</th>)}<th>{text(locale, 'actions')}</th></tr></thead>
+                            <thead><tr>{definition.list.map((column) => <th key={column}>{columnLabel(column, definition, locale)}</th>)}{canManage && <th className="table-actions-header">{text(locale, 'actions')}</th>}</tr></thead>
                             <tbody>
                                 {records.items.map((record) => (
-                                    <tr key={record.id}>
+                                    <tr className="clickable-row" key={record.id} tabIndex={0} onClick={() => onNavigate?.(`${listPath}/${record.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${listPath}/${record.id}`); } }}>
                                         {definition.list.map((column) => <td key={column}>{renderValue(column, record[column], locale)}</td>)}
-                                        <td className="row-actions">
-                                            <button type="button" aria-label={text(locale, 'details')} title={text(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${record.id}`)}><Eye size={15} /></button>
-                                            {canManage && <button type="button" aria-label={text(locale, 'edit')} title={text(locale, 'edit')} onClick={() => setEditing({ mode: 'edit', values: { ...record } })}><Pencil size={15} /></button>}
-                                            {canManage && <button className="danger" type="button" aria-label={text(locale, 'delete')} title={text(locale, 'delete')} onClick={() => remove(record)}><Trash2 size={15} /></button>}
-                                        </td>
+                                        {canManage && <td className="table-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions">
+                                            <button type="button" aria-label={text(locale, 'edit')} title={text(locale, 'edit')} onClick={() => setEditing({ mode: 'edit', values: { ...record } })}><Pencil size={15} /></button>
+                                            <button className="danger" type="button" aria-label={text(locale, 'delete')} title={text(locale, 'delete')} onClick={() => remove(record)}><Trash2 size={15} /></button>
+                                        </div></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -479,6 +475,7 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
     const dialogRef = useRef(null);
+    const visibleFields = definition.fields.filter((field) => !field.show_when || values[field.depends_on] === field.show_when);
 
     useEffect(() => {
         const previousOverflow = document.body.style.overflow;
@@ -533,8 +530,8 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
                 </header>
                 <div className="master-form-body">
                     <div className="master-form-grid">
-                        {definition.fields.map((field) => (
-                            <MasterField key={field.name} field={field} value={values[field.name]} options={options} locale={locale} error={validationError(field.name, errors, locale)} onChange={(value) => setValues((current) => ({ ...current, [field.name]: value }))} />
+                        {visibleFields.map((field) => (
+                            <MasterField key={field.name} field={field} value={values[field.name]} options={options} locale={locale} error={validationError(field.name, errors, locale)} onChange={(value) => setValues((current) => ({ ...current, [field.name]: value, ...(resourceKey === 'employees' && field.name === 'employee_type' && value !== 'driver' ? { assigned_vehicle_id: '' } : {}) }))} />
                         ))}
                     </div>
                     {message && <div className="inline-error"><AlertCircle size={15} /> {message}</div>}
@@ -616,6 +613,8 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
             Object.entries(payload).forEach(([key, value]) => value !== null && formData.append(key, value));
             formData.append('primary_color', values.primary_color || '#0b84a5');
             formData.append('default_theme', values.default_theme || 'light');
+            formData.append('default_customer_credit_limit', values.default_customer_credit_limit ?? 500000);
+            formData.append('delivery_credit_due_days', values.delivery_credit_due_days ?? 14);
             formData.append('remove_logo', removeLogo ? '1' : '0');
             if (logo) formData.append('logo', logo);
             formData.append('_method', 'PUT');
@@ -712,6 +711,26 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
                         </label>
                     </div>
                 </section>
+                <section className="branding-settings" aria-labelledby="delivery-settings-title">
+                    <div className="branding-settings-heading">
+                        <span className="company-settings-icon"><Truck size={17} /></span>
+                        <div><p className="eyebrow">Delivery sales</p><strong id="delivery-settings-title">Customer credit defaults</strong></div>
+                    </div>
+                    <div className="branding-settings-grid">
+                        <label className="master-field" data-field="default_customer_credit_limit">
+                            <span>Default credit limit (MMK)</span>
+                            <input type="number" min="0" step="1000" disabled={!canManage} value={values.default_customer_credit_limit ?? 500000} onChange={(event) => setValues((current) => ({ ...current, default_customer_credit_limit: event.target.value }))} />
+                            <small className="muted">Applied automatically when a new customer is created.</small>
+                            {errors.default_customer_credit_limit?.[0] && <small>{errors.default_customer_credit_limit[0]}</small>}
+                        </label>
+                        <label className="master-field" data-field="delivery_credit_due_days">
+                            <span>Credit due after stock issue (days)</span>
+                            <input type="number" min="1" max="365" step="1" disabled={!canManage} value={values.delivery_credit_due_days ?? 14} onChange={(event) => setValues((current) => ({ ...current, delivery_credit_due_days: event.target.value }))} />
+                            <small className="muted">The standard value is 14 days from driver load confirmation.</small>
+                            {errors.delivery_credit_due_days?.[0] && <small>{errors.delivery_credit_due_days[0]}</small>}
+                        </label>
+                    </div>
+                </section>
                 <footer>
                     <span className={messageType === 'error' ? 'inline-error' : messageType === 'success' ? 'inline-success' : 'muted'}>
                         {message && (messageType === 'error' ? <AlertCircle size={15} /> : <Check size={15} />)}
@@ -724,22 +743,127 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
     );
 }
 
-function RecordDetailPage({ record, definition, locale, onBack, onEdit }) {
+function EmployeeKpiPanel({ employee, canManage }) {
+    const [state, setState] = useState({ loading: true, employee: null, templates: [], report: null, error: '', success: '' });
+    const [form, setForm] = useState({ template_id: '', target_bonus: 40000, targets: {} });
+    const [saving, setSaving] = useState(false);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    useEffect(() => {
+        let mounted = true;
+        setState((current) => ({ ...current, loading: true, error: '' }));
+        Promise.all([
+            window.axios.get(`${apiBase('kpiTargets') || '/api/kpi-targets'}/employees/${employee.id}`),
+            window.axios.get(apiBase('kpiReports') || '/api/kpi-reports', { params: { employee_id: employee.id, period: 'year', year: new Date().getFullYear() } }),
+        ]).then(([targetResponse, reportResponse]) => {
+            if (!mounted) return;
+            const targetData = targetResponse.data.data;
+            const profile = targetData.employee;
+            setState((current) => ({ ...current, loading: false, employee: profile, templates: targetData.templates || [], report: reportResponse.data.data, error: '' }));
+            setForm({
+                template_id: profile.template_id ? String(profile.template_id) : '',
+                target_bonus: profile.target_bonus ?? 40000,
+                targets: Object.fromEntries((profile.targets || []).map((metric) => [metric.id, metric.target_value ?? ''])),
+            });
+        }).catch((error) => mounted && setState((current) => ({ ...current, loading: false, error: error.response?.data?.message || 'Unable to load employee KPI information.' })));
+        return () => { mounted = false; };
+    }, [employee.id, refreshKey]);
+
+    const templates = state.templates.filter((template) => template.employee_type === employee.employee_type);
+    const selectedTemplate = state.templates.find((template) => String(template.id) === String(form.template_id));
+    const selectTemplate = (templateId) => {
+        const template = state.templates.find((item) => String(item.id) === String(templateId));
+        setForm({
+            template_id: templateId,
+            target_bonus: template?.target_bonus ?? 40000,
+            targets: Object.fromEntries((template?.metrics || []).map((metric) => [metric.id, metric.default_target ?? ''])),
+        });
+    };
+    const save = async (event) => {
+        event.preventDefault();
+        if (!canManage || saving) return;
+        setSaving(true);
+        setState((current) => ({ ...current, error: '', success: '' }));
+        try {
+            const { data } = await window.axios.put(`${apiBase('kpiTargets') || '/api/kpi-targets'}/${employee.id}`, {
+                template_id: form.template_id || null,
+                target_bonus: form.template_id ? form.target_bonus : null,
+                targets: (selectedTemplate?.metrics || []).filter((metric) => metric.calculation_type !== 'manual').map((metric) => ({ metric_id: metric.id, target_value: form.targets[metric.id] === '' ? null : form.targets[metric.id] })),
+            });
+            setState((current) => ({ ...current, success: data.message, error: '' }));
+            setRefreshKey((key) => key + 1);
+        } catch (error) {
+            setState((current) => ({ ...current, error: error.response?.data?.message || 'Unable to save employee KPI target.' }));
+        } finally {
+            setSaving(false);
+        }
+    };
+    const summary = state.report?.summary || {};
+    const reviews = state.report?.reviews || [];
+    const formatMoney = (value) => `${Number(value || 0).toLocaleString()} MMK`;
+
+    if (state.loading) return <DetailPanel eyebrow="Performance" title="Employee KPI"><div className="employee-kpi-state"><RefreshCw size={18} className="spin" /> Loading KPI setup and report…</div></DetailPanel>;
+    if (state.error && !state.employee) return <DetailPanel eyebrow="Performance" title="Employee KPI"><div className="inline-error"><AlertCircle size={15} /> {state.error}</div></DetailPanel>;
+
+    return (
+        <div className="employee-kpi-layout">
+                <form className="master-panel employee-kpi-editor" onSubmit={save}>
+                    <div className="employee-kpi-section-heading"><div><strong>Individual target</strong><span>Overrides the shared role target for this employee.</span></div>{state.employee?.template_name && <span className="status info">{state.employee.template_name}</span>}</div>
+                    {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
+                    {state.success && <div className="inline-success"><Check size={15} /> {state.success}</div>}
+                    <div className="employee-kpi-fields">
+                        <label className="master-field"><span>KPI role</span><select disabled={!canManage} value={form.template_id} onChange={(event) => selectTemplate(event.target.value)}><option value="">Not assigned</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
+                        <label className="master-field"><span>Monthly target bonus</span><div className="kpi-target-money"><input type="number" min="0" step="1000" disabled={!canManage || !form.template_id} value={form.target_bonus} onChange={(event) => setForm((current) => ({ ...current, target_bonus: event.target.value }))} /><b>MMK</b></div></label>
+                    </div>
+                    {selectedTemplate && <div className="employee-kpi-target-grid">{selectedTemplate.metrics.map((metric) => <label key={metric.id} className="employee-kpi-target"><span><strong>{metric.name}</strong><small>{metric.weight}% · {metric.unit}</small></span>{metric.calculation_type === 'manual' ? <em>Monthly manager score</em> : <input type="number" min="0" step="0.01" disabled={!canManage} value={form.targets[metric.id] ?? ''} onChange={(event) => setForm((current) => ({ ...current, targets: { ...current.targets, [metric.id]: event.target.value } }))} />}</label>)}</div>}
+                    {canManage && <div className="employee-kpi-actions"><button className="button primary" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving…' : 'Save individual target'}</button></div>}
+                </form>
+
+                <section className="master-panel employee-kpi-report">
+                    <div className="employee-kpi-section-heading"><div><strong>{new Date().getFullYear()} KPI report</strong><span>Monthly review performance for this employee.</span></div><TrendingUp size={18} /></div>
+                    <div className="employee-kpi-summary">
+                        <div><span>Reviews</span><strong>{summary.reviews || 0}</strong></div>
+                        <div><span>Average score</span><strong>{Number(summary.average_score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</strong></div>
+                        <div><span>Approved</span><strong>{summary.approved || 0}</strong></div>
+                        <div><span>Earned bonus</span><strong>{formatMoney(summary.bonus_total)}</strong></div>
+                    </div>
+                    {reviews.length ? <div className="employee-kpi-history"><div className="employee-kpi-history-head"><span>Month</span><span>Score</span><span>Status</span><span>Bonus</span></div>{reviews.slice(0, 12).map((review) => <div key={review.id}><strong>{review.month}</strong><span>{Number(review.overall_score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</span><span className={`status ${review.status}`}>{titleCase(review.status)}</span><strong>{formatMoney(review.bonus_amount)}</strong></div>)}</div> : <div className="employee-kpi-empty"><Target size={20} /><span>No KPI reviews have been created for this employee yet.</span></div>}
+                </section>
+        </div>
+    );
+}
+
+function RecordDetailPage({ record, definition, resourceKey, locale, canManage, onBack, onEdit }) {
     const title = record.name || record.shop_name || record.sku || record.code;
     const fields = definition.fields.filter((field) => !['hidden', 'multiselect', 'password'].includes(field.type));
+    const employeeProfileFields = fields.filter((field) => !['name', 'code', 'employee_type', 'is_active'].includes(field.name));
+    const informationPanel = resourceKey === 'employees' ? (
+        <section className="master-panel employee-profile-card">
+            <header className="employee-profile-header">
+                <span className="employee-profile-avatar"><User size={22} /></span>
+                <div><p className="eyebrow">Employment profile</p><strong>{record.name}</strong><small>{record.code} · {optionLabel(record.employee_type, locale)}</small></div>
+                <span className={`status ${record.is_active ? 'success' : 'neutral'}`}>{record.is_active ? text(locale, 'active') : text(locale, 'inactive')}</span>
+            </header>
+            <div className="employee-profile-details">
+                {employeeProfileFields.map((field) => <article key={field.name}><span>{fieldLabel(field, locale)}</span><strong>{renderValue(field.name, record[relationAlias(field.name)] ?? record[field.name], locale)}</strong></article>)}
+            </div>
+        </section>
+    ) : (
+        <DetailPanel eyebrow={text(locale, 'details')} title="Record information">
+            <dl className="record-page-facts">
+                {fields.map((field) => <div key={field.name}><dt>{fieldLabel(field, locale)}</dt><dd>{renderValue(field.name, record[relationAlias(field.name)] ?? record[field.name], locale)}</dd></div>)}
+            </dl>
+        </DetailPanel>
+    );
     return (
         <DetailPage
             eyebrow={definition.label || text(locale, 'details')}
             title={title}
             subtitle={record.code && record.code !== title ? record.code : text(locale, 'details')}
             onBack={onBack}
-            actions={onEdit && <button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {text(locale, 'edit')}</button>}
+            actions={resourceKey !== 'employees' && onEdit && <button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {text(locale, 'edit')}</button>}
         >
-            <DetailPanel eyebrow={text(locale, 'details')} title="Record information">
-                <dl className="record-page-facts">
-                    {fields.map((field) => <div key={field.name}><dt>{fieldLabel(field, locale)}</dt><dd>{renderValue(field.name, record[relationAlias(field.name)] ?? record[field.name], locale)}</dd></div>)}
-                </dl>
-            </DetailPanel>
+            {resourceKey === 'employees' ? <div className="employee-detail-layout">{informationPanel}<EmployeeKpiPanel employee={record} canManage={canManage} /></div> : informationPanel}
         </DetailPage>
     );
 }
@@ -766,6 +890,8 @@ export function DriverMasterScreen({ locale }) {
     );
 }
 
+/* Sales visit workflow removed. Historical implementation retained in source comments
+   so existing installations can keep their visit records without an active feature.
 export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [search, setSearch] = useState('');
@@ -836,6 +962,7 @@ export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders }) {
     </div>;
 }
 
+*/
 export function SalesMasterScreen({ locale, onViewCustomer }) {
     const [mode, setMode] = useState('list');
     const [search, setSearch] = useState('');
@@ -870,14 +997,15 @@ export function SalesMasterScreen({ locale, onViewCustomer }) {
 
 export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrder }) {
     const [attempt, setAttempt] = useState(0);
-    const [state, setState] = useState({ loading: true, customer: null, orders: [], summary: {}, error: '' });
+    const [editing, setEditing] = useState(false);
+    const [state, setState] = useState({ loading: true, customer: null, orders: [], summary: {}, topProducts: [], error: '' });
 
     useEffect(() => {
         let mounted = true;
         setState((current) => ({ ...current, loading: true, error: '' }));
         window.axios.get(`${apiBase('mobileMaster')}/customers/${customerId}`)
-            .then(({ data }) => mounted && setState({ loading: false, customer: data.data.customer, orders: data.data.orders || [], summary: data.data.order_summary || {}, error: '' }))
-            .catch((error) => mounted && setState({ loading: false, customer: null, orders: [], summary: {}, error: requestError(error, locale, 'loadCustomersError') }));
+            .then(({ data }) => mounted && setState({ loading: false, customer: data.data.customer, orders: data.data.orders || [], summary: data.data.order_summary || {}, topProducts: data.data.top_products || [], error: '' }))
+            .catch((error) => mounted && setState({ loading: false, customer: null, orders: [], summary: {}, topProducts: [], error: requestError(error, locale, 'loadCustomersError') }));
         return () => { mounted = false; };
     }, [attempt, customerId, locale]);
 
@@ -886,15 +1014,23 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
 
     const customer = state.customer;
     return <div className="mobile-master-stack sales-customer-detail-page">
+        <ShellBackButton onClick={onBack} label={text(locale, 'cancel')} />
         <div className="mobile-master-heading customer-detail-heading">
-            <button className="icon-button" type="button" onClick={onBack} aria-label={text(locale, 'cancel')}><ArrowLeft size={18} /></button>
             <div><p className="eyebrow">{text(locale, 'details')}</p><h1>{customer.shop_name}</h1><span className="muted">{customer.code} · {customer.route}</span></div>
+            <button className="icon-button" type="button" onClick={() => setEditing((value) => !value)} aria-label={text(locale, 'edit')}>{editing ? <X size={18} /> : <Pencil size={18} />}</button>
         </div>
-        <section className="mobile-master-section">
+        {editing ? <SalesCustomerForm locale={locale} customer={customer} customerId={customerId} onSaved={() => { setEditing(false); setAttempt((value) => value + 1); }} /> : <section className="mobile-master-section">
             <div className="mobile-profile-identity"><span><Store size={22} /></span><div><small>{text(locale, 'shop')}</small><h2>{customer.contact_name}</h2><p>{customer.phone}</p></div><span className={`status ${customer.is_active ? 'success' : 'neutral'}`}>{customer.is_active ? text(locale, 'active') : text(locale, 'inactive')}</span></div>
             <InfoList record={customer} fields={['email', 'address', 'area', 'route', 'price_type', 'credit_limit']} locale={locale} />
             {customer.phone && <a className="button primary call-action" href={`tel:${customer.phone}`}>{text(locale, 'contact')}</a>}
+        </section>}
+        <section className="customer-sales-summary">
+            <article><span>This month</span><strong>{money(state.summary.monthly_sales)}</strong></article>
+            <article><span>This year</span><strong>{money(state.summary.yearly_sales)}</strong></article>
+            <article><span>Average order</span><strong>{money(state.summary.average_order_value)}</strong></article>
+            <article><span>Outstanding</span><strong>{money(state.summary.outstanding_balance)}</strong><small>{state.summary.available_credit === null ? 'No credit limit' : `${money(state.summary.available_credit)} available`}</small></article>
         </section>
+        {state.topProducts.length > 0 && <section className="mobile-master-section customer-top-products"><div className="mobile-section-heading"><div><p className="eyebrow">Buying pattern</p><h2>Top products</h2></div></div><div>{state.topProducts.map((product, index) => <article key={product.product_id || product.sku}><span className="customer-product-rank">{index + 1}</span><span><strong>{product.name}</strong><small>{product.sku} · {Number(product.quantity || 0).toLocaleString()} units</small></span><strong>{money(product.sales)}</strong></article>)}</div></section>}
         <section className="mobile-master-section customer-order-history">
             <div className="mobile-section-heading"><div><p className="eyebrow">Order history</p><h2>{Number(state.summary.orders_count || 0)} orders</h2><small>{Number(state.summary.pending_count || 0)} pending · {money(state.summary.total_amount)}</small></div></div>
             {state.orders.length ? <div className="customer-order-list">{state.orders.map((order) => <button type="button" key={order.id} onClick={() => onViewOrder?.(order.id)}><span><strong>{order.code}</strong><small>{order.order_date} · {order.invoice_code || 'Not invoiced'}</small></span><span><strong>{money(order.total)}</strong><small className={`customer-order-status ${order.status}`}>{titleCase(order.status)}</small></span><ChevronRight size={16} /></button>)}</div> : <WorkspaceState icon={Store} title="No orders for this customer yet." compact />}
@@ -902,8 +1038,8 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
     </div>;
 }
 
-function SalesCustomerForm({ locale, onSaved }) {
-    const [values, setValues] = useState({ shop_name: '', contact_name: '', phone: '', email: '', address: '' });
+function SalesCustomerForm({ locale, onSaved, customer = null, customerId = null }) {
+    const [values, setValues] = useState({ shop_name: customer?.shop_name || '', contact_name: customer?.contact_name || '', phone: customer?.phone || '', email: customer?.email || '', address: customer?.address || '' });
     const [errors, setErrors] = useState({});
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
@@ -913,13 +1049,18 @@ function SalesCustomerForm({ locale, onSaved }) {
     ];
     const submit = async (event) => {
         event.preventDefault(); setSaving(true); setErrors({}); setMessage('');
-        try { await window.axios.post(`${apiBase('mobileMaster')}/customers`, values); setMessage(text(locale, 'registrationSuccess')); window.setTimeout(onSaved, 500); }
+        try {
+            if (customerId) await window.axios.put(`${apiBase('mobileMaster')}/customers/${customerId}`, values);
+            else await window.axios.post(`${apiBase('mobileMaster')}/customers`, values);
+            setMessage(customerId ? 'Customer updated successfully.' : text(locale, 'registrationSuccess'));
+            window.setTimeout(onSaved, 500);
+        }
         catch (error) { setErrors(error.response?.data?.errors || {}); setMessage(requestError(error, locale, 'registerCustomerError')); }
         finally { setSaving(false); }
     };
     return (
         <form className="mobile-customer-form" onSubmit={submit}>
-            <div><p className="eyebrow">{text(locale, 'masterData')}</p><h2>{text(locale, 'registerCustomer')}</h2></div>
+            <div><p className="eyebrow">{text(locale, 'masterData')}</p><h2>{customerId ? 'Edit customer' : text(locale, 'registerCustomer')}</h2></div>
             {fields.map(([name, label]) => <label key={name}>{label}{name === 'address' ? <textarea rows="3" value={values[name]} onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))} /> : <input type={name === 'email' ? 'email' : 'text'} value={values[name]} onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))} />}{errors[name] && <small>{validationError(name, errors, locale)}</small>}</label>)}
             {message && <div className={Object.keys(errors).length ? 'inline-error' : 'inline-success'}>{message}</div>}
             <button className="button primary" type="submit" disabled={saving}><Save size={16} /> {text(locale, 'save')}</button>

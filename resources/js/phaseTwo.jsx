@@ -1,6 +1,5 @@
 import {
     AlertCircle,
-    ArrowLeft,
     CalendarDays,
     CheckCircle2,
     ChevronLeft,
@@ -10,7 +9,6 @@ import {
     Download,
     Droplets,
     ExternalLink,
-    Eye,
     Filter,
     Languages,
     MapPinned,
@@ -139,6 +137,8 @@ const officeCopy = {
         loading: 'Loading attendance history',
         loadError: 'Unable to load attendance data.',
         location: 'Location',
+        warehouse: 'Warehouse',
+        selectWarehouse: 'Select warehouse',
         longitude: 'Longitude',
         name: 'Name',
         open: 'Open',
@@ -272,7 +272,7 @@ export function PublicAttendanceScreen({ token, locale, setLocale }) {
 export function AttendanceLocationsScreen({ locale, canManage = false, detailId = null, onNavigate }) {
     const [filters, setFilters] = useState({ search: '', is_active: '' });
     const [page, setPage] = useState(1);
-    const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
+    const [state, setState] = useState({ loading: true, items: [], warehouses: [], meta: {}, error: '' });
     const [editing, setEditing] = useState(null);
     const [viewing, setViewing] = useState(null);
     const [message, setMessage] = useState('');
@@ -304,15 +304,15 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
                 },
             }).then(({ data }) => {
                 if (!mounted) return;
-                setState({ loading: false, items: data.data.items, meta: data.data.meta, error: '' });
-            }).catch((error) => mounted && setState({ loading: false, items: [], meta: {}, error: requestMessage(error, locale) }));
+                setState({ loading: false, items: data.data.items, warehouses: data.data.warehouses || [], meta: data.data.meta, error: '' });
+            }).catch((error) => mounted && setState({ loading: false, items: [], warehouses: [], meta: {}, error: requestMessage(error, locale) }));
         }, 220);
         return () => { mounted = false; window.clearTimeout(timer); };
     }, [filters, locale, page, refreshKey]);
 
     const openCreate = () => setEditing({
         mode: 'create',
-        values: { code: '', name: '', address: '', latitude: '', longitude: '', allowed_radius_m: 20, is_active: true },
+        values: { warehouse_id: '', code: '', name: '', address: '', latitude: '', longitude: '', allowed_radius_m: 20, is_active: true },
     });
 
     const remove = async (location) => {
@@ -338,7 +338,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
         }
     };
 
-    if (detailId) return viewing ? <><LocationDetailPage location={viewing} locale={locale} canManage={canManage} onClose={() => onNavigate?.(listPath)} onCopy={() => setMessage(t(locale, 'copied'))} onEdit={() => setEditing({ mode: 'edit', values: { ...viewing } })} onRotate={() => rotate(viewing)} />{editing && <LocationDialog editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setViewing(location); setRefreshKey((key) => key + 1); }} />}</> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
+    if (detailId) return viewing ? <><LocationDetailPage location={viewing} locale={locale} canManage={canManage} onClose={() => onNavigate?.(listPath)} onCopy={() => setMessage(t(locale, 'copied'))} onEdit={() => setEditing({ mode: 'edit', values: { ...viewing } })} onRotate={() => rotate(viewing)} />{editing && <LocationDialog editing={editing} warehouses={state.warehouses} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setViewing(location); setRefreshKey((key) => key + 1); }} />}</> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
 
     return (
         <section className="master-workspace attendance-workspace">
@@ -367,7 +367,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
 
                 {message && <div className="inline-success"><CheckCircle2 size={15} /> {message}</div>}
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
-                {state.loading ? <TableLoading columns={7} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
+                {state.loading ? <TableLoading columns={6 + (canManage ? 1 : 0)} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table attendance-table">
                             <thead>
@@ -377,23 +377,22 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
                                     <th>{t(locale, 'allowedRadius')}</th>
                                     <th>{t(locale, 'status')}</th>
                                     <th>{t(locale, 'link')}</th>
-                                    <th>{t(locale, 'actions')}</th>
+                                    {canManage && <th className="table-actions-header">{t(locale, 'actions')}</th>}
                                 </tr>
                             </thead>
                             <tbody>
                                 {state.items.map((location) => (
-                                    <tr key={location.id}>
-                                        <td><strong>{location.name}</strong><span className="muted">{location.code}</span></td>
+                                    <tr className="clickable-row" key={location.id} tabIndex={0} onClick={() => onNavigate?.(`${listPath}/${location.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${listPath}/${location.id}`); } }}>
+                                        <td><strong>{location.name}</strong><span className="muted">{location.warehouse?.name || t(locale, 'warehouse')} · {location.code}</span></td>
                                         <td>{location.address || <span className="muted">-</span>}</td>
                                         <td>{meters(location.allowed_radius_m)}</td>
                                         <td><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></td>
                                         <td><a className="text-link" href={location.public_url} target="_blank" rel="noreferrer">{t(locale, 'open')}</a></td>
-                                        <td className="row-actions">
-                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${location.id}`)}><Eye size={15} /></button>
-                                            {canManage && <button type="button" aria-label={t(locale, 'edit')} title={t(locale, 'edit')} onClick={() => setEditing({ mode: 'edit', values: { ...location } })}><Pencil size={15} /></button>}
-                                            {canManage && <button type="button" aria-label={t(locale, 'rotate')} title={t(locale, 'rotate')} onClick={() => rotate(location)}><RotateCcw size={15} /></button>}
-                                            {canManage && <button className="danger" type="button" aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => remove(location)}><Trash2 size={15} /></button>}
-                                        </td>
+                                        {canManage && <td className="table-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions">
+                                            <button type="button" aria-label={t(locale, 'edit')} title={t(locale, 'edit')} onClick={() => setEditing({ mode: 'edit', values: { ...location } })}><Pencil size={15} /></button>
+                                            <button type="button" aria-label={t(locale, 'rotate')} title={t(locale, 'rotate')} onClick={() => rotate(location)}><RotateCcw size={15} /></button>
+                                            <button className="danger" type="button" aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => remove(location)}><Trash2 size={15} /></button>
+                                        </div></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -404,7 +403,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
                 <Pagination meta={state.meta} page={page} setPage={setPage} locale={locale} />
             </div>
 
-            {editing && <LocationDialog editing={editing} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setRefreshKey((key) => key + 1); onNavigate?.(`${listPath}/${location.id}`); }} />}
+            {editing && <LocationDialog editing={editing} warehouses={state.warehouses} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setRefreshKey((key) => key + 1); onNavigate?.(`${listPath}/${location.id}`); }} />}
         </section>
     );
 }
@@ -517,7 +516,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
                 </div>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
-                {state.loading ? <TableLoading columns={7} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
+                {state.loading ? <TableLoading columns={6} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table attendance-table">
                             <thead>
@@ -528,19 +527,17 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
                                     <th>{t(locale, 'distance')}</th>
                                     <th>{t(locale, 'status')}</th>
                                     <th>{t(locale, 'reason')}</th>
-                                    <th>{t(locale, 'actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {state.items.map((record) => (
-                                    <tr key={record.id}>
+                                    <tr className="clickable-row" key={record.id} tabIndex={0} onClick={() => onNavigate?.(`${listPath}/${record.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${listPath}/${record.id}`); } }}>
                                         <td><strong>{record.employee_name || record.entered_employee_code}</strong><span className="muted">{record.employee_code || record.entered_employee_code}</span></td>
                                         <td>{record.location_name || <span className="muted">-</span>}</td>
                                         <td>{formatDateTime(record.attendance_at)}</td>
                                         <td>{meters(record.distance_m)}</td>
                                         <td><StatusBadge status={record.status} locale={locale} /></td>
                                         <td>{record.rejection_reason ? t(locale, record.rejection_reason) : <span className="muted">-</span>}</td>
-                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${record.id}`)}><Eye size={15} /></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -668,10 +665,122 @@ export function AttendanceSummaryScreen({ locale }) {
     );
 }
 
+function MobileAttendanceCheckInDialog({ locale, onClose, onRecorded }) {
+    const [state, setState] = useState({ loading: true, locations: [], todayRecord: null, error: '' });
+    const [locationId, setLocationId] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [result, setResult] = useState(null);
+
+    useEffect(() => {
+        const previousOverflow = document.body.style.overflow;
+        const handleKeyDown = (event) => event.key === 'Escape' && onClose();
+        document.body.style.overflow = 'hidden';
+        document.addEventListener('keydown', handleKeyDown);
+
+        let mounted = true;
+        window.axios.get(`${apiBase('mobileAttendance')}/locations`)
+            .then(({ data }) => {
+                if (!mounted) return;
+                const locations = data.data.locations || [];
+                setState({ loading: false, locations, todayRecord: data.data.today_record || null, error: '' });
+                if (locations.length === 1) setLocationId(String(locations[0].id));
+            })
+            .catch((error) => mounted && setState({ loading: false, locations: [], todayRecord: null, error: requestMessage(error, locale) }));
+
+        return () => {
+            mounted = false;
+            document.body.style.overflow = previousOverflow;
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [locale]);
+
+    const selectedLocation = state.locations.find((location) => String(location.id) === String(locationId));
+
+    const submitPosition = async (positionPayload) => {
+        try {
+            const { data } = await window.axios.post(`${apiBase('mobileAttendance')}/check-in`, {
+                attendance_location_id: Number(locationId),
+                ...positionPayload,
+            });
+            setResult(data.data.result);
+            onRecorded();
+        } catch (error) {
+            setState((current) => ({ ...current, error: requestMessage(error, locale) }));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const submit = (event) => {
+        event.preventDefault();
+        if (!locationId || submitting) return;
+        setSubmitting(true);
+        setState((current) => ({ ...current, error: '' }));
+
+        if (!window.isSecureContext || !navigator.geolocation) {
+            submitPosition({ gps_denied: true });
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => submitPosition({
+                latitude: Number(position.coords.latitude.toFixed(7)),
+                longitude: Number(position.coords.longitude.toFixed(7)),
+            }),
+            () => submitPosition({ gps_denied: true }),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+        );
+    };
+
+    return (
+        <div className="modal-backdrop mobile-attendance-checkin-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !submitting && onClose()}>
+            <form className="master-dialog mobile-attendance-checkin-dialog" role="dialog" aria-modal="true" aria-labelledby="mobile-attendance-title" onSubmit={submit}>
+                <header>
+                    <div><p className="eyebrow">{t(locale, 'attendance')}</p><h2 id="mobile-attendance-title">Record attendance</h2></div>
+                    <button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={onClose} disabled={submitting}><X size={17} /></button>
+                </header>
+                <div className="master-form-body mobile-attendance-checkin-body">
+                    {result ? (
+                        <div className={`mobile-attendance-checkin-result ${result.status}`}>
+                            {result.status === 'accepted' ? <CheckCircle2 size={32} /> : <AlertCircle size={32} />}
+                            <div><h3>{result.already_recorded ? 'Already checked in today' : result.status === 'accepted' ? 'Attendance recorded' : 'Attendance rejected'}</h3><p>{result.warehouse_name} · {formatDateTime(result.attendance_at)}</p></div>
+                            {result.rejection_reason && <small>{t(locale, result.rejection_reason)}</small>}
+                        </div>
+                    ) : state.loading ? (
+                        <WorkspaceState icon={RefreshCw} title="Loading warehouses" loading compact />
+                    ) : (
+                        <>
+                            {state.todayRecord && <div className="mobile-attendance-today"><CheckCircle2 size={16} /><span><strong>Today’s attendance is recorded</strong><small>{state.todayRecord.warehouse_name} · {formatDateTime(state.todayRecord.attendance_at)}</small></span></div>}
+                            <label className="master-field wide">
+                                <span>Warehouse</span>
+                                <select required value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={Boolean(state.todayRecord)}>
+                                    <option value="">Select warehouse</option>
+                                    {state.locations.map((location) => <option value={location.id} key={location.id}>{location.warehouse_name} · {location.warehouse_code}</option>)}
+                                </select>
+                            </label>
+                            {selectedLocation && <div className="mobile-attendance-location-preview"><MapPinned size={18} /><span><strong>{selectedLocation.location_name}</strong><small>{selectedLocation.location_address || selectedLocation.warehouse_address || 'No address'} · within {selectedLocation.allowed_radius_m} m</small></span></div>}
+                            {!state.todayRecord && <p className="mobile-attendance-gps-note"><Crosshair size={16} />Your current GPS position will be checked against this warehouse attendance point.</p>}
+                            {state.locations.length === 0 && !state.error && <div className="inline-error"><AlertCircle size={15} />No warehouse attendance point is available. Ask Office to configure one.</div>}
+                            {state.error && <div className="inline-error"><AlertCircle size={15} />{state.error}</div>}
+                        </>
+                    )}
+                </div>
+                <footer>
+                    <button className="button" type="button" onClick={onClose} disabled={submitting}>{result || state.todayRecord ? 'Close' : t(locale, 'cancel')}</button>
+                    {!result && !state.todayRecord && <button className="button primary" type="submit" disabled={submitting || state.loading || !locationId}><Crosshair size={15} />{submitting ? 'Getting GPS…' : 'Check in now'}</button>}
+                </footer>
+            </form>
+        </div>
+    );
+}
+
 export function MobileAttendanceHistoryScreen({ locale }) {
-    const [filters, setFilters] = useState({ status: '', date: '' });
+    const today = new Date();
+    const [month, setMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
+    const [selectedDate, setSelectedDate] = useState('');
     const [state, setState] = useState({ loading: true, items: [], summary: { accepted: 0, rejected: 0, total: 0 }, error: '' });
     const [selected, setSelected] = useState(null);
+    const [checkInOpen, setCheckInOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
 
     useEffect(() => {
@@ -679,9 +788,8 @@ export function MobileAttendanceHistoryScreen({ locale }) {
         setState((current) => ({ ...current, loading: true, error: '' }));
         window.axios.get(`${apiBase('mobileAttendance')}/records`, {
             params: {
-                status: filters.status || undefined,
-                date: filters.date || undefined,
-                per_page: 20,
+                month,
+                per_page: 100,
             },
         }).then(({ data }) => {
             if (!mounted) return;
@@ -689,7 +797,33 @@ export function MobileAttendanceHistoryScreen({ locale }) {
         }).catch((error) => mounted && setState({ loading: false, items: [], summary: { accepted: 0, rejected: 0, total: 0 }, error: requestMessage(error, locale) }));
 
         return () => { mounted = false; };
-    }, [filters, locale, refreshKey]);
+    }, [locale, month, refreshKey]);
+
+    const [year, monthNumber] = month.split('-').map(Number);
+    const monthDate = new Date(year, monthNumber - 1, 1);
+    const daysInMonth = new Date(year, monthNumber, 0).getDate();
+    const leadingDays = monthDate.getDay();
+    const recordsByDate = useMemo(() => state.items.reduce((days, record) => {
+        const key = String(record.attendance_at || '').slice(0, 10);
+        if (!days[key]) days[key] = [];
+        days[key].push(record);
+        return days;
+    }, {}), [state.items]);
+    const calendarCells = Array.from({ length: Math.ceil((leadingDays + daysInMonth) / 7) * 7 }, (_, index) => {
+        const day = index - leadingDays + 1;
+        if (day < 1 || day > daysInMonth) return null;
+        const date = `${month}-${String(day).padStart(2, '0')}`;
+        const records = recordsByDate[date] || [];
+        return { day, date, records, accepted: records.some((record) => record.status === 'accepted'), rejected: records.some((record) => record.status === 'rejected') };
+    });
+    const visibleRecords = selectedDate ? (recordsByDate[selectedDate] || []) : state.items;
+    const recordedDays = Object.keys(recordsByDate).length;
+    const acceptedDays = Object.values(recordsByDate).filter((records) => records.some((record) => record.status === 'accepted')).length;
+    const changeMonth = (offset) => {
+        const next = new Date(year, monthNumber - 1 + offset, 1);
+        setMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`);
+        setSelectedDate('');
+    };
 
     return (
         <div className="mobile-master-stack mobile-attendance-history">
@@ -697,35 +831,43 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                 <div>
                     <p className="eyebrow">{t(locale, 'attendance')}</p>
                     <h1>{t(locale, 'attendanceHistory')}</h1>
-                    <span className="muted">{t(locale, 'attendanceHistoryHint')}</span>
+                    <span className="muted">Monthly check-in calendar and history.</span>
                 </div>
-                <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
+                <div className="mobile-attendance-heading-actions">
+                    <button className="button primary" type="button" onClick={() => setCheckInOpen(true)}><Crosshair size={16} />Check in</button>
+                    <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
+                </div>
             </div>
 
             <section className="mobile-attendance-summary" aria-label={t(locale, 'attendanceHistory')}>
-                <div><small>{t(locale, 'total')}</small><strong>{state.summary.total}</strong></div>
-                <div><small>{t(locale, 'accepted')}</small><strong>{state.summary.accepted}</strong></div>
+                <div><small>Recorded days</small><strong>{recordedDays}</strong></div>
+                <div><small>Present days</small><strong>{acceptedDays}</strong></div>
                 <div><small>{t(locale, 'rejected')}</small><strong>{state.summary.rejected}</strong></div>
             </section>
 
-            <section className="mobile-master-section">
-                <div className="mobile-attendance-filters">
-                    <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
-                        <option value="">{t(locale, 'allStatuses')}</option>
-                        <option value="accepted">{t(locale, 'accepted')}</option>
-                        <option value="rejected">{t(locale, 'rejected')}</option>
-                    </select>
-                    <input aria-label={t(locale, 'date')} type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} />
-                    {(filters.status || filters.date) && <button className="button" type="button" onClick={() => setFilters({ status: '', date: '' })}>{t(locale, 'showAll')}</button>}
+            <section className="mobile-master-section mobile-attendance-calendar-section">
+                <div className="mobile-calendar-heading">
+                    <button className="icon-button" type="button" aria-label="Previous month" onClick={() => changeMonth(-1)}><ChevronLeft size={18} /></button>
+                    <strong>{new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-US', { month: 'long', year: 'numeric' }).format(monthDate)}</strong>
+                    <button className="icon-button" type="button" aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight size={18} /></button>
                 </div>
+                <div className="mobile-attendance-calendar" role="grid" aria-label="Attendance calendar">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span className="mobile-calendar-weekday" key={day}>{day}</span>)}
+                    {calendarCells.map((cell, index) => cell ? <button key={cell.date} type="button" className={`${cell.accepted ? 'is-accepted' : cell.rejected ? 'is-rejected' : ''} ${selectedDate === cell.date ? 'is-selected' : ''}`} onClick={() => setSelectedDate((value) => value === cell.date ? '' : cell.date)} aria-label={`${cell.date}, ${cell.records.length} attendance records`}><span>{cell.day}</span>{cell.records.length > 0 && <small>{cell.records.length}</small>}</button> : <span className="mobile-calendar-empty" key={`empty-${index}`} />)}
+                </div>
+                <div className="mobile-calendar-legend"><span><i className="accepted" />Present</span><span><i className="rejected" />Rejected only</span><span><i />No record</span></div>
+            </section>
 
-                {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={t(locale, 'retry')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={CalendarDays} title={t(locale, 'empty')} compact /> : (
+            <section className="mobile-master-section">
+                <div className="mobile-section-heading"><div><p className="eyebrow">{selectedDate || month}</p><h2>{selectedDate ? 'Daily check-ins' : 'Monthly records'}</h2></div>{selectedDate && <button className="button" type="button" onClick={() => setSelectedDate('')}>{t(locale, 'showAll')}</button>}</div>
+
+                {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={t(locale, 'retry')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : visibleRecords.length === 0 ? <WorkspaceState icon={CalendarDays} title="No attendance record for this period." compact /> : (
                     <div className="mobile-attendance-list">
-                        {state.items.map((record) => (
+                        {visibleRecords.map((record) => (
                             <button type="button" key={record.id} onClick={() => setSelected(record)}>
                                 <span className={`attendance-dot ${record.status}`} />
                                 <span>
-                                    <strong>{record.location_name || t(locale, 'location')}</strong>
+                                    <strong>{record.warehouse_name || record.location_name || t(locale, 'location')}</strong>
                                     <small>{formatDateTime(record.attendance_at)}</small>
                                     <small>{record.rejection_reason ? t(locale, record.rejection_reason) : `${t(locale, 'distance')}: ${metersText(record.distance_m ?? 0)}`}</small>
                                 </span>
@@ -737,11 +879,12 @@ export function MobileAttendanceHistoryScreen({ locale }) {
             </section>
 
             {selected && <MobileAttendanceDetailSheet record={selected} locale={locale} onClose={() => setSelected(null)} />}
+            {checkInOpen && <MobileAttendanceCheckInDialog locale={locale} onClose={() => setCheckInOpen(false)} onRecorded={() => setRefreshKey((key) => key + 1)} />}
         </div>
     );
 }
 
-function LocationDialog({ editing, locale, onClose, onSaved }) {
+function LocationDialog({ editing, warehouses = [], locale, onClose, onSaved }) {
     const [values, setValues] = useState(editing.values);
     const [errors, setErrors] = useState({});
     const [message, setMessage] = useState('');
@@ -802,6 +945,7 @@ function LocationDialog({ editing, locale, onClose, onSaved }) {
         setErrors({});
         setMessage('');
         const payload = {
+            warehouse_id: Number(values.warehouse_id),
             code: values.code || null,
             name: values.name,
             address: values.address || null,
@@ -833,6 +977,14 @@ function LocationDialog({ editing, locale, onClose, onSaved }) {
                 </header>
                 <div className="master-form-body attendance-location-editor">
                     <div className="master-form-grid attendance-location-fields">
+                        <label className="master-field wide">
+                            <span>{t(locale, 'warehouse')}<b aria-hidden="true"> *</b></span>
+                            <select required value={values.warehouse_id || ''} onChange={(event) => setField('warehouse_id', event.target.value)}>
+                                <option value="">{t(locale, 'selectWarehouse')}</option>
+                                {warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.name} · {warehouse.code}</option>)}
+                            </select>
+                            {fieldError('warehouse_id') && <small>{fieldError('warehouse_id')}</small>}
+                        </label>
                         <FormField label={t(locale, 'code')} value={values.code} error={fieldError('code')} onChange={(value) => setField('code', value)} />
                         <FormField label={t(locale, 'name')} value={values.name} error={fieldError('name')} required onChange={(value) => setField('name', value)} />
                         <FormField label={t(locale, 'address')} value={values.address} error={fieldError('address')} textarea onChange={(value) => setField('address', value)} />
@@ -917,6 +1069,7 @@ function LocationDetailPage({ location, locale, canManage, onClose, onEdit, onRo
                         <p>{location.public_url}</p>
                     </section>
                     <dl className="record-page-facts">
+                        <InfoRow label={t(locale, 'warehouse')} value={location.warehouse?.name || '-'} />
                         <InfoRow label={t(locale, 'address')} value={location.address || '-'} />
                         <InfoRow label={t(locale, 'latitude')} value={location.latitude} />
                         <InfoRow label={t(locale, 'longitude')} value={location.longitude} />
@@ -955,8 +1108,9 @@ function MobileAttendanceDetailSheet({ record, locale, onClose }) {
     return (
         <div className="drawer-backdrop mobile" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
             <aside className="mobile-detail-sheet" role="dialog" aria-modal="true" aria-label={t(locale, 'details')}>
-                <header><div><p className="eyebrow">{t(locale, 'details')}</p><h2>{record.location_name || t(locale, 'attendance')}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={t(locale, 'cancel')}><X size={17} /></button></header>
+                <header><div><p className="eyebrow">{t(locale, 'details')}</p><h2>{record.warehouse_name || record.location_name || t(locale, 'attendance')}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={t(locale, 'cancel')}><X size={17} /></button></header>
                 <dl className="mobile-info-list">
+                    <InfoRow label={t(locale, 'location')} value={record.location_name || '-'} />
                     <InfoRow label={t(locale, 'checkedAt')} value={formatDateTime(record.attendance_at)} />
                     <InfoRow label={t(locale, 'status')} value={<StatusBadge status={record.status} locale={locale} />} />
                     <InfoRow label={t(locale, 'reason')} value={record.rejection_reason ? t(locale, record.rejection_reason) : '-'} />

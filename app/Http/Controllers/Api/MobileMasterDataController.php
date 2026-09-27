@@ -3,14 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceRecord;
+use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 class MobileMasterDataController extends Controller
 {
+    public function __construct(private readonly CustomerCreditService $customerCredit)
+    {
+    }
+
     public function profile(Request $request)
     {
         $user = $request->user();
@@ -114,6 +119,20 @@ class MobileMasterDataController extends Controller
                 return $order;
             });
 
+        $outstanding = $this->customerCredit->outstanding((int) $customer->id);
+        $salesQuery = DB::table('invoices')->where('customer_id', $customer->id)->where('status', '!=', 'cancelled');
+        $monthSales = (float) (clone $salesQuery)->whereDate('invoice_date', '>=', now()->startOfMonth()->toDateString())->sum('total');
+        $yearSales = (float) (clone $salesQuery)->whereDate('invoice_date', '>=', now()->startOfYear()->toDateString())->sum('total');
+        $topProducts = DB::table('invoice_items')
+            ->join('invoices', 'invoice_items.invoice_id', '=', 'invoices.id')
+            ->where('invoices.customer_id', $customer->id)
+            ->where('invoices.status', '!=', 'cancelled')
+            ->groupBy('invoice_items.product_id', 'invoice_items.product_sku', 'invoice_items.product_name')
+            ->orderByDesc(DB::raw('SUM(invoice_items.quantity)'))
+            ->limit(5)
+            ->get(['invoice_items.product_id', 'invoice_items.product_sku', 'invoice_items.product_name', DB::raw('SUM(invoice_items.quantity) as quantity'), DB::raw('SUM(invoice_items.line_total) as sales')])
+            ->map(fn ($item) => ['product_id' => $item->product_id, 'sku' => $item->product_sku, 'name' => $item->product_name, 'quantity' => (float) $item->quantity, 'sales' => (float) $item->sales]);
+
         return ApiResponse::success('Customer loaded.', [
             'customer' => $customer,
             'orders' => $orders,
@@ -121,93 +140,14 @@ class MobileMasterDataController extends Controller
                 'orders_count' => (int) ($orderSummary->orders_count ?? 0),
                 'pending_count' => (int) ($orderSummary->pending_count ?? 0),
                 'total_amount' => (float) ($orderSummary->total_amount ?? 0),
+                'average_order_value' => (float) (($orderSummary->orders_count ?? 0) ? $orderSummary->total_amount / $orderSummary->orders_count : 0),
+                'last_order_date' => $orders->first()?->order_date,
+                'outstanding_balance' => $outstanding,
+                'available_credit' => (float) $customer->credit_limit > 0 ? (float) $customer->credit_limit - $outstanding : null,
+                'monthly_sales' => $monthSales,
+                'yearly_sales' => $yearSales,
             ],
-        ]);
-    }
-
-    public function salesRoute(Request $request)
-    {
-        $this->authorizePermission($request, 'sales.route.view');
-        $employee = DB::table('employees')->find($request->user()->employee_id);
-        abort_unless($employee && $employee->employee_type === 'sales' && $employee->assigned_route_id, 422, 'A sales territory must be assigned before opening customer visits.');
-
-        $date = now()->toDateString();
-        $route = DB::table('routes')->leftJoin('areas', 'routes.area_id', '=', 'areas.id')
-            ->where('routes.id', $employee->assigned_route_id)
-            ->first(['routes.*', 'areas.name as area_name']);
-
-        $orders = DB::table('orders')->whereDate('order_date', $date)
-            ->where('source_app', 'sales')
-            ->where('created_by', $request->user()->id)
-            ->selectRaw('customer_id, COUNT(*) as orders_count, COALESCE(SUM(total), 0) as order_amount')
-            ->groupBy('customer_id');
-        $customers = DB::table('customers')
-            ->leftJoin('areas', 'customers.area_id', '=', 'areas.id')
-            ->leftJoin('sales_route_visits', function ($join) use ($employee, $date) {
-                $join->on('customers.id', '=', 'sales_route_visits.customer_id')
-                    ->where('sales_route_visits.employee_id', '=', $employee->id)
-                    ->where('sales_route_visits.visit_date', '=', $date);
-            })
-            ->leftJoinSub($orders, 'today_orders', 'customers.id', '=', 'today_orders.customer_id')
-            ->where('customers.route_id', $employee->assigned_route_id)
-            ->where('customers.is_active', true)
-            ->orderBy('customers.shop_name')
-            ->get([
-                'customers.id', 'customers.code', 'customers.shop_name', 'customers.contact_name', 'customers.phone', 'customers.address',
-                'areas.name as area', 'sales_route_visits.status as visit_status', 'sales_route_visits.started_at', 'sales_route_visits.completed_at',
-                DB::raw('COALESCE(today_orders.orders_count, 0) as orders_count'), DB::raw('COALESCE(today_orders.order_amount, 0) as order_amount'),
-            ])->map(function ($customer) {
-                $customer->visit_status = $customer->visit_status ?: 'planned';
-                $customer->orders_count = (int) $customer->orders_count;
-                $customer->order_amount = (float) $customer->order_amount;
-                return $customer;
-            });
-
-        return ApiResponse::success('Sales customer visits loaded.', [
-            'route' => $route,
-            'date' => $date,
-            'customers' => $customers,
-            'summary' => [
-                'total' => $customers->count(),
-                'completed' => $customers->where('visit_status', 'completed')->count(),
-                'in_progress' => $customers->where('visit_status', 'in_progress')->count(),
-                'skipped' => $customers->where('visit_status', 'skipped')->count(),
-                'orders_count' => $customers->sum('orders_count'),
-                'order_amount' => (float) $customers->sum('order_amount'),
-            ],
-        ]);
-    }
-
-    public function updateSalesRouteVisit(Request $request, int $customerId)
-    {
-        $this->authorizePermission($request, 'sales.route.view');
-        $employee = DB::table('employees')->find($request->user()->employee_id);
-        abort_unless($employee && $employee->employee_type === 'sales' && $employee->assigned_route_id, 422, 'A sales territory must be assigned before recording customer visits.');
-        abort_unless(DB::table('customers')->where('id', $customerId)->where('route_id', $employee->assigned_route_id)->where('is_active', true)->exists(), 404);
-
-        $validated = $request->validate([
-            'status' => ['required', Rule::in(['in_progress', 'completed', 'skipped'])],
-            'notes' => ['nullable', 'string', 'max:500'],
-        ]);
-        $date = now()->toDateString();
-        $existing = DB::table('sales_route_visits')->where('employee_id', $employee->id)->where('customer_id', $customerId)->where('visit_date', $date)->first();
-        $now = now();
-
-        DB::table('sales_route_visits')->updateOrInsert(
-            ['employee_id' => $employee->id, 'customer_id' => $customerId, 'visit_date' => $date],
-            [
-                'route_id' => $employee->assigned_route_id,
-                'status' => $validated['status'],
-                'started_at' => $existing?->started_at ?: $now,
-                'completed_at' => in_array($validated['status'], ['completed', 'skipped'], true) ? $now : null,
-                'notes' => $validated['notes'] ?? $existing?->notes,
-                'created_at' => $existing?->created_at ?: $now,
-                'updated_at' => $now,
-            ]
-        );
-
-        return ApiResponse::success('Customer visit updated.', [
-            'visit' => DB::table('sales_route_visits')->where('employee_id', $employee->id)->where('customer_id', $customerId)->where('visit_date', $date)->first(),
+            'top_products' => $topProducts,
         ]);
     }
 
@@ -225,6 +165,8 @@ class MobileMasterDataController extends Controller
             'address' => ['nullable', 'string', 'max:500'],
         ]);
 
+        abort_if(DB::table('customers')->where('route_id', $employee->assigned_route_id)->where('phone', $validated['phone'])->exists(), 422, 'A customer with this phone number already exists on your route.');
+
         $route = DB::table('routes')->find($employee->assigned_route_id);
         $nextId = ((int) DB::table('customers')->max('id')) + 1;
         $validated += [
@@ -232,8 +174,10 @@ class MobileMasterDataController extends Controller
             'area_id' => $route->area_id,
             'route_id' => $route->id,
             'price_type_id' => DB::table('price_types')->where('is_default', true)->value('id'),
-            'credit_limit' => 0,
+            'credit_limit' => (float) (DB::table('companies')->oldest('id')->value('default_customer_credit_limit') ?? 500000),
             'is_active' => true,
+            'created_by' => $request->user()->id,
+            'updated_by' => $request->user()->id,
             'created_at' => now(),
             'updated_at' => now(),
         ];
@@ -243,6 +187,25 @@ class MobileMasterDataController extends Controller
         return ApiResponse::success('Customer registration submitted.', [
             'customer' => DB::table('customers')->find($id),
         ], 201);
+    }
+
+    public function updateCustomer(Request $request, int $id)
+    {
+        $this->authorizePermission($request, 'sales.customers.create');
+        $routeId = DB::table('employees')->where('id', $request->user()->employee_id)->value('assigned_route_id');
+        $customer = DB::table('customers')->where('id', $id)->where('route_id', $routeId)->first();
+        abort_unless($customer, 404);
+        $validated = $request->validate([
+            'shop_name' => ['required', 'string', 'max:150'],
+            'contact_name' => ['required', 'string', 'max:150'],
+            'phone' => ['required', 'string', 'max:40'],
+            'email' => ['nullable', 'email', 'max:150'],
+            'address' => ['nullable', 'string', 'max:500'],
+        ]);
+        abort_if(DB::table('customers')->where('route_id', $routeId)->where('phone', $validated['phone'])->where('id', '!=', $id)->exists(), 422, 'A customer with this phone number already exists on your route.');
+        DB::table('customers')->where('id', $id)->update($validated + ['updated_at' => now()]);
+
+        return ApiResponse::success('Customer updated.', ['customer' => DB::table('customers')->find($id)]);
     }
 
     public function assignedVehicle(Request $request)
@@ -264,10 +227,23 @@ class MobileMasterDataController extends Controller
 
         abort_unless($user->employee_id, 404);
 
+        $validated = $request->validate([
+            'month' => ['nullable', 'date_format:Y-m'],
+            'status' => ['nullable', 'in:accepted,rejected'],
+            'date' => ['nullable', 'date'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
         $query = DB::table('attendance_records')
             ->leftJoin('attendance_locations', 'attendance_records.attendance_location_id', '=', 'attendance_locations.id')
+            ->leftJoin('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
             ->where('attendance_records.employee_id', $user->employee_id)
-            ->select('attendance_records.*', 'attendance_locations.name as location_name');
+            ->select('attendance_records.*', 'attendance_locations.name as location_name', 'warehouses.name as warehouse_name');
+
+        if (! empty($validated['month'])) {
+            $monthStart = \Carbon\Carbon::createFromFormat('Y-m', $validated['month'])->startOfMonth();
+            $query->whereBetween('attendance_records.attendance_at', [$monthStart, $monthStart->copy()->endOfMonth()]);
+        }
 
         if ($request->filled('status')) {
             $query->where('attendance_records.status', $request->query('status'));
@@ -283,7 +259,7 @@ class MobileMasterDataController extends Controller
             ->pluck('total', 'attendance_records.status');
 
         $paginator = $query->orderByDesc('attendance_records.attendance_at')
-            ->paginate(min(max((int) $request->query('per_page', 12), 1), 50));
+            ->paginate(min(max((int) $request->query('per_page', 31), 1), 100));
 
         return ApiResponse::success('Attendance history loaded.', [
             'items' => $paginator->items(),
@@ -298,6 +274,141 @@ class MobileMasterDataController extends Controller
                 'total' => $paginator->total(),
             ],
         ]);
+    }
+
+    public function attendanceLocations(Request $request)
+    {
+        $this->authorizeMobileAttendance($request);
+        abort_unless($request->user()->employee_id, 404, 'Employee profile is not linked to this account.');
+
+        $locations = DB::table('attendance_locations')
+            ->join('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
+            ->where('attendance_locations.is_active', true)
+            ->where('warehouses.is_active', true)
+            ->orderBy('warehouses.name')
+            ->orderBy('attendance_locations.name')
+            ->get([
+                'attendance_locations.id',
+                'attendance_locations.name as location_name',
+                'attendance_locations.address as location_address',
+                'attendance_locations.allowed_radius_m',
+                'warehouses.id as warehouse_id',
+                'warehouses.code as warehouse_code',
+                'warehouses.name as warehouse_name',
+                'warehouses.address as warehouse_address',
+            ]);
+
+        $todayRecord = DB::table('attendance_records')
+            ->leftJoin('attendance_locations', 'attendance_records.attendance_location_id', '=', 'attendance_locations.id')
+            ->leftJoin('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
+            ->where('attendance_records.employee_id', $request->user()->employee_id)
+            ->where('attendance_records.status', 'accepted')
+            ->whereDate('attendance_records.attendance_at', today())
+            ->orderByDesc('attendance_records.attendance_at')
+            ->first([
+                'attendance_records.id',
+                'attendance_records.attendance_at',
+                'attendance_records.distance_m',
+                'attendance_locations.name as location_name',
+                'warehouses.name as warehouse_name',
+            ]);
+
+        return ApiResponse::success('Attendance warehouses loaded.', [
+            'locations' => $locations,
+            'today_record' => $todayRecord,
+        ]);
+    }
+
+    public function recordAttendance(Request $request)
+    {
+        $this->authorizeMobileAttendance($request);
+        $user = $request->user();
+        abort_unless($user->employee_id, 404, 'Employee profile is not linked to this account.');
+
+        $validated = $request->validate([
+            'attendance_location_id' => ['required', 'integer', 'exists:attendance_locations,id'],
+            'gps_denied' => ['sometimes', 'boolean'],
+            'latitude' => ['required_unless:gps_denied,true', 'nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['required_unless:gps_denied,true', 'nullable', 'numeric', 'between:-180,180'],
+        ]);
+
+        $employee = DB::table('employees')->where('id', $user->employee_id)->where('is_active', true)->first();
+        abort_unless($employee, 404, 'Employee profile is inactive or unavailable.');
+
+        $location = DB::table('attendance_locations')
+            ->join('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
+            ->where('attendance_locations.id', $validated['attendance_location_id'])
+            ->where('attendance_locations.is_active', true)
+            ->where('warehouses.is_active', true)
+            ->first([
+                'attendance_locations.*',
+                'warehouses.id as warehouse_id',
+                'warehouses.name as warehouse_name',
+            ]);
+        abort_unless($location, 422, 'The selected warehouse attendance point is unavailable.');
+
+        $existing = DB::table('attendance_records')
+            ->leftJoin('attendance_locations', 'attendance_records.attendance_location_id', '=', 'attendance_locations.id')
+            ->leftJoin('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
+            ->where('attendance_records.employee_id', $employee->id)
+            ->where('attendance_records.status', 'accepted')
+            ->whereDate('attendance_records.attendance_at', today())
+            ->orderByDesc('attendance_records.attendance_at')
+            ->first([
+                'attendance_records.*',
+                'attendance_locations.name as recorded_location_name',
+                'attendance_locations.allowed_radius_m as recorded_allowed_radius_m',
+                'warehouses.id as recorded_warehouse_id',
+                'warehouses.name as recorded_warehouse_name',
+            ]);
+
+        if ($existing) {
+            $recordedLocation = (object) [
+                'name' => $existing->recorded_location_name,
+                'allowed_radius_m' => $existing->recorded_allowed_radius_m,
+                'warehouse_id' => $existing->recorded_warehouse_id,
+                'warehouse_name' => $existing->recorded_warehouse_name,
+            ];
+
+            return ApiResponse::success('Attendance was already recorded today.', [
+                'result' => $this->mobileAttendanceResult($existing, $recordedLocation, $employee, true),
+            ]);
+        }
+
+        $reason = null;
+        $distance = null;
+
+        if ($request->boolean('gps_denied')) {
+            $reason = 'gps_denied';
+        } else {
+            $distance = $this->distanceInMeters(
+                (float) $location->latitude,
+                (float) $location->longitude,
+                (float) $validated['latitude'],
+                (float) $validated['longitude']
+            );
+
+            if ($distance > $location->allowed_radius_m) {
+                $reason = 'outside_allowed_radius';
+            }
+        }
+
+        $record = AttendanceRecord::create([
+            'attendance_location_id' => $location->id,
+            'employee_id' => $employee->id,
+            'entered_employee_code' => $employee->code,
+            'submitted_token' => null,
+            'attendance_at' => now(),
+            'latitude' => $validated['latitude'] ?? null,
+            'longitude' => $validated['longitude'] ?? null,
+            'distance_m' => $distance === null ? null : round($distance, 2),
+            'status' => $reason ? 'rejected' : 'accepted',
+            'rejection_reason' => $reason,
+        ]);
+
+        return ApiResponse::success($reason ? 'Attendance was rejected.' : 'Attendance recorded successfully.', [
+            'result' => $this->mobileAttendanceResult($record, $location, $employee),
+        ], 201);
     }
 
     public function payrollHistory(Request $request)
@@ -375,5 +486,40 @@ class MobileMasterDataController extends Controller
     private function authorizePermission(Request $request, string $permission): void
     {
         abort_unless(in_array($permission, AppAccess::permissionsForRole($request->user()->role), true), 403);
+    }
+
+    private function authorizeMobileAttendance(Request $request): void
+    {
+        $role = $request->user()->role;
+        abort_unless(in_array($role, ['Driver', 'Sales Representative'], true), 403);
+        $this->authorizePermission($request, $role === 'Driver' ? 'driver.attendance.view' : 'sales.attendance.view');
+    }
+
+    private function mobileAttendanceResult(object $record, object $location, object $employee, bool $alreadyRecorded = false): array
+    {
+        return [
+            'record_id' => $record->id,
+            'status' => $record->status,
+            'rejection_reason' => $record->rejection_reason,
+            'distance_m' => $record->distance_m,
+            'allowed_radius_m' => $location->allowed_radius_m,
+            'employee_name' => $employee->name,
+            'location_name' => $location->name,
+            'warehouse_id' => $location->warehouse_id,
+            'warehouse_name' => $location->warehouse_name,
+            'attendance_at' => $record->attendance_at,
+            'already_recorded' => $alreadyRecorded,
+        ];
+    }
+
+    private function distanceInMeters(float $fromLatitude, float $fromLongitude, float $toLatitude, float $toLongitude): float
+    {
+        $earthRadius = 6371000;
+        $latitudeDelta = deg2rad($toLatitude - $fromLatitude);
+        $longitudeDelta = deg2rad($toLongitude - $fromLongitude);
+        $a = sin($latitudeDelta / 2) ** 2
+            + cos(deg2rad($fromLatitude)) * cos(deg2rad($toLatitude)) * sin($longitudeDelta / 2) ** 2;
+
+        return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

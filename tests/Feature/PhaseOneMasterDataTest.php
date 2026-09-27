@@ -52,8 +52,12 @@ class PhaseOneMasterDataTest extends TestCase
             'address' => 'East Circular Road, Taunggyi',
             'city' => 'Taunggyi',
             'state' => 'Shan State',
+            'default_customer_credit_limit' => 750000,
+            'delivery_credit_due_days' => 21,
         ])->assertOk()
-            ->assertJsonPath('data.company.name', 'Valley Water Company');
+            ->assertJsonPath('data.company.name', 'Valley Water Company')
+            ->assertJsonPath('data.company.default_customer_credit_limit', '750000.00')
+            ->assertJsonPath('data.company.delivery_credit_due_days', 21);
 
         $this->assertDatabaseCount('companies', 1);
         $this->postJson('/api/master-data/companies', [])->assertNotFound();
@@ -380,61 +384,33 @@ class PhaseOneMasterDataTest extends TestCase
         $this->getJson("/api/mobile/master/customers/{$customerId}")
             ->assertOk()
             ->assertJsonPath('data.customer.shop_name', 'Cherry Mini Mart')
-            ->assertJsonStructure(['data' => ['orders', 'order_summary' => ['orders_count', 'pending_count', 'total_amount']]]);
+            ->assertJsonStructure(['data' => ['orders', 'top_products', 'order_summary' => ['orders_count', 'pending_count', 'total_amount', 'average_order_value', 'outstanding_balance', 'monthly_sales', 'yearly_sales']]]);
 
-        $this->postJson('/api/mobile/master/customers', [
+        $created = $this->postJson('/api/mobile/master/customers', [
             'shop_name' => 'Blue Lake Store',
             'contact_name' => 'Ma Su',
             'phone' => '09 777 123 456',
             'email' => 'blue@example.test',
             'address' => 'North Quarter',
         ])->assertCreated()
-            ->assertJsonPath('data.customer.route_id', DB::table('routes')->where('code', 'TGI-N')->value('id'));
+            ->assertJsonPath('data.customer.route_id', DB::table('routes')->where('code', 'TGI-N')->value('id'))
+            ->assertJsonPath('data.customer.credit_limit', 500000);
 
         $this->assertDatabaseHas('customers', ['shop_name' => 'Blue Lake Store']);
+
+        $this->putJson('/api/mobile/master/customers/'.$created->json('data.customer.id'), [
+            'shop_name' => 'Blue Lake Mini Store',
+            'contact_name' => 'Ma Su',
+            'phone' => '09 777 123 456',
+            'email' => 'blue@example.test',
+            'address' => 'North Quarter',
+        ])->assertOk()->assertJsonPath('data.customer.shop_name', 'Blue Lake Mini Store');
+
+        $this->postJson('/api/mobile/master/customers', [
+            'shop_name' => 'Duplicate Phone Store',
+            'contact_name' => 'Ma Su',
+            'phone' => '09 777 123 456',
+        ])->assertUnprocessable();
     }
 
-    public function test_sales_user_can_run_their_daily_route()
-    {
-        $this->seed();
-        $salesUser = User::where('email', 'sales@valley.test')->firstOrFail();
-        $clientUser = User::where('email', 'client@valley.test')->firstOrFail();
-        $today = now()->toDateString();
-        $this->actingAs($salesUser);
-        $customerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
-
-        DB::table('orders')->where('code', 'ORD-202608-0001')->update([
-            'order_date' => $today,
-            'source_app' => 'client',
-            'created_by' => $clientUser->id,
-        ]);
-        DB::table('orders')->where('code', 'ORD-202608-0002')->update([
-            'order_date' => $today,
-            'source_app' => 'sales',
-            'created_by' => $salesUser->id,
-        ]);
-        $this->getJson('/api/mobile/sales-route')
-            ->assertOk()
-            ->assertJsonPath('data.route.code', 'TGI-N')
-            ->assertJsonPath('data.customers.0.visit_status', 'planned')
-            ->assertJsonPath('data.summary.orders_count', 1)
-            ->assertJsonPath('data.summary.order_amount', 36000)
-            ->assertJsonMissingPath('data.summary.collection_amount')
-            ->assertJsonStructure(['data' => ['summary' => ['total', 'completed', 'in_progress', 'skipped', 'orders_count', 'order_amount']]]);
-
-        $this->postJson("/api/mobile/sales-route/customers/{$customerId}/visit", ['status' => 'in_progress'])
-            ->assertOk()
-            ->assertJsonPath('data.visit.status', 'in_progress');
-
-        $this->postJson("/api/mobile/sales-route/customers/{$customerId}/visit", ['status' => 'completed'])
-            ->assertOk()
-            ->assertJsonPath('data.visit.status', 'completed');
-
-        $this->getJson('/api/mobile/sales-route')
-            ->assertOk()
-            ->assertJsonPath('data.summary.completed', 1);
-
-        $outsideCustomerId = DB::table('customers')->where('code', 'CUS-0004')->value('id');
-        $this->postJson("/api/mobile/sales-route/customers/{$outsideCustomerId}/visit", ['status' => 'completed'])->assertNotFound();
-    }
 }

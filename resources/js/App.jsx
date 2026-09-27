@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
     Building2,
+    Bell,
     CalendarDays,
     CheckCircle2,
     CircleGauge,
@@ -29,6 +30,7 @@ import {
     SlidersHorizontal,
     ShoppingCart,
     Sun,
+    Target,
     TriangleAlert,
     Truck,
     User,
@@ -36,18 +38,77 @@ import {
     WalletCards,
     X,
 } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ClientMasterScreen, CompanySettingsScreen, DriverMasterScreen, MasterDataWorkspace, SalesCustomerDetailPage, SalesMasterScreen, SalesRouteScreen } from './phaseOne';
-import { InvoicesScreen, MobileOrderDetailPage, MobileOrdersScreen, OrdersScreen, SalesReturnScreen } from './phaseFour';
-import { ClosingStockScreen, StockAdjustmentScreen, StockBalanceScreen, StockCardScreen, StockReceiveScreen, StockTransferScreen, StockValueScreen } from './phaseFive';
-import { DeliveryLiveMapScreen, DeliveryPlanningScreen, MobileDeliveryStatusScreen, MobileDriverDeliveriesScreen, MobileDriverExecutionScreen, TripEditPage, TripWizardPage } from './phaseSix';
-import { FinanceBookScreen, FinanceCollectionsScreen, FinanceExpensesScreen, FinanceReceivablesScreen, MobileFinanceScreen, ProfitLossScreen, SupplierLedgerScreen } from './phaseSeven';
-import { MobileVehicleOperationsScreen, VehicleCostsScreen, VehicleMonthlyCostScreen, VehiclePerformanceScreen, VehicleRouteHistoryScreen } from './phaseEight';
-import { MobileHomeDashboard, OfficeKpiDashboard } from './phaseTen';
-import { UatReadinessScreen } from './phaseEleven';
-import { MobilePayrollHistoryScreen, PayrollAdjustmentsScreen, PayrollDraftsScreen, SalaryHistoryScreen } from './phaseThree';
-import { AttendanceLocationsScreen, AttendanceRecordsScreen, AttendanceSummaryScreen, MobileAttendanceHistoryScreen, PublicAttendanceScreen } from './phaseTwo';
-import { ProfileSettingsScreen } from './ProfileSettings';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
+
+const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ default: module[name] })));
+const phaseOne = () => import('./phaseOne');
+const phaseTwo = () => import('./phaseTwo');
+const phaseThree = () => import('./phaseThree');
+const phaseFour = () => import('./phaseFour');
+const phaseFive = () => import('./phaseFive');
+const phaseSix = () => import('./phaseSix');
+const phaseSeven = () => import('./phaseSeven');
+const phaseEight = () => import('./phaseEight');
+const phaseNine = () => import('./phaseNine');
+const phaseTen = () => import('./phaseTen');
+const phaseEleven = () => import('./phaseEleven');
+const phaseKpi = () => import('./phaseKpi');
+
+const ClientMasterScreen = lazyNamed(phaseOne, 'ClientMasterScreen');
+const CompanySettingsScreen = lazyNamed(phaseOne, 'CompanySettingsScreen');
+const DriverMasterScreen = lazyNamed(phaseOne, 'DriverMasterScreen');
+const MasterDataWorkspace = lazyNamed(phaseOne, 'MasterDataWorkspace');
+const SalesCustomerDetailPage = lazyNamed(phaseOne, 'SalesCustomerDetailPage');
+const SalesMasterScreen = lazyNamed(phaseOne, 'SalesMasterScreen');
+const AttendanceLocationsScreen = lazyNamed(phaseTwo, 'AttendanceLocationsScreen');
+const AttendanceRecordsScreen = lazyNamed(phaseTwo, 'AttendanceRecordsScreen');
+const AttendanceSummaryScreen = lazyNamed(phaseTwo, 'AttendanceSummaryScreen');
+const MobileAttendanceHistoryScreen = lazyNamed(phaseTwo, 'MobileAttendanceHistoryScreen');
+const PublicAttendanceScreen = lazyNamed(phaseTwo, 'PublicAttendanceScreen');
+const MobilePayrollHistoryScreen = lazyNamed(phaseThree, 'MobilePayrollHistoryScreen');
+const PayrollAdjustmentsScreen = lazyNamed(phaseThree, 'PayrollAdjustmentsScreen');
+const PayrollDraftsScreen = lazyNamed(phaseThree, 'PayrollDraftsScreen');
+const SalaryHistoryScreen = lazyNamed(phaseThree, 'SalaryHistoryScreen');
+const InvoicesScreen = lazyNamed(phaseFour, 'InvoicesScreen');
+const MobileOrderDetailPage = lazyNamed(phaseFour, 'MobileOrderDetailPage');
+const MobileOrdersScreen = lazyNamed(phaseFour, 'MobileOrdersScreen');
+const OrdersScreen = lazyNamed(phaseFour, 'OrdersScreen');
+const SalesReturnScreen = lazyNamed(phaseFour, 'SalesReturnScreen');
+const ClosingStockScreen = lazyNamed(phaseFive, 'ClosingStockScreen');
+const StockAdjustmentScreen = lazyNamed(phaseFive, 'StockAdjustmentScreen');
+const StockBalanceScreen = lazyNamed(phaseFive, 'StockBalanceScreen');
+const StockCardScreen = lazyNamed(phaseFive, 'StockCardScreen');
+const StockReceiveScreen = lazyNamed(phaseFive, 'StockReceiveScreen');
+const StockTransferScreen = lazyNamed(phaseFive, 'StockTransferScreen');
+const StockValueScreen = lazyNamed(phaseFive, 'StockValueScreen');
+const DeliveryLiveMapScreen = lazyNamed(phaseSix, 'DeliveryLiveMapScreen');
+const DeliveryPlanningScreen = lazyNamed(phaseSix, 'DeliveryPlanningScreen');
+const MobileDeliveryStatusScreen = lazyNamed(phaseSix, 'MobileDeliveryStatusScreen');
+const MobileDriverExecutionScreen = lazyNamed(phaseSix, 'MobileDriverExecutionScreen');
+const MobileDriverGpsScreen = lazyNamed(phaseSix, 'MobileDriverGpsScreen');
+const TripEditPage = lazyNamed(phaseSix, 'TripEditPage');
+const TripWizardPage = lazyNamed(phaseSix, 'TripWizardPage');
+const FinanceBookScreen = lazyNamed(phaseSeven, 'FinanceBookScreen');
+const FinanceCollectionsScreen = lazyNamed(phaseSeven, 'FinanceCollectionsScreen');
+const FinanceExpensesScreen = lazyNamed(phaseSeven, 'FinanceExpensesScreen');
+const FinanceReceivablesScreen = lazyNamed(phaseSeven, 'FinanceReceivablesScreen');
+const MobileFinanceScreen = lazyNamed(phaseSeven, 'MobileFinanceScreen');
+const ProfitLossScreen = lazyNamed(phaseSeven, 'ProfitLossScreen');
+const SupplierLedgerScreen = lazyNamed(phaseSeven, 'SupplierLedgerScreen');
+const MobileVehicleOperationsScreen = lazyNamed(phaseEight, 'MobileVehicleOperationsScreen');
+const VehicleCostsScreen = lazyNamed(phaseEight, 'VehicleCostsScreen');
+const VehicleMonthlyCostScreen = lazyNamed(phaseEight, 'VehicleMonthlyCostScreen');
+const VehiclePerformanceScreen = lazyNamed(phaseEight, 'VehiclePerformanceScreen');
+const VehicleRouteHistoryScreen = lazyNamed(phaseEight, 'VehicleRouteHistoryScreen');
+const OperationsReportScreen = lazyNamed(phaseNine, 'OperationsReportScreen');
+const MobileHomeDashboard = lazyNamed(phaseTen, 'MobileHomeDashboard');
+const OfficeKpiDashboard = lazyNamed(phaseTen, 'OfficeKpiDashboard');
+const UatReadinessScreen = lazyNamed(phaseEleven, 'UatReadinessScreen');
+const KpiReviewsScreen = lazyNamed(phaseKpi, 'KpiReviewsScreen');
+const KpiTargetsScreen = lazyNamed(phaseKpi, 'KpiTargetsScreen');
+const MobileKpiScreen = lazyNamed(phaseKpi, 'MobileKpiScreen');
+const KpiReportsScreen = lazyNamed(() => import('./phaseKpiReport'), 'KpiReportsScreen');
+const ProfileSettingsScreen = lazyNamed(() => import('./ProfileSettings'), 'ProfileSettingsScreen');
 
 const copy = {
     en: {
@@ -66,7 +127,7 @@ const copy = {
         overview: 'Foundation and UI Shell',
         officeHint: 'Compact operations console for owner, admin, and office staff.',
         clientHint: 'Customer app shell for orders, delivery status, and account balance.',
-        salesHint: 'Sales territory app for customer visits, customers, and field orders.',
+        salesHint: 'Sales performance, customer management, and field orders.',
         driverHint: 'Driver app shell for assigned loads, delivery route, and status updates.',
         newDemoOrder: 'New demo order',
         demoNav: 'Demo Navigation',
@@ -88,6 +149,8 @@ const copy = {
         attendance: 'Attendance',
         nextAction: 'Next Action',
         home: 'Home',
+        kpiReport: 'KPI Report',
+        newOrder: 'New Order',
         orders: 'Orders',
         deliveries: 'Deliveries',
         profile: 'Profile',
@@ -96,16 +159,18 @@ const copy = {
         close: 'Close',
         profileMenu: 'Profile menu',
         route: 'Route',
-        visits: 'Visits',
         customers: 'Customers',
         collections: 'Collections',
         expenses: 'Expenses',
         ledger: 'Ledger',
         vehicle: 'Vehicle',
+        tasks: 'Tasks',
+        gps: 'GPS',
+        history: 'History',
         load: 'Load',
         confirm: 'Confirm',
         clientWelcome: 'Morning delivery to Shwe Family Store is being prepared.',
-        salesWelcome: 'Today’s customer visit plan is ready.',
+        salesWelcome: 'Your sales performance report is ready.',
         driverWelcome: 'Warehouse load WY-204 is assigned for delivery.',
         officeApiNote: 'The API response format keeps errors predictable for all apps.',
         authLoading: 'Checking sign in',
@@ -129,7 +194,7 @@ const copy = {
         overview: 'အခြေခံနှင့် UI Shell',
         officeHint: 'ပိုင်ရှင်၊ အက်ဒမင်နှင့် ရုံးဝန်ထမ်းများအတွက် console။',
         clientHint: 'အော်ဒါ၊ ပို့ဆောင်မှုအခြေအနေ နှင့် ငွေလက်ကျန်အတွက် ဖောက်သည် app shell။',
-        salesHint: 'ဖောက်သည်လည်ပတ်မှု၊ ဖောက်သည်စီမံမှုနှင့် အော်ဒါတင်ခြင်းအတွက် အရောင်း app။',
+        salesHint: 'အရောင်းစွမ်းဆောင်ရည်၊ ဖောက်သည်စီမံမှုနှင့် အော်ဒါတင်ခြင်းအတွက် အရောင်း app။',
         driverHint: 'သတ်မှတ်ထားသော load၊ route နှင့် status update များအတွက် driver app shell။',
         newDemoOrder: 'Demo order အသစ်',
         demoNav: 'Demo Menu',
@@ -147,14 +212,17 @@ const copy = {
         assignedToday: 'ယနေ့သတ်မှတ်ထားသည်',
         nextAction: 'နောက်လုပ်ဆောင်ရန်',
         home: 'မူလ',
+        kpiReport: 'KPI အစီရင်ခံစာ',
+        newOrder: 'အော်ဒါအသစ်',
         orders: 'အော်ဒါများ',
         deliveries: 'ပို့ဆောင်မှုများ',
         profile: 'ပရိုဖိုင်',
         profileMenu: 'Profile menu',
         route: 'Route',
-        visits: 'လည်ပတ်မှု',
         customers: 'ဖောက်သည်များ',
         collections: 'ငွေကောက်ခံမှုများ',
+        tasks: 'တာဝန်များ',
+        history: 'မှတ်တမ်း',
         load: 'Load',
         confirm: 'အတည်ပြု',
         clientWelcome: 'Shwe Family Store အတွက် မနက်ပိုင်းပို့ဆောင်မှု ပြင်ဆင်နေသည်။',
@@ -240,6 +308,9 @@ const officeNavItems = [
     { id: 'payroll-drafts', label: 'Payroll Drafts', myLabel: 'Payroll Drafts', icon: CreditCard, permission: 'office.payroll.view', view: 'payroll-drafts', path: '/payroll/drafts' },
     { id: 'payroll-adjustments', label: 'Adjustments', myLabel: 'Adjustments', icon: WalletCards, permission: 'office.payroll.view', view: 'payroll-adjustments', path: '/payroll/adjustments' },
     { id: 'salary-history', label: 'Salary History', myLabel: 'Salary History', icon: ReceiptText, permission: 'office.payroll.view', view: 'salary-history', path: '/payroll/salary-history' },
+    { id: 'kpi-targets', label: 'KPI Targets', myLabel: 'KPI Targets', icon: Target, permission: 'office.payroll.view', view: 'kpi-targets', path: '/payroll/kpi-targets' },
+    { id: 'kpi-reviews', label: 'KPI Reviews', myLabel: 'KPI Reviews', icon: CircleGauge, permission: 'office.payroll.view', view: 'kpi-reviews', path: '/payroll/kpi-reviews' },
+    { id: 'kpi-reports', label: 'KPI Reports', myLabel: 'KPI Reports', icon: Rows3, permission: 'office.payroll.view', view: 'kpi-reports', path: '/payroll/kpi-reports' },
     { id: 'finance-collections', label: 'Payments', myLabel: 'ငွေပေးချေမှုများ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
     { id: 'finance-outdoor-collections', label: 'Outdoor Collections', myLabel: 'ပြင်ပ ငွေကောက်ခံမှုများ', icon: Users, permission: 'office.finance.view', view: 'finance-outdoor-collections', path: '/finance/outdoor-collections' },
     { id: 'finance-receivables', label: 'Customer Credit', myLabel: 'ဖောက်သည် အကြွေးစာရင်း', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
@@ -259,6 +330,7 @@ const officeNavItems = [
     { id: 'vehicle-route-history', label: 'Route History', myLabel: 'လမ်းကြောင်းမှတ်တမ်း', icon: MapPinned, permission: 'office.vehicle-costs.view', view: 'vehicle-route-history', path: '/vehicle-reports/route-history' },
     { id: 'vehicle-cost-per-km', label: 'Cost / KM', myLabel: 'တစ်ကီလိုမီတာကုန်ကျစရိတ်', icon: WalletCards, permission: 'office.vehicle-costs.view', view: 'vehicle-cost-per-km', path: '/vehicle-reports/cost-per-km' },
     { id: 'vehicle-performance', label: 'Performance', myLabel: 'ယာဉ်စွမ်းဆောင်ရည်', icon: Rows3, permission: 'office.vehicle-costs.view', view: 'vehicle-performance', path: '/vehicle-reports/performance' },
+    { id: 'operations-report', label: 'Operations Report', myLabel: 'လုပ်ငန်းအစီရင်ခံစာ', icon: Rows3, permission: 'office.dashboard.view', view: 'operations-report', path: '/reports/operations' },
 ];
 
 const officeNavGroups = [
@@ -314,7 +386,7 @@ const officeNavGroups = [
         id: 'payroll',
         label: 'Payroll',
         myLabel: 'Payroll',
-        items: ['payroll-drafts', 'payroll-adjustments', 'salary-history'],
+        items: ['kpi-targets', 'kpi-reviews', 'kpi-reports', 'payroll-drafts', 'payroll-adjustments', 'salary-history'],
     },
     {
         id: 'finance',
@@ -327,6 +399,12 @@ const officeNavGroups = [
         label: 'Vehicle Operations',
         myLabel: 'ယာဉ်လုပ်ငန်း',
         items: ['vehicle-fuel', 'vehicle-maintenance', 'vehicle-insurance', 'vehicle-license', 'vehicle-engine-oil', 'vehicle-tyre', 'vehicle-monthly-cost', 'vehicle-route-history', 'vehicle-cost-per-km', 'vehicle-performance'],
+    },
+    {
+        id: 'reports',
+        label: 'Reports',
+        myLabel: 'အစီရင်ခံစာများ',
+        items: ['operations-report'],
     },
     {
         id: 'access-control',
@@ -358,19 +436,23 @@ const mobileNav = {
     ],
     sales: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'sales.home.view' },
-        { labelKey: 'visits', view: 'route', icon: MapPinned, permission: 'sales.route.view' },
         { labelKey: 'orders', view: 'orders', icon: ReceiptText, permission: 'sales.orders.view' },
+        { labelKey: 'newOrder', view: 'new-order', icon: ClipboardList, permission: 'sales.orders.create' },
         { labelKey: 'customers', view: 'customers', icon: Users, permission: 'sales.customers.view' },
+        { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'sales.attendance.view' },
+        { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'sales.payroll.view' },
+        { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'sales.payroll.view' },
     ],
     driver: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'driver.home.view' },
         { labelKey: 'profile', view: 'profile', icon: User, permission: 'driver.profile.view' },
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'driver.attendance.view' },
+        { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'driver.payroll.view' },
         { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'driver.payroll.view' },
         { labelKey: 'vehicle', view: 'vehicle', icon: Truck, permission: 'driver.vehicle-costs.view' },
-        { labelKey: 'load', view: 'load', icon: PackageCheck, permission: 'driver.load.view' },
-        { labelKey: 'route', view: 'route', icon: MapPinned, permission: 'driver.route.view' },
-        { labelKey: 'confirm', view: 'confirm', icon: CheckCircle2, permission: 'driver.confirm.view' },
+        { labelKey: 'tasks', view: 'tasks', icon: ClipboardList, permission: 'driver.load.view' },
+        { labelKey: 'gps', view: 'gps', icon: MapPinned, permission: 'driver.route.update' },
+        { labelKey: 'history', view: 'history', icon: CheckCircle2, permission: 'driver.confirm.view' },
         { labelKey: 'collections', view: 'collections', icon: WalletCards, permission: 'driver.collections.view' },
         { labelKey: 'expenses', view: 'expenses', icon: CreditCard, permission: 'driver.expenses.view' },
     ],
@@ -386,7 +468,7 @@ const metrics = [
 const rows = [
     ['Office Staff', 'Office dashboard', 'Ready', 'Dashboard shell'],
     ['Customer', 'Client home', 'Ready', 'Mobile client shell'],
-    ['Sales Representative', 'Sales route', 'Ready', 'Route placeholder'],
+    ['Sales Representative', 'Sales KPI report', 'Ready', 'Performance dashboard'],
     ['Driver', 'Driver delivery', 'Ready', 'Delivery placeholder'],
 ];
 
@@ -404,15 +486,15 @@ const mobileData = {
         ],
     },
     sales: {
-        hero: 'Today’s visits',
-        title: 'Customer visit plan',
-        meta: '12 customers remaining',
+        hero: 'Sales KPI report',
+        title: 'Monthly performance',
+        meta: 'Orders, sales, and customer growth',
         welcomeKey: 'salesWelcome',
-        action: 'Visit customer',
+        action: 'View report',
         items: [
-            ['Next customer', 'Shwe Family Store'],
             ['Orders submitted', '7'],
-            ['Collections target', '420,000 MMK'],
+            ['New customers', '3'],
+            ['Monthly sales', '420,000 MMK'],
         ],
     },
     driver: {
@@ -731,11 +813,13 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
 
             <main className="workspace">
                 <header className="topbar">
+                    <div id="shell-back-slot" className="shell-back-slot" aria-live="polite" />
                     <button className="icon-button mobile-only" type="button" aria-label="Open navigation" title="Open navigation" onClick={() => setDrawerOpen(true)}>
                         <Menu size={18} />
                     </button>
                     <ShellFilterControl pathname={pathname} />
                     <AppearanceControls
+                        appId="office"
                         t={t}
                         user={user}
                         onLogout={onLogout}
@@ -744,6 +828,8 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                         theme={theme}
                         setTheme={setTheme}
                         onProfile={() => navigate(`${appConfig.office.path}/profile`)}
+                        navigate={navigate}
+                        pathname={pathname}
                     />
                 </header>
 
@@ -764,7 +850,14 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'company-settings' ? (
                     <CompanySettingsScreen locale={locale} canManage={canManageMasterData} onBrandingUpdated={onBrandingUpdated} />
                 ) : activeView === 'orders' ? (
-                    <OrdersScreen locale={locale} canManage={canManageOrders} creating={isOfficeRoute(pathname, '/orders/new')} detailId={resolveOfficeDetailId(pathname, '/orders')} onNavigate={navigate} />
+                    <OrdersScreen
+                        locale={locale}
+                        canManage={canManageOrders}
+                        creating={isOfficeRoute(pathname, '/orders/new')}
+                        editId={normalizePath(pathname).endsWith('/edit') ? resolveOfficeDetailId(pathname, '/orders') : null}
+                        detailId={normalizePath(pathname).endsWith('/edit') ? null : resolveOfficeDetailId(pathname, '/orders')}
+                        onNavigate={navigate}
+                    />
                 ) : activeView === 'invoices' ? (
                     <InvoicesScreen locale={locale} canManage={canManageInvoices} detailId={resolveOfficeDetailId(pathname, '/invoices')} onNavigate={navigate} />
                 ) : activeView === 'sales-returns' ? (
@@ -826,6 +919,12 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     <PayrollAdjustmentsScreen locale={locale} canManage={canManagePayroll} />
                 ) : activeView === 'salary-history' ? (
                     <SalaryHistoryScreen locale={locale} detailId={resolveOfficeDetailId(pathname, '/payroll/salary-history')} onNavigate={navigate} />
+                ) : activeView === 'kpi-targets' ? (
+                    <KpiTargetsScreen locale={locale} canManage={canManagePayroll} />
+                ) : activeView === 'kpi-reviews' ? (
+                    <KpiReviewsScreen locale={locale} canManage={canManagePayroll} />
+                ) : activeView === 'kpi-reports' ? (
+                    <KpiReportsScreen locale={locale} />
                 ) : activeView === 'finance-collections' ? (
                     <FinanceCollectionsScreen canManage={canManageFinance} locale={locale} />
                 ) : activeView === 'finance-outdoor-collections' ? (
@@ -864,6 +963,8 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     <VehiclePerformanceScreen locale={locale} costOnly />
                 ) : activeView === 'vehicle-performance' ? (
                     <VehiclePerformanceScreen locale={locale} />
+                ) : activeView === 'operations-report' ? (
+                    <OperationsReportScreen locale={locale} />
                 ) : (
                     <OfficeKpiDashboard kind="owner" locale={locale} />
                 )}
@@ -878,7 +979,6 @@ const shellFilterSelector = [
     '.mobile-order-filters',
     '.mobile-attendance-filters',
     '.mobile-payroll-filters',
-    '.sales-route-tools',
     '.trip-order-toolbar',
     '.phase10-filter',
     '.status-tabs',
@@ -972,8 +1072,8 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const visibleNav = mobileNav[app.id].filter((item) => hasPermission(user, item.permission));
     const activeView = resolveMobileView(app.id, pathname);
     const compactPrimaryViews = {
-        sales: ['home', 'route', 'orders', 'customers'],
-        driver: ['home', 'load', 'route', 'confirm'],
+        sales: ['home', 'orders', 'new-order', 'customers'],
+        driver: ['home', 'tasks', 'gps', 'history'],
     };
     const supportsMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
     const primaryViews = compactPrimaryViews[app.id] || [];
@@ -983,13 +1083,18 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
     const mobileOrderId = ['client', 'sales'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
     const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
+    const orderActionParams = app.id === 'sales' && activeView === 'new-order' ? new URLSearchParams(window.location.search) : null;
 
     return (
         <main className="mobile-app-shell">
             <header className="mobile-app-topbar">
-                <Brand t={t} compact />
+                <div className="mobile-app-leading">
+                    <div id="shell-back-slot" className="shell-back-slot" aria-live="polite" />
+                    <Brand t={t} compact />
+                </div>
                 <div className="mobile-top-actions">
                     <ShellFilterControl pathname={pathname} />
+                    <ActionAlerts appId={app.id} user={user} navigate={navigate} pathname={pathname} />
                     <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
                         {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
                     </button>
@@ -1006,23 +1111,32 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
             </header>
 
             <section className="mobile-page">
-                {['client', 'sales'].includes(app.id) && activeView === 'orders' && (mobileOrderId
-                    ? <MobileOrderDetailPage orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} />
-                    : <MobileOrdersScreen appId={app.id} locale={locale} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />)}
+                {['client', 'sales'].includes(app.id) && ['orders', 'new-order'].includes(activeView) && (mobileOrderId
+                    ? <MobileOrderDetailPage orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} onEdit={(orderId) => navigate(`${app.path}/new-order?edit=${orderId}`)} onRepeat={(orderId) => navigate(`${app.path}/new-order?repeat=${orderId}`)} />
+                    : <MobileOrdersScreen
+                        appId={app.id}
+                        locale={locale}
+                        initialMode={activeView === 'new-order' ? 'form' : 'list'}
+                        editOrderId={orderActionParams?.get('edit')}
+                        repeatOrderId={orderActionParams?.get('repeat')}
+                        onShowForm={app.id === 'sales' ? () => navigate(`${app.path}/new-order`) : undefined}
+                        onShowList={app.id === 'sales' ? () => navigate(`${app.path}/orders`) : undefined}
+                        onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)}
+                    />)}
                 {app.id === 'client' && activeView === 'deliveries' && <MobileDeliveryStatusScreen appId={app.id} locale={locale} />}
                 {app.id === 'client' && activeView === 'profile' && <ClientMasterScreen locale={locale} />}
                 {app.id === 'sales' && activeView === 'customers' && (salesCustomerId
                     ? <SalesCustomerDetailPage customerId={salesCustomerId} locale={locale} onBack={() => navigate(`${app.path}/customers`)} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />
                     : <SalesMasterScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />)}
-                {app.id === 'sales' && activeView === 'route' && <SalesRouteScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} onOrders={() => navigate(`${app.path}/orders`)} />}
-                {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} />}
+                {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} user={user} onLogout={onLogout} locale={locale} setLocale={setLocale} theme={theme} setTheme={setTheme} />}
                 {activeView === 'account' && <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
+                {['sales', 'driver'].includes(app.id) && activeView === 'kpi' && <MobileKpiScreen locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'salary' && <MobilePayrollHistoryScreen locale={locale} />}
                 {app.id === 'driver' && activeView === 'profile' && <DriverMasterScreen locale={locale} />}
-                {app.id === 'driver' && activeView === 'load' && <MobileDriverDeliveriesScreen locale={locale} />}
-                {app.id === 'driver' && activeView === 'route' && <MobileDriverExecutionScreen mode="route" locale={locale} />}
-                {app.id === 'driver' && activeView === 'confirm' && <MobileDriverExecutionScreen mode="confirm" locale={locale} />}
+                {app.id === 'driver' && activeView === 'tasks' && <MobileDriverExecutionScreen mode="tasks" locale={locale} />}
+                {app.id === 'driver' && activeView === 'gps' && <MobileDriverGpsScreen locale={locale} />}
+                {app.id === 'driver' && activeView === 'history' && <MobileDriverExecutionScreen mode="history" locale={locale} />}
                 {app.id === 'client' && activeView === 'ledger' && <MobileFinanceScreen appId={app.id} mode="ledger" locale={locale} />}
                 {app.id === 'driver' && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
@@ -1032,8 +1146,13 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     locale={locale}
                     quickLinks={[]}
                     onNavigate={(event, href) => navigateAppPage(event, href, navigate)}
+                    onViewOrders={() => navigate(`${app.path}/orders`)}
+                    onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)}
+                    onViewTasks={() => navigate(`${app.path}/tasks`)}
+                    onViewGps={() => navigate(`${app.path}/gps`)}
+                    onViewAttendance={() => navigate(`${app.path}/attendance`)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'deliveries', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'route', 'customers'].includes(activeView)) || (app.id === 'driver' && ['profile', 'load', 'route', 'confirm', 'attendance', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'deliveries', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'attendance', 'kpi', 'salary'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
@@ -1056,18 +1175,34 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     );
 }
 
-function MobileMenuScreen({ app, items, t, navigate }) {
+function MobileMenuScreen({ app, items, t, navigate, user, onLogout, locale, setLocale, theme, setTheme }) {
     return (
         <div className="mobile-master-stack mobile-menu-page">
             <div className="mobile-master-heading">
-                <div><p className="eyebrow">{t[app.id]}</p><h1>{t.menu}</h1><span className="muted">{t.moreOperations}</span></div>
+                <div><p className="eyebrow">{t[app.id]}</p><h1>{t.menu}</h1><span className="muted">{user?.name || t.moreOperations}</span></div>
             </div>
+            <p className="mobile-menu-section-label">Operations</p>
             <nav className="mobile-master-section mobile-menu-list" aria-label={t.moreOperations}>
                 {items.map(({ labelKey, view, icon: Icon }) => (
                     <a href={`${app.path}/${view}`} onClick={(event) => navigateAppPage(event, `${app.path}/${view}`, navigate)} key={labelKey}>
                         <span><Icon size={18} /></span><strong>{t[labelKey]}</strong><ChevronRight size={17} />
                     </a>
                 ))}
+            </nav>
+            <p className="mobile-menu-section-label">Account & settings</p>
+            <nav className="mobile-master-section mobile-menu-list mobile-settings-list" aria-label="Account and settings">
+                <a href={`${app.path}/account`} onClick={(event) => navigateAppPage(event, `${app.path}/account`, navigate)}>
+                    <span><Settings size={18} /></span><strong>Profile & settings<small>Edit profile, photo and password</small></strong><ChevronRight size={17} />
+                </a>
+                <button type="button" onClick={() => setLocale(locale === 'en' ? 'my' : 'en')}>
+                    <span><Languages size={18} /></span><strong>Language<small>{locale === 'en' ? 'English' : 'မြန်မာ'}</small></strong><span className="mobile-menu-value">{locale === 'en' ? 'EN' : 'MY'}</span>
+                </button>
+                <button type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+                    <span>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</span><strong>Appearance<small>{theme === 'light' ? 'Light theme' : 'Dark theme'}</small></strong><span className="mobile-menu-value">{theme === 'light' ? 'Light' : 'Dark'}</span>
+                </button>
+                <button className="mobile-menu-signout" type="button" onClick={onLogout}>
+                    <span><LogOut size={18} /></span><strong>{t.signOut}<small>Sign out of this device</small></strong><ChevronRight size={17} />
+                </button>
             </nav>
         </div>
     );
@@ -1096,8 +1231,12 @@ function resolveSalesCustomerId(appPath, pathname) {
 function resolveMobileView(appId, pathname = window.location.pathname) {
     const currentPath = normalizePath(pathname);
     const appPath = normalizePath(new URL(appConfig[appId].path, window.location.origin).pathname);
-    const requestedView = currentPath.slice(appPath.length).split('/').filter(Boolean)[0];
+    let requestedView = currentPath.slice(appPath.length).split('/').filter(Boolean)[0];
     const defaultViews = { client: 'home', sales: 'home', driver: 'home' };
+
+    if (appId === 'driver') {
+        requestedView = { load: 'tasks', route: 'tasks', confirm: 'history' }[requestedView] || requestedView;
+    }
 
     if (requestedView === 'account' || (['sales', 'driver'].includes(appId) && requestedView === 'menu')) return requestedView;
     return mobileNav[appId].some((item) => item.view === requestedView) ? requestedView : defaultViews[appId];
@@ -1202,9 +1341,10 @@ function Brand({ t, compact = false, branding }) {
     );
 }
 
-function AppearanceControls({ t, user, onLogout, locale, setLocale, theme, setTheme, onProfile }) {
+function AppearanceControls({ appId, t, user, onLogout, locale, setLocale, theme, setTheme, onProfile, navigate, pathname }) {
     return (
         <div className="topbar-actions">
+            <ActionAlerts appId={appId} user={user} navigate={navigate} pathname={pathname} />
             <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
                 {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
@@ -1216,6 +1356,79 @@ function AppearanceControls({ t, user, onLogout, locale, setLocale, theme, setTh
                 onLogout={onLogout}
                 onProfile={onProfile}
             />
+        </div>
+    );
+}
+
+function ActionAlerts({ appId, user, navigate, pathname }) {
+    const [state, setState] = useState({ loading: true, total: 0, items: [] });
+    const [open, setOpen] = useState(false);
+    const rootRef = useRef(null);
+
+    useEffect(() => {
+        let mounted = true;
+        let timer;
+
+        const load = () => window.axios.get(window.ValleyRuntime?.api?.actionAlerts || '/api/action-alerts', { params: { app: appId } })
+            .then(({ data }) => {
+                if (mounted) setState({ loading: false, total: Number(data.data.total || 0), items: data.data.items || [] });
+            })
+            .catch(() => {
+                if (mounted) setState((current) => ({ ...current, loading: false }));
+            });
+        const refresh = () => load();
+
+        load();
+        timer = window.setInterval(load, 60000);
+        window.addEventListener('focus', refresh);
+
+        return () => {
+            mounted = false;
+            window.clearInterval(timer);
+            window.removeEventListener('focus', refresh);
+        };
+    }, [appId, user.id, pathname]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const close = (event) => {
+            if (!rootRef.current?.contains(event.target)) setOpen(false);
+        };
+        const closeOnEscape = (event) => event.key === 'Escape' && setOpen(false);
+        document.addEventListener('pointerdown', close);
+        window.addEventListener('keydown', closeOnEscape);
+        return () => {
+            document.removeEventListener('pointerdown', close);
+            window.removeEventListener('keydown', closeOnEscape);
+        };
+    }, [open]);
+
+    const openItem = (path) => {
+        setOpen(false);
+        navigate(`${appConfig[appId].path}${path}`);
+    };
+
+    return (
+        <div className="action-alerts" ref={rootRef}>
+            <button className={`icon-button action-alert-trigger ${open ? 'is-active' : ''}`} type="button" aria-label={`${state.total} action notifications`} title="Action notifications" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+                <Bell size={17} />
+                {state.total > 0 && <span className="action-alert-badge">{state.total > 99 ? '99+' : state.total}</span>}
+            </button>
+            {open && (
+                <section className="action-alert-popover" aria-label="Action notifications">
+                    <header><div><span>Notifications</span><strong>Action required</strong></div>{state.total > 0 && <b>{state.total}</b>}</header>
+                    {state.loading ? <p className="action-alert-empty">Loading notifications…</p> : state.items.length === 0 ? <p className="action-alert-empty">You’re all caught up.</p> : (
+                        <div className="action-alert-list">
+                            {state.items.map((item) => (
+                                <button type="button" key={item.id} onClick={() => openItem(item.path)}>
+                                    <span><strong>{item.label}</strong><small>{item.detail}</small></span>
+                                    <b>{item.count}</b>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </section>
+            )}
         </div>
     );
 }
@@ -1514,4 +1727,8 @@ function LoginPanel({ app, t, auth, onLogin }) {
     );
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(
+    <Suspense fallback={<div className="app-loading"><span className="spinner" />Loading workspace…</div>}>
+        <App />
+    </Suspense>,
+);

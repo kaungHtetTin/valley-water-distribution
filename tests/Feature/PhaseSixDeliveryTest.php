@@ -86,7 +86,10 @@ class PhaseSixDeliveryTest extends TestCase
 
         $this->getJson('/api/deliveries?status=assigned&search=INV-202608-0001')
             ->assertOk()
-            ->assertJsonPath('data.meta.total', 1);
+            ->assertJsonPath('data.meta.total', 1)
+            ->assertJsonPath('data.items.0.code', $created->json('data.trip.code'))
+            ->assertJsonPath('data.items.0.orders_count', 2)
+            ->assertJsonPath('data.items.0.stops_count', 2);
 
         $this->postJson('/api/deliveries', [
             'invoice_ids' => [$invoiceId, $secondInvoiceId],
@@ -98,16 +101,46 @@ class PhaseSixDeliveryTest extends TestCase
         ])->assertUnprocessable();
 
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
-        $deliveryItemId = DB::table('delivery_items')->where('delivery_id', $deliveryId)->value('id');
+        $tripItems = DB::table('delivery_items')
+            ->join('deliveries', 'delivery_items.delivery_id', '=', 'deliveries.id')
+            ->where('deliveries.trip_id', $tripId)
+            ->get(['delivery_items.id', 'delivery_items.planned_quantity', 'deliveries.id as delivery_id']);
         $this->postJson("/api/mobile/deliveries/{$deliveryId}/confirm-loading", [
-            'items' => [['id' => $deliveryItemId, 'loaded_quantity' => 12]],
+            'items' => $tripItems->map(fn ($item) => ['id' => $item->id, 'loaded_quantity' => (float) $item->planned_quantity])->all(),
         ])->assertOk();
+        $this->assertEquals([1, 2], DB::table('deliveries')->where('trip_id', $tripId)->orderBy('stop_sequence')->pluck('stop_sequence')->all());
+        $this->getJson('/api/mobile/deliveries')
+            ->assertOk()
+            ->assertJsonFragment(['code' => $created->json('data.trip.code'), 'stops_count' => 2, 'orders_count' => 2]);
         $this->assertDatabaseHas('stock_movements', [
             'movement_type' => 'delivery_issue',
             'reference_id' => $deliveryId,
             'reference_code' => $created->json('data.trip.code'),
             'signed_quantity' => -12,
         ]);
+
+        $this->postJson("/api/mobile/deliveries/{$deliveryId}/start-route")->assertOk();
+        $this->postJson("/api/mobile/deliveries/{$deliveryId}/location", [
+            'latitude' => 20.7892,
+            'longitude' => 97.0378,
+        ])->assertCreated();
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->getJson('/api/deliveries/live-map')
+            ->assertOk()
+            ->assertJsonPath('data.summary.active_count', 2)
+            ->assertJsonFragment(['code' => $created->json('data.trip.code'), 'stops_count' => 2]);
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
+        foreach (DB::table('deliveries')->where('trip_id', $tripId)->orderBy('stop_sequence')->get() as $stop) {
+            $items = DB::table('delivery_items')->where('delivery_id', $stop->id)->get();
+            $this->postJson("/api/mobile/deliveries/{$stop->id}/complete", [
+                'status' => 'delivered',
+                'items' => $items->map(fn ($item) => ['id' => $item->id, 'delivered_quantity' => (float) $item->loaded_quantity, 'returned_quantity' => 0, 'damaged_quantity' => 0])->all(),
+            ])->assertOk();
+        }
+        $this->assertDatabaseHas('delivery_trips', ['id' => $tripId, 'status' => 'on_route']);
+        $this->postJson("/api/mobile/deliveries/{$deliveryId}/complete-trip")
+            ->assertOk()
+            ->assertJsonPath('data.trip.status', 'delivered');
     }
 
     public function test_delivery_api_requires_delivery_permission()
@@ -158,18 +191,24 @@ class PhaseSixDeliveryTest extends TestCase
             ->assertJsonFragment(['id' => $delivery->invoice_id]);
     }
 
-    public function test_driver_can_view_assignment_and_confirm_loading_quantities()
+    public function test_driver_can_view_tasks_and_confirm_the_fixed_approved_load()
     {
         $this->seed();
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
 
         $list = $this->getJson('/api/mobile/deliveries')
             ->assertOk()
-            ->assertJsonPath('data.summary.deliveries_count', 3)
-            ->assertJsonPath('data.items.0.code', 'DEL-202608-0001')
-            ->assertJsonPath('data.items.0.status', 'assigned');
+            ->assertJsonPath('data.summary.deliveries_count', 2)
+            ->assertJsonPath('data.items.0.status', 'on_route');
 
-        $deliveryId = $list->json('data.items.0.id');
+        $this->getJson('/api/mobile/deliveries?scope=history')
+            ->assertOk()
+            ->assertJsonPath('data.summary.deliveries_count', 1)
+            ->assertJsonPath('data.items.0.status', 'delivered');
+
+        $assignedTask = collect($list->json('data.items'))->firstWhere('status', 'assigned');
+        $this->assertSame('DEL-202608-0001', $assignedTask['code']);
+        $deliveryId = $assignedTask['id'];
         $detail = $this->getJson("/api/mobile/deliveries/{$deliveryId}")
             ->assertOk()
             ->assertJsonPath('data.items.0.planned_quantity', 18);
@@ -182,7 +221,7 @@ class PhaseSixDeliveryTest extends TestCase
             ->where('product_id', $productId)
             ->value('quantity');
         $this->postJson("/api/mobile/deliveries/{$deliveryId}/confirm-loading", [
-            'items' => [['id' => $itemId, 'loaded_quantity' => 18]],
+            'items' => [['id' => $itemId, 'loaded_quantity' => 1]],
             'notes' => 'Truck load checked by driver',
         ])->assertOk()
             ->assertJsonPath('data.delivery.status', 'loading')
@@ -212,8 +251,9 @@ class PhaseSixDeliveryTest extends TestCase
         $this->assertDatabaseHas('orders', ['code' => 'ORD-202608-0003', 'status' => 'loading']);
 
         $this->postJson("/api/mobile/deliveries/{$deliveryId}/confirm-loading", [
-            'items' => [['id' => $itemId, 'loaded_quantity' => 19]],
-        ])->assertUnprocessable();
+            'items' => [['id' => $itemId, 'loaded_quantity' => 999]],
+        ])->assertOk()
+            ->assertJsonPath('data.items.0.loaded_quantity', 18);
 
         $this->postJson("/api/mobile/deliveries/{$deliveryId}/start-route")
             ->assertOk()
@@ -260,7 +300,7 @@ class PhaseSixDeliveryTest extends TestCase
             ->assertJsonPath('data.items.0.reference_code', 'DEL-202608-0001');
     }
 
-    public function test_loading_changes_reconcile_stock_and_insufficient_stock_rolls_back()
+    public function test_fixed_loading_is_idempotent_and_insufficient_stock_rolls_back()
     {
         $this->seed();
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
@@ -279,13 +319,9 @@ class PhaseSixDeliveryTest extends TestCase
             'items' => [['id' => $itemId, 'loaded_quantity' => 15]],
         ])->assertOk();
 
-        $this->assertSame($startingBalance - 15, (float) DB::table('stock_balances')
+        $this->assertSame($startingBalance - 18, (float) DB::table('stock_balances')
             ->where('warehouse_id', $warehouseId)->where('product_id', $productId)->value('quantity'));
-        $this->assertDatabaseHas('stock_movements', [
-            'movement_type' => 'delivery_issue_reversal',
-            'reference_id' => $deliveryId,
-            'signed_quantity' => 3,
-        ]);
+        $this->assertDatabaseMissing('stock_movements', ['movement_type' => 'delivery_issue_reversal', 'reference_id' => $deliveryId]);
 
         DB::table('stock_balances')->where('warehouse_id', $warehouseId)->where('product_id', $productId)->update(['quantity' => 1]);
         $secondDeliveryId = DB::table('deliveries')->where('code', 'DEL-202608-0002')->value('id');
@@ -303,6 +339,58 @@ class PhaseSixDeliveryTest extends TestCase
             'movement_type' => 'delivery_issue',
             'reference_id' => $secondDeliveryId,
         ]);
+    }
+
+    public function test_driver_can_hold_several_loaded_trips_but_start_only_one_route()
+    {
+        $this->seed();
+        $driver = User::where('email', 'driver@valley.test')->firstOrFail();
+        $deliveries = DB::table('deliveries')
+            ->whereIn('code', ['DEL-202608-0001', 'DEL-202608-0002'])
+            ->orderBy('code')
+            ->get();
+
+        foreach ($deliveries as $index => $delivery) {
+            $tripId = DB::table('delivery_trips')->insertGetId([
+                'code' => 'TRIP-MULTI-'.($index + 1),
+                'warehouse_id' => $delivery->warehouse_id,
+                'route_id' => $delivery->route_id,
+                'driver_id' => $delivery->driver_id,
+                'vehicle_id' => $delivery->vehicle_id,
+                'planned_date' => $delivery->planned_date,
+                'status' => 'loading',
+                'orders_count' => 1,
+                'total_quantity' => $delivery->total_quantity,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            DB::table('deliveries')->where('id', $delivery->id)->update([
+                'trip_id' => $tripId,
+                'status' => 'loading',
+                'loaded_quantity' => $delivery->total_quantity,
+                'loaded_at' => now(),
+            ]);
+            DB::table('delivery_items')->where('delivery_id', $delivery->id)
+                ->update(['loaded_quantity' => DB::raw('planned_quantity')]);
+        }
+
+        $this->actingAs($driver);
+        $this->getJson('/api/mobile/deliveries')
+            ->assertOk()
+            ->assertJsonFragment(['code' => 'TRIP-MULTI-1'])
+            ->assertJsonFragment(['code' => 'TRIP-MULTI-2']);
+
+        $firstDeliveryId = $deliveries[0]->id;
+        $secondDeliveryId = $deliveries[1]->id;
+        $this->postJson("/api/mobile/deliveries/{$firstDeliveryId}/start-route")
+            ->assertOk()
+            ->assertJsonPath('data.trip.status', 'on_route');
+        $this->postJson("/api/mobile/deliveries/{$secondDeliveryId}/start-route")
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Complete the active trip before starting another trip.');
+
+        $this->assertDatabaseHas('delivery_trips', ['code' => 'TRIP-MULTI-1', 'status' => 'on_route']);
+        $this->assertDatabaseHas('delivery_trips', ['code' => 'TRIP-MULTI-2', 'status' => 'loading']);
     }
 
     public function test_non_driver_cannot_access_driver_delivery_api()
@@ -475,5 +563,270 @@ class PhaseSixDeliveryTest extends TestCase
 
         $this->assertDatabaseHas('orders', ['code' => 'ORD-202608-0004', 'status' => 'delivered']);
         $this->assertDatabaseHas('invoices', ['code' => 'INV-202608-0004', 'status' => 'failed']);
+    }
+
+    public function test_delivery_cash_handed_to_driver_creates_customer_and_driver_holding()
+    {
+        $this->seed();
+        DB::table('companies')->update(['default_customer_credit_limit' => 650000]);
+        $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
+        $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
+        DB::table('orders')->where('id', $delivery->order_id)->update(['customer_id' => null, 'payment_type' => 'unsettled', 'credit_due_date' => null]);
+        DB::table('invoices')->where('id', $delivery->invoice_id)->update(['customer_id' => null, 'due_date' => null]);
+        DB::table('deliveries')->where('id', $delivery->id)->update([
+            'customer_id' => null,
+            'status' => 'on_route',
+            'loaded_quantity' => 18,
+            'loaded_at' => '2026-09-01 08:00:00',
+            'departed_at' => '2026-09-01 09:00:00',
+        ]);
+        DB::table('delivery_items')->where('id', $item->id)->update(['loaded_quantity' => 18]);
+
+        $driver = User::where('email', 'driver@valley.test')->firstOrFail();
+        $this->actingAs($driver)->postJson("/api/mobile/deliveries/{$delivery->id}/complete", [
+            'final_sale' => true,
+            'status' => 'partially_delivered',
+            'settlement_method' => 'cash_driver',
+            'items' => [[
+                'id' => $item->id,
+                'delivered_quantity' => 15,
+                'returned_quantity' => 3,
+                'damaged_quantity' => 0,
+            ]],
+        ])->assertOk()
+            ->assertJsonPath('data.delivery.settlement_method', 'cash_driver')
+            ->assertJsonPath('data.delivery.settlement_amount', 45000);
+
+        $customerId = DB::table('deliveries')->where('id', $delivery->id)->value('customer_id');
+        $this->assertNotNull($customerId);
+        $this->assertDatabaseHas('customers', ['id' => $customerId, 'credit_limit' => 650000]);
+        $this->assertDatabaseHas('orders', ['id' => $delivery->order_id, 'customer_id' => $customerId, 'payment_type' => 'cash', 'total' => 45000]);
+        $this->assertDatabaseHas('invoice_items', ['id' => $item->invoice_item_id, 'quantity' => 15, 'line_total' => 45000]);
+        $collection = DB::table('collections')->where('delivery_id', $delivery->id)->latest('id')->first();
+        $this->assertSame('submitted', $collection->status);
+        $this->assertSame($driver->employee_id, $collection->employee_id);
+        $this->assertSame(45000.0, (float) $collection->amount);
+        $this->assertDatabaseMissing('financial_transactions', ['reference_type' => 'collection', 'reference_id' => $collection->id]);
+
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail())
+            ->postJson("/api/finance/cash-handovers/{$driver->employee_id}/receive", [
+                'collection_ids' => [$collection->id],
+                'received_amount' => 45000,
+                'notes' => 'Cash counted and received by office.',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.handover.collections_count', 1)
+            ->assertJsonPath('data.handover.received_amount', 45000);
+        $this->assertDatabaseHas('collections', ['id' => $collection->id, 'status' => 'approved']);
+        $this->assertDatabaseHas('financial_transactions', ['reference_type' => 'collection', 'reference_id' => $collection->id, 'book_type' => 'cash', 'amount' => 45000]);
+
+        $this->postJson("/api/finance/cash-handovers/{$driver->employee_id}/receive", [
+            'collection_ids' => [$collection->id],
+            'received_amount' => 45000,
+        ])->assertConflict();
+    }
+
+    public function test_driver_credit_is_automatic_within_limit_and_due_from_stock_issue()
+    {
+        $this->seed();
+        DB::table('companies')->update(['delivery_credit_due_days' => 14]);
+        $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
+        $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
+        DB::table('orders')->where('id', $delivery->order_id)->update(['payment_type' => 'unsettled', 'credit_due_date' => null]);
+        DB::table('deliveries')->where('id', $delivery->id)->update(['status' => 'on_route', 'loaded_quantity' => 18, 'loaded_at' => '2026-09-01 08:00:00']);
+        DB::table('delivery_items')->where('id', $item->id)->update(['loaded_quantity' => 18]);
+        DB::table('customers')->where('id', $delivery->customer_id)->update(['credit_limit' => 1000]);
+        $collectionCount = DB::table('collections')->where('delivery_id', $delivery->id)->count();
+
+        $payload = [
+            'final_sale' => true,
+            'status' => 'delivered',
+            'settlement_method' => 'credit',
+            'items' => [['id' => $item->id, 'delivered_quantity' => 18, 'returned_quantity' => 0, 'damaged_quantity' => 0]],
+        ];
+        $driver = User::where('email', 'driver@valley.test')->firstOrFail();
+        $this->actingAs($driver)->postJson("/api/mobile/deliveries/{$delivery->id}/complete", $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Credit sale exceeds the customer credit limit.');
+        $this->assertDatabaseHas('deliveries', ['id' => $delivery->id, 'status' => 'on_route']);
+
+        DB::table('customers')->where('id', $delivery->customer_id)->update(['credit_limit' => 500000]);
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", $payload)
+            ->assertOk()
+            ->assertJsonPath('data.delivery.credit_due_date', '2026-09-15 00:00:00');
+        $this->assertDatabaseHas('orders', ['id' => $delivery->order_id, 'payment_type' => 'credit', 'credit_due_date' => '2026-09-15 00:00:00']);
+        $this->assertDatabaseHas('invoices', ['id' => $delivery->invoice_id, 'due_date' => '2026-09-15 00:00:00']);
+        $this->assertSame($collectionCount, DB::table('collections')->where('delivery_id', $delivery->id)->count());
+    }
+
+    public function test_direct_bank_payment_posts_to_office_without_driver_holding()
+    {
+        $this->seed();
+        $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
+        $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
+        DB::table('orders')->where('id', $delivery->order_id)->update(['payment_type' => 'unsettled']);
+        DB::table('deliveries')->where('id', $delivery->id)->update(['status' => 'on_route', 'loaded_quantity' => 18, 'loaded_at' => now()]);
+        DB::table('delivery_items')->where('id', $item->id)->update(['loaded_quantity' => 18]);
+
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail())
+            ->postJson("/api/mobile/deliveries/{$delivery->id}/complete", [
+                'final_sale' => true,
+                'status' => 'delivered',
+                'settlement_method' => 'bank_office',
+                'payment_reference' => 'KBZ-TRANSFER-1001',
+                'items' => [['id' => $item->id, 'delivered_quantity' => 18, 'returned_quantity' => 0, 'damaged_quantity' => 0]],
+            ])->assertOk();
+
+        $collection = DB::table('collections')->where('delivery_id', $delivery->id)->latest('id')->first();
+        $this->assertSame('approved', $collection->status);
+        $this->assertSame('bank', $collection->payment_method);
+        $this->assertNull($collection->employee_id);
+        $this->assertDatabaseHas('financial_transactions', [
+            'reference_type' => 'collection',
+            'reference_id' => $collection->id,
+            'book_type' => 'bank',
+            'direction' => 'in',
+            'amount' => 54000,
+        ]);
+    }
+
+    public function test_driver_can_make_the_final_sale_with_sale_and_foc_lines_without_approval()
+    {
+        $this->seed();
+        $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
+        $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
+        DB::table('deliveries')->where('id', $delivery->id)->update([
+            'status' => 'on_route',
+            'loaded_quantity' => 18,
+            'loaded_at' => '2026-09-01 08:00:00',
+        ]);
+        DB::table('delivery_items')->where('id', $item->id)->update(['loaded_quantity' => 18]);
+
+        $driver = User::where('email', 'driver@valley.test')->firstOrFail();
+        $response = $this->actingAs($driver)->postJson("/api/mobile/deliveries/{$delivery->id}/complete", [
+            'final_sale' => true,
+            'status' => 'delivered',
+            'settlement_method' => 'cash_office',
+            'modification_note' => 'Customer bought fewer bottles; two bottles were promotional FOC.',
+            'items' => [
+                [
+                    'id' => $item->id,
+                    'product_id' => $item->product_id,
+                    'item_type' => 'sale',
+                    'unit_price' => 3200,
+                    'discount_amount' => 2000,
+                    'delivered_quantity' => 10,
+                    'damaged_quantity' => 0,
+                ],
+                [
+                    'product_id' => $item->product_id,
+                    'item_type' => 'foc',
+                    'delivered_quantity' => 2,
+                    'damaged_quantity' => 0,
+                ],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.delivery.settlement_amount', 30000)
+            ->assertJsonPath('data.stops.0.order_modified', true)
+            ->assertJsonPath('data.stops.0.order_modification_note', 'Customer bought fewer bottles; two bottles were promotional FOC.');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $delivery->order_id,
+            'payment_type' => 'cash',
+            'total' => 30000,
+            'driver_modified' => true,
+            'driver_modified_by' => $driver->id,
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $delivery->order_id,
+            'product_id' => $item->product_id,
+            'item_type' => 'sale',
+            'quantity' => 10,
+            'unit_price' => 3200,
+            'discount_amount' => 2000,
+            'line_total' => 30000,
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $delivery->order_id,
+            'product_id' => $item->product_id,
+            'item_type' => 'foc',
+            'quantity' => 2,
+            'unit_price' => 0,
+            'line_total' => 0,
+        ]);
+        $this->assertDatabaseHas('invoices', ['id' => $delivery->invoice_id, 'total' => 30000]);
+        $this->assertDatabaseMissing('financial_transactions', ['reference_type' => 'invoice', 'reference_id' => $delivery->invoice_id, 'category' => 'cash_sale']);
+        $this->assertSame(2, DB::table('invoice_items')->where('invoice_id', $delivery->invoice_id)->count());
+        $this->assertDatabaseHas('deliveries', [
+            'id' => $delivery->id,
+            'delivered_quantity' => 12,
+            'returned_quantity' => 6,
+            'order_modified' => true,
+        ]);
+
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail())
+            ->getJson("/api/orders/{$delivery->order_id}")
+            ->assertOk()
+            ->assertJsonPath('data.order.driver_modified', true)
+            ->assertJsonPath('data.order.driver_modification_note', 'Customer bought fewer bottles; two bottles were promotional FOC.');
+    }
+
+    public function test_final_sale_can_use_remaining_product_stock_from_the_same_loaded_trip()
+    {
+        $this->seed();
+        $first = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
+        $second = DB::table('deliveries')->where('code', 'DEL-202608-0002')->first();
+        $firstItem = DB::table('delivery_items')->where('delivery_id', $first->id)->first();
+        $secondItem = DB::table('delivery_items')->where('delivery_id', $second->id)->first();
+        $tripId = DB::table('delivery_trips')->insertGetId([
+            'code' => 'TRIP-FINAL-SALE-TEST',
+            'warehouse_id' => $first->warehouse_id,
+            'route_id' => $first->route_id,
+            'driver_id' => $first->driver_id,
+            'vehicle_id' => $first->vehicle_id,
+            'planned_date' => '2026-09-01',
+            'status' => 'on_route',
+            'orders_count' => 2,
+            'total_quantity' => 24,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('orders')->where('id', $first->order_id)->update(['payment_type' => 'unsettled']);
+        DB::table('deliveries')->where('id', $first->id)->update([
+            'trip_id' => $tripId,
+            'stop_sequence' => 1,
+            'status' => 'on_route',
+            'loaded_quantity' => 18,
+            'loaded_at' => '2026-09-01 08:00:00',
+        ]);
+        DB::table('delivery_items')->where('id', $firstItem->id)->update(['loaded_quantity' => 18]);
+        DB::table('deliveries')->where('id', $second->id)->update([
+            'trip_id' => $tripId,
+            'stop_sequence' => 2,
+            'status' => 'on_route',
+            'loaded_quantity' => 6,
+            'loaded_at' => '2026-09-01 08:00:00',
+        ]);
+        DB::table('delivery_items')->where('id', $secondItem->id)->update(['loaded_quantity' => 6]);
+
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail())
+            ->postJson("/api/mobile/deliveries/{$first->id}/complete", [
+                'final_sale' => true,
+                'status' => 'delivered',
+                'settlement_method' => 'cash_office',
+                'items' => [[
+                    'id' => $firstItem->id,
+                    'product_id' => $firstItem->product_id,
+                    'item_type' => 'sale',
+                    'delivered_quantity' => 20,
+                    'damaged_quantity' => 0,
+                ]],
+            ])->assertOk()
+            ->assertJsonPath('data.delivery.delivered_quantity', 20)
+            ->assertJsonPath('data.available_products.0.loaded_quantity', 4);
+
+        $this->assertDatabaseHas('delivery_items', ['id' => $secondItem->id, 'loaded_quantity' => 4]);
+        $this->assertDatabaseHas('deliveries', ['id' => $second->id, 'loaded_quantity' => 4, 'status' => 'on_route']);
+        $this->assertDatabaseHas('orders', ['id' => $first->order_id, 'total' => 60000, 'driver_modified' => true]);
     }
 }

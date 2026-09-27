@@ -244,6 +244,17 @@ class PayrollController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, Payroll $payroll)
+    {
+        $this->authorizePermission($request, 'office.payroll.manage');
+
+        abort_unless($payroll->status === 'draft', 409, 'Only draft payrolls can be deleted.');
+
+        $payroll->delete();
+
+        return ApiResponse::success('Payroll draft deleted.');
+    }
+
     private function draftItems(Payroll $payroll, Carbon $start, Carbon $end, ?string $employeeType): array
     {
         $query = DB::table('employees')

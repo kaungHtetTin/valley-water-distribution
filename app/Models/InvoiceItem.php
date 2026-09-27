@@ -12,6 +12,7 @@ class InvoiceItem extends Model
         'product_sku',
         'product_name',
         'unit',
+        'item_type',
         'quantity',
         'unit_price',
         'discount_amount',

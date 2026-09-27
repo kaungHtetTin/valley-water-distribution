@@ -202,4 +202,42 @@ class PhaseFourMobileOrderTest extends TestCase
             ->getJson('/api/mobile/orders')
             ->assertForbidden();
     }
+
+    public function test_sales_can_save_edit_discount_and_cancel_a_draft_order()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $productId = DB::table('products')->where('sku', 'VAL-1L')->value('id');
+        $customerId = DB::table('customers')->where('code', 'CUS-0002')->value('id');
+
+        $created = $this->postJson('/api/mobile/orders', [
+            'customer_id' => $customerId,
+            'payment_type' => 'cash',
+            'save_as' => 'draft',
+            'items' => [
+                ['product_id' => $productId, 'quantity' => 2, 'discount_amount' => 400],
+                ['product_id' => $productId, 'quantity' => 1, 'item_type' => 'foc'],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.order.status', 'draft')
+            ->assertJsonPath('data.order.discount_total', 400)
+            ->assertJsonPath('data.order.total', 16000)
+            ->assertJsonPath('data.items.1.item_type', 'foc')
+            ->assertJsonPath('data.items.1.unit_price', 0)
+            ->assertJsonPath('data.items.1.line_total', 0);
+
+        $orderId = $created->json('data.order.id');
+        $this->putJson("/api/mobile/orders/{$orderId}", [
+            'customer_id' => $customerId,
+            'payment_type' => 'cash',
+            'save_as' => 'pending',
+            'items' => [['product_id' => $productId, 'quantity' => 3, 'discount_amount' => 600]],
+        ])->assertOk()
+            ->assertJsonPath('data.order.status', 'pending')
+            ->assertJsonPath('data.order.total', 24000);
+
+        $this->postJson("/api/mobile/orders/{$orderId}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.order.status', 'cancelled');
+    }
 }

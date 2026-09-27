@@ -89,7 +89,17 @@ async function screenshot(send, url, width, height, destination, cookies, locale
     await new Promise((resolve) => setTimeout(resolve, 3000));
     await send('Runtime.evaluate', { expression: `window.localStorage.setItem('valley-locale', '${locale}')` });
     await send('Page.reload');
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    let state = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+        const result = await send('Runtime.evaluate', {
+            expression: `({ title: document.querySelector('h1')?.innerText, error: document.querySelector('.inline-error')?.innerText, loading: !!document.querySelector('.workspace-state .spin') || /Checking sign in|Loading|Calculating|Preparing/.test(document.body.innerText), body: document.body.innerText.slice(0, 500) })`,
+            returnByValue: true,
+        });
+        state = result.result.value;
+        if (state?.title && !state.error && !state.loading) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (!state?.title || state.error || state.loading) throw new Error(`${url}: ${JSON.stringify(state)}`);
     const result = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(destination, Buffer.from(result.data, 'base64'));
 }
@@ -114,7 +124,7 @@ try {
     await setLocale(officeCookies, 'en');
     await screenshot(send, `${baseUrl}/client/deliveries`, 390, 844, path.join(artifactPath, 'phase6-client-deliveries.png'), clientCookies.header);
     await screenshot(send, `${baseUrl}/sales/deliveries`, 430, 932, path.join(artifactPath, 'phase6-sales-deliveries.png'), salesCookies.header);
-    await screenshot(send, `${baseUrl}/driver/route`, 390, 844, path.join(artifactPath, 'phase6-driver-route.png'), driverCookies.header);
+    await screenshot(send, `${baseUrl}/driver/tasks`, 390, 844, path.join(artifactPath, 'phase6-driver-tasks.png'), driverCookies.header);
     await send('Browser.close').catch(() => {});
     socket.close();
 } finally {
@@ -126,12 +136,13 @@ try {
     const resolvedProfile = path.resolve(profilePath);
     const resolvedTemp = path.resolve(os.tmpdir());
     if (!resolvedProfile.startsWith(`${resolvedTemp}${path.sep}`)) throw new Error('Refusing to remove a profile outside the temporary directory.');
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
         try {
             await rm(resolvedProfile, { recursive: true, force: true });
             break;
         } catch (error) {
-            if (attempt === 4) throw error;
+            if (attempt === 7 && error.code !== 'EBUSY') throw error;
+            if (attempt === 7) break;
             await new Promise((resolve) => setTimeout(resolve, 500));
         }
     }

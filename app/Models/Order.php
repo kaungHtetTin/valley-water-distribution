@@ -25,6 +25,10 @@ class Order extends Model
         'return_settlement_method',
         'refund_amount',
         'status',
+        'driver_modified',
+        'driver_modification_note',
+        'driver_modified_by',
+        'driver_modified_at',
         'subtotal',
         'discount_total',
         'tax_total',
@@ -45,6 +49,8 @@ class Order extends Model
         'total' => 'decimal:2',
         'refund_amount' => 'decimal:2',
         'confirmed_at' => 'datetime',
+        'driver_modified' => 'boolean',
+        'driver_modified_at' => 'datetime',
     ];
 
     public function items()

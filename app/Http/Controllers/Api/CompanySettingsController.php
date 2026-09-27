@@ -36,6 +36,8 @@ class CompanySettingsController extends Controller
             'remove_logo' => ['nullable', 'boolean'],
             'primary_color' => ['sometimes', 'required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'default_theme' => ['sometimes', 'required', Rule::in(['light', 'dark'])],
+            'default_customer_credit_limit' => ['sometimes', 'required', 'numeric', 'min:0', 'max:999999999999.99'],
+            'delivery_credit_due_days' => ['sometimes', 'required', 'integer', 'min:1', 'max:365'],
             'legal_name' => ['nullable', 'string', 'max:180'],
             'phone' => ['nullable', 'string', 'max:40'],
             'email' => ['nullable', 'email', 'max:150'],

@@ -23,7 +23,7 @@ class ExampleTest extends TestCase
 
     public function test_mobile_subroutes_are_deep_linkable()
     {
-        foreach (['/client/home', '/client/orders', '/client/profile', '/sales/route', '/sales/orders', '/sales/customers', '/sales/attendance', '/sales/salary', '/driver/load', '/driver/profile', '/driver/attendance', '/driver/salary'] as $route) {
+        foreach (['/client/home', '/client/orders', '/client/profile', '/sales/home', '/sales/orders', '/sales/new-order', '/sales/customers', '/sales/attendance', '/sales/salary', '/driver/tasks', '/driver/history', '/driver/profile', '/driver/attendance', '/driver/salary'] as $route) {
             $this->get($route)->assertOk();
         }
     }

@@ -13,7 +13,11 @@ class Company extends Model
 
     protected $appends = ['logo_url'];
 
-    protected $casts = ['is_active' => 'boolean'];
+    protected $casts = [
+        'is_active' => 'boolean',
+        'default_customer_credit_limit' => 'decimal:2',
+        'delivery_credit_due_days' => 'integer',
+    ];
 
     public function getLogoUrlAttribute(): ?string
     {

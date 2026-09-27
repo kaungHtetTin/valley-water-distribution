@@ -8,6 +8,7 @@ use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class PayrollAdjustmentController extends Controller
@@ -18,7 +19,17 @@ class PayrollAdjustmentController extends Controller
 
         $query = PayrollAdjustment::query()
             ->leftJoin('employees', 'payroll_adjustments.employee_id', '=', 'employees.id')
-            ->select('payroll_adjustments.*', 'employees.code as employee_code', 'employees.name as employee_name', 'employees.employee_type')
+            ->leftJoin('kpi_results', 'payroll_adjustments.id', '=', 'kpi_results.payroll_adjustment_id')
+            ->leftJoin('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
+            ->select(
+                'payroll_adjustments.*',
+                'employees.code as employee_code',
+                'employees.name as employee_name',
+                'employees.employee_type',
+                'kpi_results.id as kpi_result_id',
+                'kpi_results.overall_score as kpi_score',
+                'kpi_periods.month as kpi_month'
+            )
             ->latest('payroll_adjustments.effective_date')
             ->latest('payroll_adjustments.id');
 
@@ -75,6 +86,7 @@ class PayrollAdjustmentController extends Controller
     public function update(Request $request, PayrollAdjustment $payrollAdjustment)
     {
         $this->authorizePermission($request, 'office.payroll.manage');
+        abort_if($this->isKpiBonus($payrollAdjustment->id), 409, 'KPI bonus adjustments are managed from KPI Reviews.');
         $payrollAdjustment->update($request->validate($this->rules()));
 
         return ApiResponse::success('Payroll adjustment updated.', [
@@ -85,6 +97,7 @@ class PayrollAdjustmentController extends Controller
     public function destroy(Request $request, PayrollAdjustment $payrollAdjustment)
     {
         $this->authorizePermission($request, 'office.payroll.manage');
+        abort_if($this->isKpiBonus($payrollAdjustment->id), 409, 'Posted KPI bonuses cannot be deleted.');
         $payrollAdjustment->delete();
 
         return ApiResponse::success('Payroll adjustment deleted.');
@@ -107,8 +120,18 @@ class PayrollAdjustmentController extends Controller
     {
         return PayrollAdjustment::query()
             ->leftJoin('employees', 'payroll_adjustments.employee_id', '=', 'employees.id')
+            ->leftJoin('kpi_results', 'payroll_adjustments.id', '=', 'kpi_results.payroll_adjustment_id')
+            ->leftJoin('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
             ->where('payroll_adjustments.id', $id)
-            ->select('payroll_adjustments.*', 'employees.code as employee_code', 'employees.name as employee_name', 'employees.employee_type')
+            ->select(
+                'payroll_adjustments.*',
+                'employees.code as employee_code',
+                'employees.name as employee_name',
+                'employees.employee_type',
+                'kpi_results.id as kpi_result_id',
+                'kpi_results.overall_score as kpi_score',
+                'kpi_periods.month as kpi_month'
+            )
             ->firstOrFail();
     }
 
@@ -126,7 +149,19 @@ class PayrollAdjustmentController extends Controller
             'effective_date' => $adjustment->effective_date ? Carbon::parse($adjustment->effective_date)->toDateString() : null,
             'status' => $adjustment->status,
             'notes' => $adjustment->notes,
+            'source' => $adjustment->kpi_result_id ? [
+                'type' => 'kpi',
+                'result_id' => (int) $adjustment->kpi_result_id,
+                'reference' => 'KPI-'.str_replace('-', '', $adjustment->kpi_month).'-'.str_pad((string) $adjustment->kpi_result_id, 4, '0', STR_PAD_LEFT),
+                'month' => $adjustment->kpi_month,
+                'score' => (float) $adjustment->kpi_score,
+            ] : null,
         ];
+    }
+
+    private function isKpiBonus(int $adjustmentId): bool
+    {
+        return DB::table('kpi_results')->where('payroll_adjustment_id', $adjustmentId)->exists();
     }
 
     private function authorizePermission(Request $request, string $permission): void

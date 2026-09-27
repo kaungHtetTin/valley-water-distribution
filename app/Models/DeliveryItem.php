@@ -14,5 +14,7 @@ class DeliveryItem extends Model
         'delivered_quantity' => 'decimal:2',
         'returned_quantity' => 'decimal:2',
         'damaged_quantity' => 'decimal:2',
+        'unit_price' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
     ];
 }

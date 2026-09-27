@@ -10,6 +10,7 @@ class AttendanceLocation extends Model
     use HasFactory;
 
     protected $fillable = [
+        'warehouse_id',
         'code',
         'name',
         'address',

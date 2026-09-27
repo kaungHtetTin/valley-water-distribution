@@ -13,6 +13,7 @@ use App\Support\AppAccess;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class FinanceController extends Controller
@@ -69,8 +70,9 @@ class FinanceController extends Controller
         }
         $summary = (clone $query)->reorder()->selectRaw("COUNT(*) records_count, COALESCE(SUM(collections.amount),0) total_amount, COALESCE(SUM(CASE WHEN collections.status='submitted' THEN collections.amount ELSE 0 END),0) submitted_amount, COALESCE(SUM(CASE WHEN collections.status='approved' THEN collections.amount ELSE 0 END),0) approved_amount")->first();
         $paginator = $query->select($this->collectionColumns())->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
+        $cashHandovers = $request->boolean('outdoor') ? $this->pendingDriverCashHandovers() : collect();
 
-        return ApiResponse::success('Collections loaded.', ['items' => collect($paginator->items())->map(fn ($item) => $this->collectionPayload($item)), 'summary' => $this->amountSummary($summary), 'meta' => $this->pagination($paginator)]);
+        return ApiResponse::success('Collections loaded.', ['items' => collect($paginator->items())->map(fn ($item) => $this->collectionPayload($item)), 'cash_handovers' => $cashHandovers, 'summary' => $this->amountSummary($summary), 'meta' => $this->pagination($paginator)]);
     }
 
     public function storeCollection(Request $request)
@@ -93,6 +95,14 @@ class FinanceController extends Controller
         $this->authorizePermission($request, self::MANAGE_PERMISSION);
         abort_unless($collection->status === 'submitted', 409, 'Only submitted collections can be reviewed.');
         $validated = $request->validate(['status' => ['required', Rule::in(['approved', 'rejected'])], 'notes' => ['nullable', 'string', 'max:500']]);
+        abort_if(
+            $validated['status'] === 'approved'
+            && $collection->source_app === 'driver'
+            && $collection->payment_method === 'cash'
+            && $collection->employee_id,
+            409,
+            'Receive driver cash through the driver cash handover action.'
+        );
         DB::transaction(function () use ($collection, $request, $validated) {
             $locked = Collection::lockForUpdate()->findOrFail($collection->id);
             abort_unless($locked->status === 'submitted', 409, 'This collection was already reviewed.');
@@ -108,11 +118,59 @@ class FinanceController extends Controller
         return ApiResponse::success('Collection review saved.', ['collection' => $this->collectionPayload($this->collectionQuery()->select($this->collectionColumns())->where('collections.id', $collection->id)->first())]);
     }
 
+    public function receiveCashHandover(Request $request, int $employeeId)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        abort_unless(DB::table('employees')->where('id', $employeeId)->where('employee_type', 'driver')->exists(), 404, 'Driver not found.');
+        $validated = $request->validate([
+            'collection_ids' => ['required', 'array', 'min:1'],
+            'collection_ids.*' => ['required', 'integer', 'distinct', 'exists:collections,id'],
+            'received_amount' => ['required', 'numeric', 'gt:0'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $result = DB::transaction(function () use ($employeeId, $request, $validated) {
+            $collections = Collection::query()
+                ->where('employee_id', $employeeId)
+                ->where('source_app', 'driver')
+                ->where('payment_method', 'cash')
+                ->where('status', 'submitted')
+                ->whereIn('id', $validated['collection_ids'])
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            abort_unless($collections->count() === count($validated['collection_ids']), 409, 'Some cash records were already received or do not belong to this driver. Refresh and try again.');
+            $expectedAmount = round((float) $collections->sum('amount'), 2);
+            abort_if(abs($expectedAmount - (float) $validated['received_amount']) > 0.001, 422, 'Cash received must match the selected driver cash hold.');
+
+            foreach ($collections as $collection) {
+                $this->validateCollectionScope($collection->toArray());
+                $collection->update([
+                    'status' => 'approved',
+                    'notes' => $validated['notes'] ?? $collection->notes,
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                ]);
+                $this->postCollection($collection, $request->user()->id);
+            }
+
+            return ['employee_id' => $employeeId, 'collections_count' => $collections->count(), 'received_amount' => $expectedAmount];
+        });
+
+        return ApiResponse::success('Driver cash handover received and posted to the cash book.', ['handover' => $result]);
+    }
+
     public function receivables(Request $request)
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
         $invoiceTotals = DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->groupBy('invoices.customer_id')->selectRaw('invoices.customer_id, SUM(invoices.total) invoiced_amount');
-        $collectionTotals = DB::table('collections')->where('status', 'approved')->groupBy('customer_id')->selectRaw('customer_id, SUM(amount) collected_amount');
+        $collectionTotals = DB::table('collections')->where('status', 'approved')->where(function ($query) {
+            $query->whereNull('invoice_id')->orWhereExists(function ($subquery) {
+                $subquery->selectRaw('1')->from('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')
+                    ->whereColumn('invoices.id', 'collections.invoice_id')->where('orders.payment_type', 'credit');
+            });
+        })->groupBy('customer_id')->selectRaw('customer_id, SUM(amount) collected_amount');
         $query = DB::table('customers')->leftJoinSub($invoiceTotals, 'invoice_totals', 'customers.id', '=', 'invoice_totals.customer_id')->leftJoinSub($collectionTotals, 'collection_totals', 'customers.id', '=', 'collection_totals.customer_id')->leftJoin('routes', 'customers.route_id', '=', 'routes.id')->where('customers.is_active', true);
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('customers.code', 'like', "%{$search}%")->orWhere('customers.shop_name', 'like', "%{$search}%"));
@@ -259,18 +317,132 @@ class FinanceController extends Controller
     public function profitLoss(Request $request)
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
-        $from = Carbon::parse($request->query('date_from', now()->startOfYear()->toDateString()))->toDateString();
-        $to = Carbon::parse($request->query('date_to', now()->toDateString()))->toDateString();
-        $revenue = (float) DB::table('invoices')->where('status', '!=', 'cancelled')->whereBetween('invoice_date', [$from, $to])->sum('total');
-        $payroll = (float) DB::table('payrolls')->whereIn('status', ['approved', 'paid'])->whereDate('period_end', '>=', $from)->whereDate('period_start', '<=', $to)->sum('total_net');
-        $approvedExpenses = DB::table('expenses')->where('status', 'approved')->whereBetween('expense_date', [$from, $to]);
-        $legacyVehicle = (float) (clone $approvedExpenses)->where('category', 'vehicle_cost')->sum('amount');
-        $vehicle = $legacyVehicle + (float) DB::table('vehicle_costs')->where('status', 'approved')->where('record_type', 'cost')->whereBetween('cost_date', [$from, $to])->sum('amount');
-        $outdoor = (float) (clone $approvedExpenses)->where('expense_type', 'outdoor')->where('category', '!=', 'vehicle_cost')->sum('amount');
-        $daily = (float) (clone $approvedExpenses)->where('expense_type', 'daily')->where('category', '!=', 'vehicle_cost')->sum('amount');
-        $expenses = $payroll + $vehicle + $outdoor + $daily;
+        $validated = $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'granularity' => ['nullable', Rule::in(['day', 'month'])],
+        ]);
+        $fromDate = Carbon::parse($validated['date_from'] ?? now()->startOfYear()->toDateString())->startOfDay();
+        $toDate = Carbon::parse($validated['date_to'] ?? now()->toDateString())->endOfDay();
+        $from = $fromDate->toDateString();
+        $to = $toDate->toDateString();
+        $granularity = $validated['granularity'] ?? ($fromDate->diffInDays($toDate) <= 62 ? 'day' : 'month');
 
-        return ApiResponse::success('Profit and loss loaded.', ['period' => ['date_from' => $from, 'date_to' => $to], 'revenue' => $revenue, 'costs' => ['payroll' => $payroll, 'vehicle' => $vehicle, 'outdoor_employee' => $outdoor, 'daily_expense' => $daily, 'total' => $expenses], 'net_profit' => $revenue - $expenses]);
+        $trend = [];
+        $cursor = $granularity === 'day' ? $fromDate->copy() : $fromDate->copy()->startOfMonth();
+        while ($cursor->lte($toDate)) {
+            $key = $granularity === 'day' ? $cursor->format('Y-m-d') : $cursor->format('Y-m');
+            $trend[$key] = [
+                'key' => $key,
+                'label' => $granularity === 'day' ? $cursor->format('M j') : $cursor->format('M'),
+                'revenue' => 0.0,
+                'payroll' => 0.0,
+                'vehicle' => 0.0,
+                'outdoor_employee' => 0.0,
+                'daily_expense' => 0.0,
+            ];
+            $granularity === 'day' ? $cursor->addDay() : $cursor->addMonth();
+        }
+
+        $bucketKey = function ($date) use ($fromDate, $granularity, $toDate) {
+            $value = Carbon::parse($date);
+            if ($value->lt($fromDate)) $value = $fromDate->copy();
+            if ($value->gt($toDate)) $value = $toDate->copy();
+
+            return $granularity === 'day' ? $value->format('Y-m-d') : $value->format('Y-m');
+        };
+        $addTrend = function ($date, string $field, float $amount) use (&$trend, $bucketKey) {
+            $key = $bucketKey($date);
+            if (isset($trend[$key])) $trend[$key][$field] += $amount;
+        };
+
+        $invoiceRows = DB::table('invoices')
+            ->join('orders', 'invoices.order_id', '=', 'orders.id')
+            ->whereIn('orders.payment_type', ['cash', 'credit'])
+            ->where('invoices.status', '!=', 'cancelled')
+            ->whereBetween('invoices.invoice_date', [$from, $to])
+            ->get(['invoices.invoice_date', 'invoices.total']);
+        foreach ($invoiceRows as $row) $addTrend($row->invoice_date, 'revenue', (float) $row->total);
+
+        $payrollRows = DB::table('payrolls')
+            ->whereIn('status', ['approved', 'paid'])
+            ->whereDate('period_end', '>=', $from)
+            ->whereDate('period_start', '<=', $to)
+            ->get(['period_end', 'total_net']);
+        foreach ($payrollRows as $row) $addTrend($row->period_end, 'payroll', (float) $row->total_net);
+
+        $expenseRows = DB::table('expenses')
+            ->where('status', 'approved')
+            ->whereBetween('expense_date', [$from, $to])
+            ->get(['expense_date', 'expense_type', 'category', 'amount']);
+        $vehicleRows = DB::table('vehicle_costs')
+            ->where('status', 'approved')
+            ->where('record_type', 'cost')
+            ->whereBetween('cost_date', [$from, $to])
+            ->get(['cost_date', 'cost_type', 'amount']);
+
+        $costCategories = ['Payroll' => (float) $payrollRows->sum('total_net')];
+        foreach ($expenseRows as $row) {
+            $amount = (float) $row->amount;
+            if ($row->category === 'vehicle_cost') {
+                $field = 'vehicle';
+                $category = 'Vehicle · Legacy expense';
+            } elseif ($row->expense_type === 'outdoor') {
+                $field = 'outdoor_employee';
+                $category = 'Outdoor · '.Str::headline($row->category);
+            } else {
+                $field = 'daily_expense';
+                $category = 'Daily · '.Str::headline($row->category);
+            }
+            $addTrend($row->expense_date, $field, $amount);
+            $costCategories[$category] = ($costCategories[$category] ?? 0) + $amount;
+        }
+        foreach ($vehicleRows as $row) {
+            $amount = (float) $row->amount;
+            $addTrend($row->cost_date, 'vehicle', $amount);
+            $category = 'Vehicle · '.Str::headline($row->cost_type);
+            $costCategories[$category] = ($costCategories[$category] ?? 0) + $amount;
+        }
+
+        $trend = collect($trend)->map(function ($item) {
+            $item['cost'] = $item['payroll'] + $item['vehicle'] + $item['outdoor_employee'] + $item['daily_expense'];
+            $item['net_profit'] = $item['revenue'] - $item['cost'];
+
+            return $item;
+        })->values();
+        $revenue = (float) $trend->sum('revenue');
+        $costs = [
+            'payroll' => (float) $trend->sum('payroll'),
+            'vehicle' => (float) $trend->sum('vehicle'),
+            'outdoor_employee' => (float) $trend->sum('outdoor_employee'),
+            'daily_expense' => (float) $trend->sum('daily_expense'),
+        ];
+        $costs['total'] = array_sum($costs);
+        $netProfit = $revenue - $costs['total'];
+        arsort($costCategories);
+        $activePeriods = $trend->filter(fn ($item) => $item['revenue'] > 0 || $item['cost'] > 0);
+
+        return ApiResponse::success('Profit and loss loaded.', [
+            'period' => ['date_from' => $from, 'date_to' => $to, 'granularity' => $granularity],
+            'revenue' => $revenue,
+            'costs' => $costs,
+            'net_profit' => $netProfit,
+            'margin_percent' => $revenue > 0 ? round($netProfit / $revenue * 100, 2) : 0,
+            'trend' => $trend,
+            'expense_breakdown' => collect([
+                ['key' => 'payroll', 'label' => 'Payroll', 'amount' => $costs['payroll']],
+                ['key' => 'vehicle', 'label' => 'Vehicle costs', 'amount' => $costs['vehicle']],
+                ['key' => 'outdoor_employee', 'label' => 'Outdoor employee', 'amount' => $costs['outdoor_employee']],
+                ['key' => 'daily_expense', 'label' => 'Daily expenses', 'amount' => $costs['daily_expense']],
+            ])->filter(fn ($item) => $item['amount'] > 0)->values(),
+            'cost_categories' => collect($costCategories)->map(fn ($amount, $category) => ['label' => $category, 'amount' => (float) $amount])->values(),
+            'analysis' => [
+                'average_revenue' => $activePeriods->count() ? (float) $activePeriods->avg('revenue') : 0,
+                'average_cost' => $activePeriods->count() ? (float) $activePeriods->avg('cost') : 0,
+                'profitable_periods' => $activePeriods->where('net_profit', '>=', 0)->count(),
+                'loss_periods' => $activePeriods->where('net_profit', '<', 0)->count(),
+            ],
+        ]);
     }
 
     public function mobileIndex(Request $request)
@@ -366,6 +538,23 @@ class FinanceController extends Controller
     {
         if (! empty($data['invoice_id'])) {
             abort_unless(DB::table('invoices')->where('id', $data['invoice_id'])->where('customer_id', $data['customer_id'])->exists(), 422, 'Invoice does not belong to the selected customer.');
+
+            $driverCashSale = ! empty($data['delivery_id'])
+                ? DB::table('deliveries')
+                    ->join('invoices', 'deliveries.invoice_id', '=', 'invoices.id')
+                    ->join('orders', 'invoices.order_id', '=', 'orders.id')
+                    ->where('deliveries.id', $data['delivery_id'])
+                    ->where('deliveries.invoice_id', $data['invoice_id'])
+                    ->where('deliveries.customer_id', $data['customer_id'])
+                    ->where('deliveries.settlement_method', 'cash_driver')
+                    ->where('orders.payment_type', 'cash')
+                    ->first(['deliveries.settlement_amount'])
+                : null;
+            if ($driverCashSale) {
+                abort_if((float) $data['amount'] > (float) $driverCashSale->settlement_amount + 0.001, 422, 'Collection exceeds the delivery cash amount.');
+
+                return;
+            }
         }
         $available = ! empty($data['invoice_id']) ? $this->invoiceOutstanding((int) $data['invoice_id']) : $this->customerOutstanding((int) $data['customer_id']);
         abort_if((float) $data['amount'] > $available, 422, 'Collection cannot exceed outstanding balance.');
@@ -392,7 +581,12 @@ class FinanceController extends Controller
         abort_unless($customer, 404);
         $entries = collect();
         DB::table('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')->where('invoices.customer_id', $customerId)->where('orders.payment_type', 'credit')->where('invoices.status', '!=', 'cancelled')->get(['invoices.*'])->each(fn ($item) => $entries->push(['key' => "I{$item->id}", 'date' => $item->invoice_date, 'due_date' => $item->due_date, 'type' => 'invoice', 'reference' => $item->code, 'description' => 'Credit sale', 'debit' => (float) $item->total, 'credit' => 0]));
-        DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->get()->each(fn ($item) => $entries->push(['key' => "C{$item->id}", 'date' => $item->collection_date, 'type' => 'collection', 'reference' => $item->code, 'description' => 'Payment received', 'debit' => 0, 'credit' => (float) $item->amount]));
+        DB::table('collections')->where('customer_id', $customerId)->where('status', 'approved')->where(function ($query) {
+            $query->whereNull('invoice_id')->orWhereExists(function ($subquery) {
+                $subquery->selectRaw('1')->from('invoices')->join('orders', 'invoices.order_id', '=', 'orders.id')
+                    ->whereColumn('invoices.id', 'collections.invoice_id')->where('orders.payment_type', 'credit');
+            });
+        })->get()->each(fn ($item) => $entries->push(['key' => "C{$item->id}", 'date' => $item->collection_date, 'type' => 'collection', 'reference' => $item->code, 'description' => 'Payment received', 'debit' => 0, 'credit' => (float) $item->amount]));
         DB::table('orders as returns')
             ->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')
             ->where('returns.customer_id', $customerId)
@@ -510,6 +704,42 @@ class FinanceController extends Controller
     private function collectionPayload($item): array
     {
         return ['id' => $item->id, 'code' => $item->code, 'customer_id' => $item->customer_id, 'customer_code' => $item->customer_code, 'shop_name' => $item->shop_name, 'invoice_id' => $item->invoice_id, 'invoice_code' => $item->invoice_code, 'delivery_id' => $item->delivery_id, 'employee_id' => $item->employee_id, 'employee_code' => $item->employee_code, 'employee_name' => $item->employee_name, 'collection_date' => Carbon::parse($item->collection_date)->toDateString(), 'amount' => (float) $item->amount, 'payment_method' => $item->payment_method, 'reference_no' => $item->reference_no, 'source_app' => $item->source_app, 'status' => $item->status, 'notes' => $item->notes];
+    }
+
+    private function pendingDriverCashHandovers()
+    {
+        return DB::table('collections')
+            ->join('employees', 'collections.employee_id', '=', 'employees.id')
+            ->where('employees.employee_type', 'driver')
+            ->where('collections.source_app', 'driver')
+            ->where('collections.payment_method', 'cash')
+            ->where('collections.status', 'submitted')
+            ->orderBy('employees.name')
+            ->orderBy('collections.id')
+            ->get([
+                'collections.id',
+                'collections.employee_id',
+                'collections.amount',
+                'collections.collection_date',
+                'employees.code as employee_code',
+                'employees.name as employee_name',
+            ])
+            ->groupBy('employee_id')
+            ->map(function ($collections) {
+                $first = $collections->first();
+
+                return [
+                    'employee_id' => (int) $first->employee_id,
+                    'employee_code' => $first->employee_code,
+                    'employee_name' => $first->employee_name,
+                    'collections_count' => $collections->count(),
+                    'amount' => (float) $collections->sum('amount'),
+                    'oldest_collection_date' => $collections->min('collection_date'),
+                    'latest_collection_date' => $collections->max('collection_date'),
+                    'collection_ids' => $collections->pluck('id')->map(fn ($id) => (int) $id)->values(),
+                ];
+            })
+            ->values();
     }
 
     private function expenseQuery()

@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, BadgeCheck, CalendarDays, CircleDollarSign, Eye, FileClock, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, BadgeCheck, CalendarDays, CircleDollarSign, FileClock, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
 
@@ -17,6 +17,7 @@ const copy = {
         cancel: 'Cancel',
         delete: 'Delete',
         deleteConfirm: 'Delete this payroll adjustment?',
+        deletePayrollConfirm: 'Delete this payroll draft and all employee calculations?',
         deductions: 'Deductions',
         details: 'Details',
         draft: 'Draft',
@@ -161,14 +162,33 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
         }
     };
 
+    const deletePayroll = async (payroll) => {
+        if (!canManage || processingId || payroll.status !== 'draft') return;
+        if (!window.confirm(t(locale, 'deletePayrollConfirm'))) return;
+
+        setProcessingId(payroll.id);
+        setState((current) => ({ ...current, error: '' }));
+        try {
+            await window.axios.delete(`${apiBase('payrolls')}/${payroll.id}`);
+            setViewing(null);
+            setRefreshKey((key) => key + 1);
+            if (detailId) onNavigate?.(listPath);
+        } catch (error) {
+            setState((current) => ({ ...current, error: requestMessage(error, locale) }));
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
     const totals = state.items.reduce((carry, item) => ({
         employees: carry.employees + Number(item.items_count || 0),
         gross: carry.gross + Number(item.total_gross || 0),
         deductions: carry.deductions + Number(item.total_deductions || 0),
         net: carry.net + Number(item.total_net || 0),
     }), { employees: 0, gross: 0, deductions: 0, net: 0 });
+    const showPayrollActions = canManage && state.items.some((payroll) => ['draft', 'approved'].includes(payroll.status));
 
-    if (detailId && viewing) return <PayrollDetailPage viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} onApprove={(payroll) => transitionPayroll(payroll, 'approve')} onMarkPaid={(payroll) => transitionPayroll(payroll, 'mark-paid')} onClose={() => onNavigate?.(listPath)} />;
+    if (detailId && viewing) return <PayrollDetailPage viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} operationError={state.error} onApprove={(payroll) => transitionPayroll(payroll, 'approve')} onMarkPaid={(payroll) => transitionPayroll(payroll, 'mark-paid')} onDelete={deletePayroll} onClose={() => onNavigate?.(listPath)} />;
 
     return (
         <section className="master-workspace payroll-workspace">
@@ -208,10 +228,10 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table payroll-table">
-                            <thead><tr><th>{t(locale, 'payroll')}</th><th>{t(locale, 'month')}</th><th>{t(locale, 'employeeType')}</th><th>{t(locale, 'totalEmployees')}</th><th>{t(locale, 'grossPay')}</th><th>{t(locale, 'netPay')}</th><th>{t(locale, 'status')}</th><th>{t(locale, 'actions')}</th></tr></thead>
+                            <thead><tr><th>{t(locale, 'payroll')}</th><th>{t(locale, 'month')}</th><th>{t(locale, 'employeeType')}</th><th>{t(locale, 'totalEmployees')}</th><th>{t(locale, 'grossPay')}</th><th>{t(locale, 'netPay')}</th><th>{t(locale, 'status')}</th>{showPayrollActions && <th className="table-actions-header">{t(locale, 'actions')}</th>}</tr></thead>
                             <tbody>
                                 {state.items.map((payroll) => (
-                                    <tr key={payroll.id}>
+                                    <tr className="clickable-row" key={payroll.id} tabIndex={0} onClick={() => onNavigate?.(`${listPath}/${payroll.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${listPath}/${payroll.id}`); } }}>
                                         <td><strong>{payroll.code}</strong><span className="muted">{t(locale, 'updated')}: {formatDateTime(payroll.updated_at)}</span></td>
                                         <td>{payroll.month}</td>
                                         <td>{payroll.employee_type ? titleCase(payroll.employee_type) : t(locale, 'allEmployeeTypes')}</td>
@@ -219,11 +239,11 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
                                         <td>{money(payroll.total_gross)}</td>
                                         <td>{money(payroll.total_net)}</td>
                                         <td><StatusBadge status={payroll.status} locale={locale} /></td>
-                                        <td className="row-actions">
-                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${payroll.id}`)}><Eye size={15} /></button>
-                                            {canManage && payroll.status === 'draft' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'approve')} title={t(locale, 'approve')} onClick={() => transitionPayroll(payroll, 'approve')}><BadgeCheck size={15} /></button>}
-                                            {canManage && payroll.status === 'approved' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'paid')} title={t(locale, 'paid')} onClick={() => transitionPayroll(payroll, 'mark-paid')}><CircleDollarSign size={15} /></button>}
-                                        </td>
+                                        {showPayrollActions && <td className="table-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions">
+                                            {payroll.status === 'draft' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'approve')} title={t(locale, 'approve')} onClick={() => transitionPayroll(payroll, 'approve')}><BadgeCheck size={15} /></button>}
+                                            {payroll.status === 'draft' && <button className="danger" type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => deletePayroll(payroll)}><Trash2 size={15} /></button>}
+                                            {payroll.status === 'approved' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'paid')} title={t(locale, 'paid')} onClick={() => transitionPayroll(payroll, 'mark-paid')}><CircleDollarSign size={15} /></button>}
+                                        </div></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -352,6 +372,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
             ? { ...carry, deductions: carry.deductions + amount, count: carry.count + 1 }
             : { ...carry, additions: carry.additions + amount, count: carry.count + 1 };
     }, { additions: 0, deductions: 0, count: 0 });
+    const showAdjustmentActions = canManage && state.items.some((adjustment) => !adjustment.source);
 
     return (
         <section className="master-workspace payroll-workspace">
@@ -395,20 +416,24 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'emptyAdjustments')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table payroll-adjustment-table">
-                            <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'title')}</th><th>{t(locale, 'adjustmentType')}</th><th>{t(locale, 'effectiveDate')}</th><th>{t(locale, 'amount')}</th><th>{t(locale, 'status')}</th><th>{t(locale, 'actions')}</th></tr></thead>
+                            <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'title')}</th><th>{t(locale, 'adjustmentType')}</th><th>{t(locale, 'effectiveDate')}</th><th>{t(locale, 'amount')}</th><th>{t(locale, 'status')}</th>{showAdjustmentActions && <th className="table-actions-header">{t(locale, 'actions')}</th>}</tr></thead>
                             <tbody>
                                 {state.items.map((adjustment) => (
                                     <tr key={adjustment.id}>
                                         <td><strong>{adjustment.employee_name}</strong><span className="muted">{adjustment.employee_code} · {titleCase(adjustment.employee_type)}</span></td>
-                                        <td><strong>{adjustment.title}</strong>{adjustment.notes && <span className="muted">{adjustment.notes}</span>}</td>
+                                        <td>
+                                            <strong>{adjustment.title}</strong>
+                                            {adjustment.source?.type === 'kpi' && <span className="kpi-adjustment-source"><BadgeCheck size={11} /> {adjustment.source.reference} · {adjustment.source.month} · {Number(adjustment.source.score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</span>}
+                                            {adjustment.notes && <span className="muted">{adjustment.notes}</span>}
+                                        </td>
                                         <td><span className={`adjustment-chip ${adjustment.adjustment_type}`}>{t(locale, adjustment.adjustment_type)}</span></td>
                                         <td>{adjustment.effective_date}</td>
                                         <td>{money(adjustment.amount)}</td>
                                         <td><StatusBadge status={adjustment.status} locale={locale} /></td>
-                                        <td className="row-actions">
-                                            {canManage && <button type="button" aria-label={t(locale, 'edit')} title={t(locale, 'edit')} onClick={() => openForm(adjustment)}><Pencil size={15} /></button>}
-                                            {canManage && <button className="danger" type="button" aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => deleteAdjustment(adjustment)}><Trash2 size={15} /></button>}
-                                        </td>
+                                        {showAdjustmentActions && <td className="table-actions-cell"><div className="row-actions">
+                                            {!adjustment.source && <button type="button" aria-label={t(locale, 'edit')} title={t(locale, 'edit')} onClick={() => openForm(adjustment)}><Pencil size={15} /></button>}
+                                            {!adjustment.source && <button className="danger" type="button" aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => deleteAdjustment(adjustment)}><Trash2 size={15} /></button>}
+                                        </div></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -526,10 +551,10 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={CircleDollarSign} title={t(locale, 'emptySalary')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table salary-history-table">
-                            <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'payroll')}</th><th>{t(locale, 'month')}</th><th>{t(locale, 'grossPay')}</th><th>{t(locale, 'deductions')}</th><th>{t(locale, 'netPay')}</th><th>{t(locale, 'paidAt')}</th><th>{t(locale, 'actions')}</th></tr></thead>
+                            <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'payroll')}</th><th>{t(locale, 'month')}</th><th>{t(locale, 'grossPay')}</th><th>{t(locale, 'deductions')}</th><th>{t(locale, 'netPay')}</th><th>{t(locale, 'paidAt')}</th></tr></thead>
                             <tbody>
                                 {state.items.map((item) => (
-                                    <tr key={item.id}>
+                                    <tr className="clickable-row" key={item.id} tabIndex={0} onClick={() => onNavigate?.(`${listPath}/${item.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${listPath}/${item.id}`); } }}>
                                         <td><strong>{item.employee_name}</strong><span className="muted">{item.employee_code} - {titleCase(item.employee_type)}</span></td>
                                         <td><strong>{item.payroll_code}</strong><span className="muted">{item.payment_reference || '-'}</span></td>
                                         <td>{item.month}</td>
@@ -537,7 +562,6 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
                                         <td>{money(Number(item.advance_deduction || 0) + Number(item.other_deduction || 0))}</td>
                                         <td>{money(item.net_pay)}</td>
                                         <td>{formatDateTime(item.paid_at)}</td>
-                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${item.id}`)}><Eye size={15} /></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -617,7 +641,7 @@ export function MobilePayrollHistoryScreen({ locale }) {
     );
 }
 
-function PayrollDetailPage({ viewing, locale, canManage = false, processingId = null, onApprove, onMarkPaid, onClose }) {
+function PayrollDetailPage({ viewing, locale, canManage = false, processingId = null, operationError = '', onApprove, onMarkPaid, onDelete, onClose }) {
     const [state, setState] = useState(() => viewing.items ? { loading: false, payroll: viewing.payroll, items: viewing.items, error: '' } : { loading: true, payroll: viewing.payroll, items: [], error: '' });
 
     useEffect(() => {
@@ -631,6 +655,7 @@ function PayrollDetailPage({ viewing, locale, canManage = false, processingId = 
 
     const actions = canManage && ['draft', 'approved'].includes(state.payroll.status) ? <>
         {state.payroll.status === 'draft' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onApprove?.(state.payroll)}><BadgeCheck size={15} /> {t(locale, 'approve')}</button>}
+        {state.payroll.status === 'draft' && <button className="button danger" type="button" disabled={processingId === state.payroll.id} onClick={() => onDelete?.(state.payroll)}><Trash2 size={15} /> {t(locale, 'delete')}</button>}
         {state.payroll.status === 'approved' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onMarkPaid?.(state.payroll)}><CircleDollarSign size={15} /> {t(locale, 'paid')}</button>}
     </> : null;
 
@@ -638,7 +663,7 @@ function PayrollDetailPage({ viewing, locale, canManage = false, processingId = 
         <DetailPage eyebrow={t(locale, 'payroll')} title={state.payroll.code || t(locale, 'loading')} subtitle={state.payroll.month} onBack={onClose} actions={actions}
             aside={!state.loading && <DetailPanel eyebrow={t(locale, 'summary')}><section className="payroll-total-card record-page-summary"><FileClock size={18} /><div><small>{state.payroll.month}</small><strong>{money(state.payroll.total_net)}</strong><span>{state.payroll.items_count} {t(locale, 'totalEmployees')} · {t(locale, state.payroll.status)}</span></div></section></DetailPanel>}
         >
-            {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
+            {(state.error || operationError) && <div className="inline-error"><AlertCircle size={15} /> {state.error || operationError}</div>}
             {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : <>
                 {(state.payroll.approved_at || state.payroll.paid_at || state.payroll.payment_reference) && (
                     <DetailPanel eyebrow={t(locale, 'status')} title={t(locale, 'details')}><section className="payroll-workflow-card">
@@ -650,6 +675,7 @@ function PayrollDetailPage({ viewing, locale, canManage = false, processingId = 
                 <DetailPanel eyebrow={t(locale, 'employees')} title={`${state.payroll.items_count} ${t(locale, 'totalEmployees')}`}>
                     <div className="master-table-wrap">
                             <table className="master-table payroll-item-table">
+                                <colgroup><col className="payroll-item-employee" /><col className="payroll-item-attendance" /><col className="payroll-item-money" /><col className="payroll-item-money" /></colgroup>
                                 <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'attendance')}</th><th>{t(locale, 'baseSalary')}</th><th>{t(locale, 'netPay')}</th></tr></thead>
                                 <tbody>{state.items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><span className="muted">{item.employee_code}</span></td><td>{item.accepted_count} / {item.rejected_count}</td><td>{money(item.base_salary)}</td><td>{money(item.net_pay)}</td></tr>)}</tbody>
                             </table>

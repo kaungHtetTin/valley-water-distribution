@@ -34,6 +34,10 @@ class AttendanceLocationController extends Controller
 
         return ApiResponse::success('Attendance locations loaded.', [
             'items' => collect($paginator->items())->map(fn ($location) => $this->payload($location)),
+            'warehouses' => DB::table('warehouses')
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'code', 'name', 'address']),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -108,6 +112,12 @@ class AttendanceLocationController extends Controller
     private function rules(?int $id = null): array
     {
         return [
+            'warehouse_id' => [
+                'required',
+                'integer',
+                Rule::exists('warehouses', 'id')->where('is_active', true),
+                Rule::unique('attendance_locations', 'warehouse_id')->ignore($id),
+            ],
             'code' => ['nullable', 'string', 'max:30', Rule::unique('attendance_locations', 'code')->ignore($id)],
             'name' => ['required', 'string', 'max:150'],
             'address' => ['nullable', 'string', 'max:500'],
@@ -120,7 +130,12 @@ class AttendanceLocationController extends Controller
 
     private function payload(AttendanceLocation $location): array
     {
+        $warehouse = $location->warehouse_id
+            ? DB::table('warehouses')->where('id', $location->warehouse_id)->first(['id', 'code', 'name', 'address'])
+            : null;
+
         return $location->toArray() + [
+            'warehouse' => $warehouse,
             'public_url' => url('/attendance/'.$location->public_token),
         ];
     }

@@ -62,7 +62,7 @@ class AppAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_sales_access_is_limited_to_customer_visits_and_orders()
+    public function test_sales_access_is_limited_to_kpi_customers_and_orders()
     {
         $this->seed();
 
@@ -74,12 +74,13 @@ class AppAuthTest extends TestCase
             ->json('data.user.permissions');
 
         $this->assertNotContains('sales.deliveries.view', $permissions);
+        $this->assertNotContains('sales.route.view', $permissions);
         $this->assertNotContains('sales.collections.view', $permissions);
         $this->assertNotContains('sales.collections.create', $permissions);
         $this->assertNotContains('sales.finance.view', $permissions);
         $this->assertNotContains('sales.expenses.create', $permissions);
-        $this->assertNotContains('sales.attendance.view', $permissions);
-        $this->assertNotContains('sales.payroll.view', $permissions);
+        $this->assertContains('sales.attendance.view', $permissions);
+        $this->assertContains('sales.payroll.view', $permissions);
     }
 
     public function test_current_user_endpoint_returns_role_access_payload()

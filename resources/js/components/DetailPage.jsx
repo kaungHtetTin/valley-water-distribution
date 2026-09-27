@@ -1,18 +1,16 @@
 import React from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ShellBackButton } from './ShellBackButton';
 
 export function DetailPage({ eyebrow, title, subtitle, onBack, actions = null, aside = null, wideContent = null, children }) {
     return (
         <section className="master-workspace record-page">
+            <ShellBackButton onClick={onBack} />
             <div className="master-heading record-page-heading">
                 <div>
                     {eyebrow && <p className="eyebrow">{eyebrow}</p>}
                     <h1>{title}</h1>
                     {subtitle && <span className="muted">{subtitle}</span>}
                 </div>
-                <button className="button" type="button" onClick={onBack}>
-                    <ArrowLeft size={16} /> Back
-                </button>
             </div>
             <div className={`record-page-layout ${aside || actions ? '' : 'single-column'}`}>
                 <main className="record-page-main">{children}</main>

@@ -1,6 +1,7 @@
-import { AlertCircle, ArrowLeft, BadgeCheck, Ban, CalendarDays, Check, Eye, FileText, Package, Plus, RefreshCw, RotateCcw, Save, Search, ShoppingCart, Trash2, TriangleAlert, X } from 'lucide-react';
+import { AlertCircle, BadgeCheck, Ban, CalendarDays, Check, Copy, FileText, Package, Pencil, Plus, Printer, RefreshCw, RotateCcw, Save, Search, ShoppingCart, Trash2, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
+import { ShellBackButton } from './components/ShellBackButton';
 
 const copy = {
     en: {
@@ -51,6 +52,13 @@ const copy = {
         loadMore: 'Load more',
         notes: 'Notes',
         newOrder: 'New order',
+        editOrder: 'Edit order',
+        repeatOrder: 'Repeat order',
+        printOrder: 'Print / PDF',
+        saveDraft: 'Save draft',
+        updateOrder: 'Update order',
+        availableStock: 'Available stock',
+        unitPrice: 'Unit price',
         orderDate: 'Order date',
         order: 'Order',
         orders: 'Orders',
@@ -58,6 +66,7 @@ const copy = {
         mobileOrdersHint: 'Choose products and quantities. Delivery details are optional.',
         paymentType: 'Payment',
         pending: 'Pending',
+        unsettled: 'Set at delivery',
         price: 'Price',
         priceType: 'Price type',
         product: 'Product',
@@ -121,6 +130,30 @@ const copy = {
 };
 
 const blankItem = { product_id: '', quantity: 1, foc_quantity: 0, unit_price: '', discount_amount: 0, item_type: 'sale', remarks: '' };
+const editableOrderStatuses = ['pending', 'confirmed', 'invoiced'];
+
+function orderItemsForEditing(items = []) {
+    return Object.values(items.reduce((rows, item) => {
+        const key = String(item.product_id);
+        if (!rows[key]) rows[key] = {
+            ...blankItem,
+            product_id: item.product_id,
+            quantity: 0,
+            foc_quantity: 0,
+            unit_price: item.unit_price,
+            discount_amount: 0,
+            remarks: item.remarks || '',
+        };
+        if (item.item_type === 'foc') {
+            rows[key].foc_quantity += Number(item.quantity || 0);
+        } else {
+            rows[key].quantity += Number(item.quantity || 0);
+            rows[key].unit_price = Number(item.unit_price || 0);
+            rows[key].discount_amount += Number(item.discount_amount || 0);
+        }
+        return rows;
+    }, {}));
+}
 const orderStatusTabs = ['', 'pending', 'confirmed', 'invoiced', 'assigned', 'delivering', 'delivered', 'cancelled'];
 const invoiceStatusTabs = ['', 'draft', 'issued', 'cancelled'];
 
@@ -160,7 +193,7 @@ function datePlusDays(date, days) {
     return value.toISOString().slice(0, 10);
 }
 
-export function OrdersScreen({ locale, canManage = false, creating = false, detailId = null, onNavigate }) {
+export function OrdersScreen({ locale, canManage = false, creating = false, editId = null, detailId = null, onNavigate }) {
     const today = new Date().toISOString().slice(0, 10);
     const defaultCreditDueDate = datePlusDays(today, 7);
     const [filters, setFilters] = useState({ search: '', status: '', date: '', customer_id: '' });
@@ -177,6 +210,8 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
     const [actionMessage, setActionMessage] = useState('');
     const [viewing, setViewing] = useState(null);
     const orderListPath = `${window.ValleyRuntime?.routes?.office || '/office'}/orders`;
+    const editing = Boolean(editId);
+    const formMode = creating || editing;
     const [form, setForm] = useState(() => ({
         customer_id: '',
         area_id: '',
@@ -231,6 +266,41 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
         setViewing(detailId ? { order: { id: detailId }, items: null } : null);
     }, [detailId]);
 
+    useEffect(() => {
+        if (!editId || meta.loading) return undefined;
+        let mounted = true;
+        setFormOpen(false);
+        setState((current) => ({ ...current, error: '' }));
+        window.axios.get(`${apiBase('orders')}/${editId}`)
+            .then(({ data }) => {
+                if (!mounted) return;
+                const order = data.data.order;
+                const customer = meta.customers.find((item) => Number(item.id) === Number(order.customer_id));
+                const routeId = order.route_id || customer?.route_id || '';
+                const route = meta.routes.find((item) => Number(item.id) === Number(routeId));
+                setForm({
+                    customer_id: order.customer_id || '',
+                    area_id: order.area_id || customer?.area_id || route?.area_id || '',
+                    route_id: routeId,
+                    recipient_name: order.recipient_name || order.shop_name || customer?.shop_name || '',
+                    recipient_phone: order.recipient_phone || customer?.phone || '',
+                    delivery_address: order.delivery_address || customer?.address || '',
+                    price_type_id: order.price_type_id || defaultPriceTypeId(customer, meta.price_types),
+                    order_date: order.order_date || today,
+                    requested_delivery_date: order.requested_delivery_date || '',
+                    payment_type: 'unsettled',
+                    credit_due_date: '',
+                    notes: order.notes || '',
+                    items: orderItemsForEditing(data.data.items),
+                });
+                setWizardStep(0);
+                setProductSearch('');
+                setFormOpen(true);
+            })
+            .catch((error) => mounted && setState((current) => ({ ...current, error: requestMessage(error, locale) })));
+        return () => { mounted = false; };
+    }, [editId, locale, meta.loading]);
+
     const selectedCustomer = useMemo(() => meta.customers.find((customer) => Number(customer.id) === Number(form.customer_id)), [form.customer_id, meta.customers]);
     const preview = useMemo(() => calculatePreview(form.items), [form.items]);
 
@@ -270,8 +340,8 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
 
     useEffect(() => {
         if (creating && !meta.loading && !formOpen) initializeForm(false);
-        if (!creating && formOpen) setFormOpen(false);
-    }, [creating, meta.loading]);
+        if (!formMode && formOpen) setFormOpen(false);
+    }, [creating, formMode, meta.loading]);
 
     const updateItem = (index, patch) => {
         setForm((current) => {
@@ -322,7 +392,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
         product: meta.products.find((product) => Number(product.id) === Number(item.product_id)),
     }));
     const filteredOrderProducts = meta.products.filter((product) => `${product.name} ${product.sku} ${product.unit}`.toLowerCase().includes(productSearch.trim().toLowerCase()));
-    const orderBasicComplete = Boolean(form.area_id && form.route_id && form.recipient_name.trim() && form.delivery_address.trim() && form.order_date && form.payment_type && (form.payment_type !== 'credit' || form.credit_due_date));
+    const orderBasicComplete = Boolean(form.area_id && form.route_id && form.recipient_name.trim() && form.delivery_address.trim() && form.order_date);
     const orderProductsComplete = orderBasicComplete && selectedOrderItems.length > 0;
     const orderPricingComplete = orderProductsComplete && selectedOrderItems.every((item) => {
         const saleQuantity = Number(item.quantity || 0);
@@ -363,8 +433,6 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
                 price_type_id: form.price_type_id ? Number(form.price_type_id) : undefined,
                 order_date: form.order_date,
                 requested_delivery_date: form.requested_delivery_date || null,
-                payment_type: form.payment_type,
-                credit_due_date: form.payment_type === 'credit' ? form.credit_due_date : null,
                 notes: form.notes || null,
                 items: form.items
                     .filter((item) => item.product_id)
@@ -389,7 +457,9 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
                         return lines;
                     }),
             };
-            const { data } = await window.axios.post(apiBase('orders'), payload);
+            const { data } = editing
+                ? await window.axios.put(`${apiBase('orders')}/${editId}`, payload)
+                : await window.axios.post(apiBase('orders'), payload);
             setViewing({ order: data.data.order, items: data.data.items });
             closeForm();
             setRefreshKey((key) => key + 1);
@@ -440,9 +510,15 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
         setCancelCandidate(order);
     };
 
-    if (creating) return formOpen ? <OrderCreationWizard locale={locale} form={form} setForm={setForm} meta={meta} saving={saving} error={state.error || meta.error} step={wizardStep} setStep={setWizardStep} productSearch={productSearch} setProductSearch={setProductSearch} products={filteredOrderProducts} selectedItems={selectedOrderItems} preview={preview} basicComplete={orderBasicComplete} productsComplete={orderProductsComplete} pricingComplete={orderPricingComplete} canOpenStep={canOpenOrderStep} onClose={closeForm} onSubmit={submit} onCustomerChange={handleCustomerChange} onAreaChange={handleAreaChange} onPriceTypeChange={handlePriceTypeChange} onToggleProduct={toggleOrderProduct} onUpdateItem={updateItem} /> : <WorkspaceState icon={meta.error ? AlertCircle : RefreshCw} title={meta.error || t(locale, 'loading')} loading={!meta.error} />;
+    const openEdit = (order) => {
+        if (!canManage || !editableOrderStatuses.includes(order.status)) return;
+        onNavigate?.(`${orderListPath}/${order.id}/edit`);
+    };
+    const showOrderActions = canManage && state.items.some((order) => editableOrderStatuses.includes(order.status) || order.status === 'pending');
 
-    if (detailId && viewing) return <OrderDetailPage key={`${detailId}-${viewing.order.status || ''}`} viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} cancelCandidate={cancelCandidate} actionMessage={actionMessage} actionError={state.error} onConfirm={confirmOrder} onRequestCancel={requestCancelOrder} onConfirmCancel={cancelOrder} onDismissCancel={() => setCancelCandidate(null)} onClose={() => onNavigate?.(orderListPath)} />;
+    if (formMode) return formOpen ? <OrderCreationWizard editing={editing} locale={locale} form={form} setForm={setForm} meta={meta} saving={saving} error={state.error || meta.error} step={wizardStep} setStep={setWizardStep} productSearch={productSearch} setProductSearch={setProductSearch} products={filteredOrderProducts} selectedItems={selectedOrderItems} preview={preview} basicComplete={orderBasicComplete} productsComplete={orderProductsComplete} pricingComplete={orderPricingComplete} canOpenStep={canOpenOrderStep} onClose={closeForm} onSubmit={submit} onCustomerChange={handleCustomerChange} onAreaChange={handleAreaChange} onPriceTypeChange={handlePriceTypeChange} onToggleProduct={toggleOrderProduct} onUpdateItem={updateItem} /> : <WorkspaceState icon={(state.error || meta.error) ? AlertCircle : RefreshCw} title={state.error || meta.error || t(locale, 'loading')} loading={!state.error && !meta.error} />;
+
+    if (detailId && viewing) return <OrderDetailPage key={`${detailId}-${viewing.order.status || ''}`} viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} cancelCandidate={cancelCandidate} actionMessage={actionMessage} actionError={state.error} onEdit={openEdit} onConfirm={confirmOrder} onRequestCancel={requestCancelOrder} onConfirmCancel={cancelOrder} onDismissCancel={() => setCancelCandidate(null)} onClose={() => onNavigate?.(orderListPath)} />;
 
     return (
         <section className="master-workspace order-workspace">
@@ -486,10 +562,10 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={ShoppingCart} title={t(locale, 'empty')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table order-table">
-                            <thead><tr><th>{t(locale, 'orders')}</th><th>{t(locale, 'recipientName')}</th><th>{t(locale, 'customer')}</th><th>{t(locale, 'area')} / {t(locale, 'route')}</th><th>{t(locale, 'address')}</th><th>{t(locale, 'date')}</th><th>{t(locale, 'paymentType')}</th><th>{t(locale, 'total')}</th><th>{t(locale, 'status')}</th><th className="order-actions-header">{t(locale, 'actions')}</th></tr></thead>
+                            <thead><tr><th>{t(locale, 'orders')}</th><th>{t(locale, 'recipientName')}</th><th>{t(locale, 'customer')}</th><th>{t(locale, 'area')} / {t(locale, 'route')}</th><th>{t(locale, 'address')}</th><th>{t(locale, 'date')}</th><th>{t(locale, 'paymentType')}</th><th>{t(locale, 'total')}</th><th>{t(locale, 'status')}</th>{showOrderActions && <th className="order-actions-header">{t(locale, 'actions')}</th>}</tr></thead>
                             <tbody>
                                 {state.items.map((order) => (
-                                    <tr key={order.id}>
+                                    <tr className="clickable-row" key={order.id} tabIndex={0} onClick={() => onNavigate?.(`${orderListPath}/${order.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${orderListPath}/${order.id}`); } }}>
                                         <td><strong>{order.code}</strong><span className="muted">{t(locale, 'updated')}: {formatDateTime(order.updated_at)}</span></td>
                                         <td><strong>{order.shop_name}</strong><span className="muted">{order.recipient_phone || '-'}</span></td>
                                         <td><strong>{order.customer_code || '-'}</strong><span className="muted">{order.customer_id ? t(locale, 'customer') : t(locale, 'guestCustomer')}</span></td>
@@ -498,12 +574,12 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
                                         <td>{order.order_date}<span className="muted">{order.requested_delivery_date || '-'}</span></td>
                                         <td>{t(locale, order.payment_type)}</td>
                                         <td className="numeric">{money(order.total)}</td>
-                                        <td><StatusBadge status={order.status} locale={locale} /></td>
-                                        <td className="order-actions-cell"><div className="row-actions">
-                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${orderListPath}/${order.id}`)}><Eye size={15} /></button>
-                                            {canManage && order.status === 'pending' && <button type="button" disabled={processingId === order.id} aria-label={t(locale, 'confirm')} title={t(locale, 'confirm')} onClick={() => confirmOrder(order)}><BadgeCheck size={15} /></button>}
-                                            {canManage && ['pending', 'confirmed', 'invoiced'].includes(order.status) && <button className="danger" type="button" disabled={processingId === `cancel-${order.id}`} aria-label={t(locale, 'cancelOrder')} title={t(locale, 'cancelOrder')} onClick={() => requestCancelOrder(order)}><Ban size={15} /></button>}
-                                        </div></td>
+                                        <td><StatusBadge status={order.status} locale={locale} />{order.driver_modified && <span className="driver-modified-status">Driver modified</span>}</td>
+                                        {showOrderActions && <td className="order-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions">
+                                            {editableOrderStatuses.includes(order.status) && <button type="button" aria-label={t(locale, 'editOrder')} title={t(locale, 'editOrder')} onClick={() => openEdit(order)}><Pencil size={15} /></button>}
+                                            {order.status === 'pending' && <button type="button" disabled={processingId === order.id} aria-label={t(locale, 'confirm')} title={t(locale, 'confirm')} onClick={() => confirmOrder(order)}><BadgeCheck size={15} /></button>}
+                                            {editableOrderStatuses.includes(order.status) && <button className="danger" type="button" disabled={processingId === `cancel-${order.id}`} aria-label={t(locale, 'cancelOrder')} title={t(locale, 'cancelOrder')} onClick={() => requestCancelOrder(order)}><Ban size={15} /></button>}
+                                        </div></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -519,7 +595,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, deta
     );
 }
 
-function OrderCreationWizard({ locale, form, setForm, meta, saving, error, step, setStep, productSearch, setProductSearch, products, selectedItems, preview, basicComplete, productsComplete, pricingComplete, canOpenStep, onClose, onSubmit, onCustomerChange, onAreaChange, onPriceTypeChange, onToggleProduct, onUpdateItem }) {
+function OrderCreationWizard({ editing = false, locale, form, setForm, meta, saving, error, step, setStep, productSearch, setProductSearch, products, selectedItems, preview, basicComplete, productsComplete, pricingComplete, canOpenStep, onClose, onSubmit, onCustomerChange, onAreaChange, onPriceTypeChange, onToggleProduct, onUpdateItem }) {
     const steps = [
         ['Customer & delivery', 'Recipient, route and order details'],
         ['Select products', 'Choose products for this order'],
@@ -535,14 +611,14 @@ function OrderCreationWizard({ locale, form, setForm, meta, saving, error, step,
 
     return (
         <section className="master-workspace stock-receive-form-page order-wizard-workspace">
+            <ShellBackButton onClick={() => step > 0 ? setStep((current) => current - 1) : onClose()} label={step > 0 ? "Previous step" : "Back to orders"} />
             <form className="master-dialog stock-dialog stock-wizard-dialog stock-wizard-page" onSubmit={onSubmit}>
                 <header className="stock-wizard-page-heading">
-                    <div><h1>{t(locale, 'newOrder')}</h1><p>Create and review a customer order before saving it.</p></div>
-                    <button className="button" type="button" onClick={onClose}><ArrowLeft size={16} />Back to orders</button>
+                    <div><h1>{editing ? t(locale, 'editOrder') : t(locale, 'newOrder')}</h1><p>{editing ? 'Update the order while keeping it available for cancellation.' : 'Create and review a customer order before saving it.'}</p></div>
                 </header>
 
                 <div className="stock-wizard-stepper-wrap">
-                    <ol className="trip-wizard-steps stock-receive-steps" aria-label={t(locale, 'newOrder')}>
+                    <ol className="trip-wizard-steps stock-receive-steps" aria-label={editing ? t(locale, 'editOrder') : t(locale, 'newOrder')}>
                         {steps.map(([label, hint], index) => <li key={label} className={step === index ? 'is-current' : index < step ? 'is-complete' : ''}>
                             <button type="button" disabled={!canOpenStep(index)} onClick={() => canOpenStep(index) && setStep(index)} aria-current={step === index ? 'step' : undefined}>
                                 <span>{index < step ? <Check size={13} /> : index + 1}</span><strong>{label}</strong><small>{hint}</small>
@@ -564,10 +640,8 @@ function OrderCreationWizard({ locale, form, setForm, meta, saving, error, step,
                             <label><span className="stock-field-label">{t(locale, 'recipientPhone')} <small>{t(locale, 'optional')}</small></span><input type="tel" maxLength="50" value={form.recipient_phone} onChange={(event) => setForm((current) => ({ ...current, recipient_phone: event.target.value }))} /></label>
                             <label className="span-2"><span className="stock-field-label">{t(locale, 'address')} *</span><textarea required rows="2" maxLength="500" value={form.delivery_address} onChange={(event) => setForm((current) => ({ ...current, delivery_address: event.target.value }))} /></label>
                             <label><span className="stock-field-label">{t(locale, 'priceType')}</span><select value={form.price_type_id} onChange={(event) => onPriceTypeChange(event.target.value)}><option value="">{t(locale, 'priceType')}</option>{meta.price_types.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-                            <label><span className="stock-field-label">{t(locale, 'paymentType')} *</span><select required value={form.payment_type} onChange={(event) => setForm((current) => ({ ...current, payment_type: event.target.value, credit_due_date: event.target.value === 'credit' ? (current.credit_due_date || datePlusDays(current.order_date, 7)) : '' }))}><option value="cash">{t(locale, 'cash')}</option>{form.customer_id && <option value="credit">{t(locale, 'credit')}</option>}</select></label>
                             <label><span className="stock-field-label">{t(locale, 'orderDate')} *</span><input required type="date" value={form.order_date} onChange={(event) => setForm((current) => ({ ...current, order_date: event.target.value, credit_due_date: current.payment_type === 'credit' && (!current.credit_due_date || current.credit_due_date < event.target.value) ? datePlusDays(event.target.value, 7) : current.credit_due_date }))} /></label>
                             <label><span className="stock-field-label">{t(locale, 'requestedDelivery')} <small>{t(locale, 'optional')}</small></span><input type="date" min={form.order_date} value={form.requested_delivery_date} onChange={(event) => setForm((current) => ({ ...current, requested_delivery_date: event.target.value }))} /></label>
-                            {form.payment_type === 'credit' && <label><span className="stock-field-label">{t(locale, 'dueDate')} *</span><input required type="date" min={form.order_date} value={form.credit_due_date} onChange={(event) => setForm((current) => ({ ...current, credit_due_date: event.target.value }))} /></label>}
                             <label className="span-2"><span className="stock-field-label">{t(locale, 'notes')} <small>{t(locale, 'optional')}</small></span><textarea rows="2" maxLength="500" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                         </div>
                     </section>}
@@ -584,21 +658,21 @@ function OrderCreationWizard({ locale, form, setForm, meta, saving, error, step,
                     {step === 2 && <section className="stock-wizard-stage">
                         <div className="stock-wizard-stage-heading"><p className="eyebrow">3 / 4</p><h3>Quantity and price</h3><span>Edit order values directly in the table.</span></div>
                         <div className="stock-line-summary"><span>{selectedItems.length} products</span><span>{t(locale, 'quantity')}: <strong>{totalQuantity.toLocaleString()}</strong></span><span>{t(locale, 'total')}: <strong>{money(preview.total)}</strong></span><button className="button" type="button" onClick={() => setStep(1)}>Select products</button></div>
-                        <div className="master-table-wrap stock-receive-line-wrap order-wizard-line-wrap"><table className="master-table price-matrix-table stock-receive-entry-table order-wizard-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'foc')}</th><th>{t(locale, 'price')}<small>MMK</small></th><th>{t(locale, 'discount')}<small>MMK</small></th><th>{t(locale, 'total')}<small>MMK</small></th><th>{t(locale, 'actions')}</th></tr></thead><tbody>{selectedItems.map((item) => {
+                        <div className="master-table-wrap stock-receive-line-wrap order-wizard-line-wrap"><table className="master-table price-matrix-table stock-receive-entry-table order-wizard-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'foc')}</th><th>{t(locale, 'price')}<small>MMK</small></th><th>{t(locale, 'discount')}<small>MMK</small></th><th>{t(locale, 'total')}<small>MMK</small></th><th className="table-actions-header">{t(locale, 'actions')}</th></tr></thead><tbody>{selectedItems.map((item) => {
                             const index = form.items.findIndex((line) => Number(line.product_id) === Number(item.product_id));
                             const lineTotal = Math.max(0, Number(item.quantity || 0) * Number(item.unit_price || 0) - Number(item.discount_amount || 0));
-                            return <tr key={item.product_id}><td><strong>{item.product?.name}</strong><span className="muted">{item.product?.sku} · {item.product?.unit}</span></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} quantity`} min="0" step="0.01" type="number" value={item.quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { quantity: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} FOC quantity`} min="0" step="0.01" type="number" value={item.foc_quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { foc_quantity: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} price`} required={Number(item.quantity || 0) > 0} min="0" step="1" type="number" value={item.unit_price} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { unit_price: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} discount`} min="0" step="1" type="number" value={item.discount_amount} disabled={Number(item.quantity || 0) <= 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { discount_amount: event.target.value })} /></td><td className="numeric stock-calculated-cell">{money(lineTotal)}</td><td className="stock-entry-actions"><button className="icon-button danger" type="button" aria-label={`Remove ${item.product?.name}`} onClick={() => onToggleProduct(item.product)}><Trash2 size={14} /></button></td></tr>;
+                            return <tr key={item.product_id}><td><strong>{item.product?.name}</strong><span className="muted">{item.product?.sku} · {item.product?.unit}</span></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} quantity`} min="0" step="0.01" type="number" value={item.quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { quantity: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} FOC quantity`} min="0" step="0.01" type="number" value={item.foc_quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { foc_quantity: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} price`} required={Number(item.quantity || 0) > 0} min="0" step="1" type="number" value={item.unit_price} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { unit_price: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${item.product?.name} discount`} min="0" step="1" type="number" value={item.discount_amount} disabled={Number(item.quantity || 0) <= 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onUpdateItem(index, { discount_amount: event.target.value })} /></td><td className="numeric stock-calculated-cell">{money(lineTotal)}</td><td className="table-actions-cell stock-entry-actions"><button className="icon-button danger" type="button" aria-label={`Remove ${item.product?.name}`} onClick={() => onToggleProduct(item.product)}><Trash2 size={14} /></button></td></tr>;
                         })}</tbody></table></div>
                     </section>}
 
                     {step === 3 && <section className="stock-wizard-stage">
                         <div className="stock-wizard-stage-heading"><p className="eyebrow">4 / 4</p><h3>Order review</h3><span>Confirm the customer, delivery, products, and totals before saving.</span></div>
-                        <dl className="stock-receive-review order-wizard-review"><div><dt>{t(locale, 'customer')}</dt><dd>{customer?.label || t(locale, 'guestCustomer')}</dd></div><div><dt>{t(locale, 'recipientName')}</dt><dd>{form.recipient_name}</dd></div><div><dt>{t(locale, 'area')} / {t(locale, 'route')}</dt><dd>{area?.name || '-'} / {route?.name || '-'}</dd></div><div><dt>{t(locale, 'priceType')}</dt><dd>{priceType?.name || '-'}</dd></div><div><dt>{t(locale, 'orderDate')}</dt><dd>{form.order_date}</dd></div><div><dt>{t(locale, 'requestedDelivery')}</dt><dd>{form.requested_delivery_date || '-'}</dd></div><div><dt>{t(locale, 'paymentType')}</dt><dd>{t(locale, form.payment_type)}</dd></div>{form.payment_type === 'credit' && <div><dt>{t(locale, 'dueDate')}</dt><dd>{form.credit_due_date}</dd></div>}<div><dt>{t(locale, 'total')}</dt><dd>{money(preview.total)}</dd></div><div className="stock-review-notes"><dt>{t(locale, 'address')}</dt><dd>{form.delivery_address}</dd></div>{form.notes && <div className="stock-review-notes"><dt>{t(locale, 'notes')}</dt><dd>{form.notes}</dd></div>}</dl>
+                        <dl className="stock-receive-review order-wizard-review"><div><dt>{t(locale, 'customer')}</dt><dd>{customer?.label || t(locale, 'guestCustomer')}</dd></div><div><dt>{t(locale, 'recipientName')}</dt><dd>{form.recipient_name}</dd></div><div><dt>{t(locale, 'area')} / {t(locale, 'route')}</dt><dd>{area?.name || '-'} / {route?.name || '-'}</dd></div><div><dt>{t(locale, 'priceType')}</dt><dd>{priceType?.name || '-'}</dd></div><div><dt>{t(locale, 'orderDate')}</dt><dd>{form.order_date}</dd></div><div><dt>{t(locale, 'requestedDelivery')}</dt><dd>{form.requested_delivery_date || '-'}</dd></div><div><dt>Settlement</dt><dd>Set by driver at delivery</dd></div><div><dt>{t(locale, 'total')}</dt><dd>{money(preview.total)}</dd></div><div className="stock-review-notes"><dt>{t(locale, 'address')}</dt><dd>{form.delivery_address}</dd></div>{form.notes && <div className="stock-review-notes"><dt>{t(locale, 'notes')}</dt><dd>{form.notes}</dd></div>}</dl>
                         <div className="master-table-wrap stock-receive-review-lines"><table className="master-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'foc')}</th><th>{t(locale, 'price')}</th><th>{t(locale, 'discount')}</th><th>{t(locale, 'total')}</th></tr></thead><tbody>{selectedItems.map((item) => <tr key={item.product_id}><td><strong>{item.product?.name}</strong><span className="muted">{item.product?.sku} · {item.product?.unit}</span></td><td className="numeric">{Number(item.quantity || 0).toLocaleString()}</td><td className="numeric">{Number(item.foc_quantity || 0).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.discount_amount)}</td><td className="numeric"><strong>{money(Math.max(0, Number(item.quantity) * Number(item.unit_price) - Number(item.discount_amount || 0)))}</strong></td></tr>)}</tbody></table></div>
                     </section>}
                 </div>
 
-                <footer className="stock-wizard-footer"><span className="muted">Step {step + 1} of 4</span><div><button className="button" type="button" onClick={onClose}>{t(locale, 'cancel')}</button>{step > 0 && <button className="button" type="button" onClick={() => setStep((current) => current - 1)}>Previous</button>}{step < 3 ? <button key="order-wizard-next" className="button primary" type="button" disabled={!canContinue} onClick={(event) => { event.preventDefault(); setStep((current) => current + 1); }}>Next</button> : <button key="order-wizard-save" className="button primary" type="submit" data-action="save-order" disabled={saving || !pricingComplete}><Save size={15} />{saving ? 'Saving…' : 'Save order'}</button>}</div></footer>
+                <footer className="stock-wizard-footer"><span className="muted">Step {step + 1} of 4</span><div><button className="button" type="button" onClick={onClose}>{t(locale, 'cancel')}</button>{step < 3 ? <button key="order-wizard-next" className="button primary" type="button" disabled={!canContinue} onClick={(event) => { event.preventDefault(); setStep((current) => current + 1); }}>Next</button> : <button key="order-wizard-save" className="button primary" type="submit" data-action="save-order" disabled={saving || !pricingComplete}><Save size={15} />{saving ? 'Saving…' : editing ? 'Save changes' : 'Save order'}</button>}</div></footer>
             </form>
         </section>
     );
@@ -625,7 +699,7 @@ function OrderCancelConfirmation({ order, locale, processingId, onConfirm, onDis
     </div>;
 }
 
-function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandidate, actionMessage, actionError, onConfirm, onRequestCancel, onConfirmCancel, onDismissCancel, onClose }) {
+function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandidate, actionMessage, actionError, onEdit, onConfirm, onRequestCancel, onConfirmCancel, onDismissCancel, onClose }) {
     const [state, setState] = useState(() => viewing.items ? { loading: false, order: viewing.order, items: viewing.items, error: '' } : { loading: true, order: viewing.order, items: [], error: '' });
 
     useEffect(() => {
@@ -637,9 +711,10 @@ function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandi
         return () => { mounted = false; };
     }, [locale, viewing]);
 
-    const actions = canManage && ['pending', 'confirmed', 'invoiced'].includes(state.order.status) ? <>
+    const actions = canManage && editableOrderStatuses.includes(state.order.status) ? <>
+        <button className="button" type="button" onClick={() => onEdit(state.order)}><Pencil size={15} /> {t(locale, 'editOrder')}</button>
         {canManage && state.order.status === 'pending' && <button className="button primary" type="button" disabled={processingId === state.order.id} onClick={() => onConfirm(state.order)}><BadgeCheck size={15} /> {t(locale, 'confirmOrder')}</button>}
-        {canManage && ['pending', 'confirmed', 'invoiced'].includes(state.order.status) && <button className="button danger" type="button" disabled={processingId === `cancel-${state.order.id}`} onClick={() => onRequestCancel(state.order)}><Ban size={15} /> {t(locale, 'cancelOrder')}</button>}
+        <button className="button danger" type="button" disabled={processingId === `cancel-${state.order.id}`} onClick={() => onRequestCancel(state.order)}><Ban size={15} /> {t(locale, 'cancelOrder')}</button>
     </> : null;
     const itemRows = useMemo(() => Object.values(state.items.reduce((rows, item) => {
         const key = String(item.product_id);
@@ -683,6 +758,7 @@ function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandi
             {actionMessage && <div className="inline-success"><BadgeCheck size={15} /> {actionMessage}</div>}
             {actionError && <div className="inline-error"><AlertCircle size={15} /> {actionError}</div>}
             {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
+            {!state.loading && state.order.driver_modified && <div className="driver-modified-banner"><Pencil size={16} /><span><strong>Driver modified the final sale</strong><small>{state.order.driver_modification_note || 'No modification note was added.'}</small></span></div>}
             {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : <>
                     <DetailPanel eyebrow={t(locale, 'details')} title={t(locale, 'order')}>
                         <dl className="record-page-facts">
@@ -692,7 +768,7 @@ function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandi
                             <div><dt>{t(locale, 'address')}</dt><dd>{state.order.delivery_address || '-'}</dd></div>
                             <div><dt>{t(locale, 'priceType')}</dt><dd>{state.order.price_type || '-'}</dd></div>
                             <div><dt>{t(locale, 'paymentType')}</dt><dd>{t(locale, state.order.payment_type)}</dd></div>
-                            <div><dt>{t(locale, 'dueDate')}</dt><dd>{state.order.payment_type === 'credit' ? (state.order.credit_due_date || '-') : 'Paid by cash'}</dd></div>
+                            <div><dt>{t(locale, 'dueDate')}</dt><dd>{state.order.payment_type === 'credit' ? (state.order.credit_due_date || '-') : state.order.payment_type === 'unsettled' ? 'Calculated at delivery' : 'Paid by cash'}</dd></div>
                             <div><dt>{t(locale, 'requestedDelivery')}</dt><dd>{state.order.requested_delivery_date || '-'}</dd></div>
                             <div><dt>{t(locale, 'notes')}</dt><dd>{state.order.notes || '-'}</dd></div>
                         </dl>
@@ -779,6 +855,7 @@ export function InvoicesScreen({ locale, canManage = false, detailId = null, onN
             setProcessingId(null);
         }
     };
+    const showInvoiceActions = canManage && state.items.some((invoice) => invoice.status !== 'cancelled');
 
     if (detailId && viewing) return <InvoiceDetailPage viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} onIssue={issueInvoice} onCancelInvoice={cancelInvoice} onClose={() => onNavigate?.(invoiceListPath)} />;
 
@@ -822,10 +899,10 @@ export function InvoicesScreen({ locale, canManage = false, detailId = null, onN
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={FileText} title={t(locale, 'empty')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table invoice-table">
-                            <thead><tr><th>{t(locale, 'invoices')}</th><th>{t(locale, 'order')}</th><th>{t(locale, 'customer')}</th><th>{t(locale, 'invoiceDate')}</th><th>{t(locale, 'dueDate')}</th><th>{t(locale, 'total')}</th><th>{t(locale, 'status')}</th><th className="invoice-actions-header">{t(locale, 'actions')}</th></tr></thead>
+                            <thead><tr><th>{t(locale, 'invoices')}</th><th>{t(locale, 'order')}</th><th>{t(locale, 'customer')}</th><th>{t(locale, 'invoiceDate')}</th><th>{t(locale, 'dueDate')}</th><th>{t(locale, 'total')}</th><th>{t(locale, 'status')}</th>{showInvoiceActions && <th className="invoice-actions-header">{t(locale, 'actions')}</th>}</tr></thead>
                             <tbody>
                                 {state.items.map((invoice) => (
-                                    <tr key={invoice.id}>
+                                    <tr className="clickable-row" key={invoice.id} tabIndex={0} onClick={() => onNavigate?.(`${invoiceListPath}/${invoice.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${invoiceListPath}/${invoice.id}`); } }}>
                                         <td><strong>{invoice.code}</strong><span className="muted">{t(locale, 'updated')}: {formatDateTime(invoice.updated_at)}</span></td>
                                         <td><strong>{invoice.order_code || '-'}</strong><span className="muted">{t(locale, invoice.payment_type || '')}</span></td>
                                         <td><strong>{invoice.shop_name}</strong><span className="muted">{invoice.customer_code || t(locale, 'guestCustomer')} · {invoice.area || '-'} / {invoice.route || '-'}</span></td>
@@ -833,11 +910,10 @@ export function InvoicesScreen({ locale, canManage = false, detailId = null, onN
                                         <td>{invoice.due_date || '-'}</td>
                                         <td className="numeric">{money(invoice.total)}</td>
                                         <td><StatusBadge status={invoice.status} locale={locale} /></td>
-                                        <td className="invoice-actions-cell"><div className="row-actions">
-                                            <button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${invoiceListPath}/${invoice.id}`)}><Eye size={15} /></button>
-                                            {canManage && invoice.status === 'draft' && <button type="button" disabled={processingId === `issue-${invoice.id}`} aria-label={t(locale, 'issueInvoice')} title={t(locale, 'issueInvoice')} onClick={() => issueInvoice(invoice)}><BadgeCheck size={15} /></button>}
-                                            {canManage && invoice.status !== 'cancelled' && <button className="danger" type="button" disabled={processingId === `cancel-${invoice.id}`} aria-label={t(locale, 'cancelInvoice')} title={t(locale, 'cancelInvoice')} onClick={() => cancelInvoice(invoice)}><Ban size={15} /></button>}
-                                        </div></td>
+                                        {showInvoiceActions && <td className="invoice-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions">
+                                            {invoice.status === 'draft' && <button type="button" disabled={processingId === `issue-${invoice.id}`} aria-label={t(locale, 'issueInvoice')} title={t(locale, 'issueInvoice')} onClick={() => issueInvoice(invoice)}><BadgeCheck size={15} /></button>}
+                                            {invoice.status !== 'cancelled' && <button className="danger" type="button" disabled={processingId === `cancel-${invoice.id}`} aria-label={t(locale, 'cancelInvoice')} title={t(locale, 'cancelInvoice')} onClick={() => cancelInvoice(invoice)}><Ban size={15} /></button>}
+                                        </div></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -986,14 +1062,16 @@ function OrderCustomerCombobox({ customers, value, onChange, locale = 'en', requ
     </div>;
 }
 
-export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
+export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOrderId = null, repeatOrderId = null, onShowForm, onShowList, onViewOrder }) {
     const today = new Date().toISOString().slice(0, 10);
-    const [mode, setMode] = useState('list');
-    const [filters, setFilters] = useState({ search: '', status: '' });
+    const [mode, setMode] = useState(initialMode);
+    const [filters, setFilters] = useState({ search: '', status: '', date_from: '', date_to: '' });
     const [meta, setMeta] = useState({ loading: true, app: appId, customers: [], products: [], price_types: [], areas: [], routes: [], error: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
     const [saving, setSaving] = useState(false);
     const [showDetails, setShowDetails] = useState(false);
+    const [wizardStep, setWizardStep] = useState(1);
+    const [productSearch, setProductSearch] = useState('');
     const [refreshKey, setRefreshKey] = useState(0);
     const [form, setForm] = useState(() => ({
         customer_id: '',
@@ -1005,8 +1083,12 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
         requested_delivery_date: '',
         payment_type: 'credit',
         notes: '',
-        items: [{ product_id: '', quantity: 1, item_type: 'sale' }],
+        promotion_title: '',
+        order_discount: '',
+        items: appId === 'sales' ? [] : [{ product_id: '', quantity: 1, item_type: 'sale' }],
     }));
+
+    useEffect(() => setMode(initialMode), [initialMode]);
 
     useEffect(() => {
         let mounted = true;
@@ -1034,6 +1116,8 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
                 params: {
                     search: filters.search || undefined,
                     status: filters.status || undefined,
+                    date_from: filters.date_from || undefined,
+                    date_to: filters.date_to || undefined,
                     per_page: 12,
                 },
             }).then(({ data }) => {
@@ -1045,8 +1129,42 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
         return () => { mounted = false; window.clearTimeout(timer); };
     }, [filters, locale, refreshKey]);
 
+    useEffect(() => {
+        const sourceId = editOrderId || repeatOrderId;
+        if (!sourceId || meta.loading) return undefined;
+        let active = true;
+        window.axios.get(`${apiBase('mobileOrders')}/${sourceId}`).then(({ data }) => {
+            if (!active) return;
+            const order = data.data.order;
+            const noteLines = (order.notes || '').split('\n');
+            const promotionLine = noteLines.find((line) => line.startsWith('Promotion: '));
+            setForm({
+                customer_id: order.customer_id || '', area_id: order.area_id || '', route_id: order.route_id || '',
+                recipient_name: order.recipient_name || '', recipient_phone: order.recipient_phone || '', delivery_address: order.delivery_address || '',
+                requested_delivery_date: repeatOrderId ? '' : (order.requested_delivery_date || ''), payment_type: order.payment_type || 'cash',
+                notes: repeatOrderId ? `Repeated from ${order.code}` : noteLines.filter((line) => line !== promotionLine).join('\n'),
+                promotion_title: repeatOrderId ? (promotionLine?.slice('Promotion: '.length) || '') : (promotionLine?.slice('Promotion: '.length) || ''),
+                order_discount: order.discount_total || '',
+                items: meta.app === 'sales'
+                    ? orderItemsForEditing(data.data.items)
+                    : data.data.items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, item_type: item.item_type, discount_amount: item.discount_amount || 0 })),
+            });
+            setShowDetails(true);
+            setWizardStep(1);
+            setMode('form');
+        }).catch((error) => active && setState((current) => ({ ...current, error: requestMessage(error, locale) })));
+        return () => { active = false; };
+    }, [editOrderId, locale, meta.loading, repeatOrderId]);
+
     const selectedCustomer = meta.customers.find((customer) => Number(customer.id) === Number(form.customer_id));
-    const preview = calculateMobilePreview(form.items, meta.products, selectedCustomer?.price_type_id || defaultPriceTypeId(null, meta.price_types));
+    const priceTypeId = selectedCustomer?.price_type_id || defaultPriceTypeId(null, meta.price_types);
+    const preview = meta.app === 'sales'
+        ? calculateSalesWizardPreview(form.items, meta.products, priceTypeId, form.order_discount)
+        : calculateMobilePreview(form.items, meta.products, priceTypeId);
+    const selectedProductRows = form.items.filter((item) => Number(item.quantity || 0) > 0 || Number(item.foc_quantity || 0) > 0);
+    const visibleProducts = meta.products.filter((product) => !productSearch.trim() || `${product.sku} ${product.name}`.toLocaleLowerCase().includes(productSearch.trim().toLocaleLowerCase()));
+    const basicStepComplete = Boolean(form.area_id && form.route_id && form.recipient_name.trim() && form.delivery_address.trim());
+    const productStepComplete = selectedProductRows.length > 0;
 
     const resetForm = () => {
         setForm({
@@ -1059,12 +1177,37 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
             requested_delivery_date: '',
             payment_type: meta.app === 'client' ? 'credit' : 'cash',
             notes: '',
-            items: [{ product_id: '', quantity: 1, item_type: 'sale' }],
+            promotion_title: '',
+            order_discount: '',
+            items: meta.app === 'sales' ? [] : [{ product_id: '', quantity: 1, item_type: 'sale' }],
         });
+        setWizardStep(1);
+        setProductSearch('');
+    };
+
+    const toggleMode = () => {
+        if (mode === 'form') {
+            if (onShowList) onShowList();
+            else setMode('list');
+            return;
+        }
+
+        if (onShowForm) onShowForm();
+        else setMode('form');
     };
 
     const updateItem = (index, patch) => {
         setForm((current) => ({ ...current, items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) }));
+    };
+
+    const updateProductRow = (productId, patch) => {
+        setForm((current) => {
+            const rowIndex = current.items.findIndex((item) => Number(item.product_id) === Number(productId));
+            if (rowIndex < 0) {
+                return { ...current, items: [...current.items, { ...blankItem, product_id: productId, quantity: 0, foc_quantity: 0, remarks: '', ...patch }] };
+            }
+            return { ...current, items: current.items.map((item, index) => index === rowIndex ? { ...item, ...patch } : item) };
+        });
     };
 
     const selectMobileCustomer = (customerId) => {
@@ -1088,6 +1231,12 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
 
     const submit = async (event) => {
         event.preventDefault();
+        if (meta.app === 'sales' && wizardStep < 3) {
+            if (wizardStep === 1 && basicStepComplete) setWizardStep(2);
+            if (wizardStep === 2 && productStepComplete) setWizardStep(3);
+            return;
+        }
+        const saveAs = event.nativeEvent.submitter?.value === 'draft' ? 'draft' : 'pending';
         setSaving(true);
         setState((current) => ({ ...current, error: '' }));
 
@@ -1102,15 +1251,25 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
                 delivery_address: form.delivery_address,
                 order_date: today,
                 requested_delivery_date: form.requested_delivery_date || null,
-                payment_type: form.payment_type,
-                notes: form.notes || null,
-                items: form.items.filter((item) => item.product_id).map((item) => ({
-                    product_id: Number(item.product_id),
-                    quantity: Number(item.quantity || 0),
-                    item_type: item.item_type || 'sale',
-                })),
+                notes: [form.notes?.trim(), form.promotion_title?.trim() ? `Promotion: ${form.promotion_title.trim()}` : ''].filter(Boolean).join('\n') || null,
+                save_as: saveAs,
+                items: meta.app === 'sales'
+                    ? distributeOrderDiscount(form.items, meta.products, priceTypeId, form.order_discount).flatMap((item) => {
+                        const rows = [];
+                        if (Number(item.quantity || 0) > 0) rows.push({ product_id: Number(item.product_id), quantity: Number(item.quantity), item_type: 'sale', discount_amount: Number(item.allocated_discount || 0) });
+                        if (Number(item.foc_quantity || 0) > 0) rows.push({ product_id: Number(item.product_id), quantity: Number(item.foc_quantity), item_type: 'foc', discount_amount: 0 });
+                        return rows;
+                    })
+                    : form.items.filter((item) => item.product_id).map((item) => ({
+                        product_id: Number(item.product_id),
+                        quantity: Number(item.quantity || 0),
+                        item_type: item.item_type || 'sale',
+                        discount_amount: Number(item.discount_amount || 0),
+                    })),
             };
-            const { data } = await window.axios.post(apiBase('mobileOrders'), payload);
+            const { data } = editOrderId
+                ? await window.axios.put(`${apiBase('mobileOrders')}/${editOrderId}`, payload)
+                : await window.axios.post(apiBase('mobileOrders'), payload);
             resetForm();
             setMode('list');
             setRefreshKey((key) => key + 1);
@@ -1124,13 +1283,14 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
 
     return (
         <div className="mobile-master-stack mobile-order-workspace">
+            {mode === 'form' && <ShellBackButton label={meta.app === 'sales' && wizardStep > 1 ? 'Previous step' : t(locale, 'cancel')} onClick={() => meta.app === 'sales' && wizardStep > 1 ? setWizardStep((current) => current - 1) : toggleMode()} />}
             <div className="mobile-master-heading">
                 <div>
                     <p className="eyebrow">{t(locale, 'orders')}</p>
-                    <h1>{mode === 'form' ? t(locale, 'newOrder') : t(locale, 'orderHistory')}</h1>
+                    <h1>{mode === 'form' ? (editOrderId ? t(locale, 'editOrder') : t(locale, 'newOrder')) : t(locale, 'orderHistory')}</h1>
                     <span className="muted">{meta.app === 'sales' ? t(locale, 'customers') : t(locale, 'mobileOrdersHint')}</span>
                 </div>
-                <button className="icon-button primary-icon" type="button" aria-label={mode === 'form' ? t(locale, 'cancel') : t(locale, 'newOrder')} onClick={() => setMode((current) => current === 'form' ? 'list' : 'form')}>{mode === 'form' ? <X size={18} /> : <Plus size={18} />}</button>
+                {mode !== 'form' && <button className="icon-button primary-icon" type="button" aria-label={t(locale, 'newOrder')} onClick={toggleMode}><Plus size={18} /></button>}
             </div>
 
             <section className="mobile-order-summary">
@@ -1143,10 +1303,68 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
 
             {mode === 'form' ? (
                 <form className="mobile-order-form" onSubmit={submit}>
+                    {meta.app === 'sales' && <>
+                        <nav className="sales-order-wizard-steps" aria-label="Order creation progress">
+                            {[
+                                [1, 'Basic information'],
+                                [2, 'Products & FOC'],
+                                [3, 'Promotion & review'],
+                            ].map(([step, label]) => <button className={wizardStep === step ? 'is-current' : wizardStep > step ? 'is-complete' : ''} type="button" key={step} disabled={(step === 2 && !basicStepComplete) || (step === 3 && (!basicStepComplete || !productStepComplete))} onClick={() => setWizardStep(step)}><span>{wizardStep > step ? <Check size={13} /> : step}</span><small>{label}</small></button>)}
+                        </nav>
+
+                        {wizardStep === 1 && <section className="sales-order-wizard-panel">
+                            <header><span>Step 1 of 3</span><h2>Basic information</h2><p>Select the customer and confirm the delivery details.</p></header>
+                            <div className="mobile-order-customer-field"><span>{t(locale, 'optionalCustomer')}</span><OrderCustomerCombobox customers={meta.customers} value={form.customer_id} locale={locale} required={false} onChange={selectMobileCustomer} /></div>
+                            <div className="mobile-order-destination">
+                                <label>{t(locale, 'area')}<select required value={form.area_id} onChange={(event) => selectMobileArea(event.target.value)}><option value="">{t(locale, 'area')}</option>{meta.areas.map((area) => <option key={area.id} value={area.id}>{area.code} - {area.name}</option>)}</select></label>
+                                <label>{t(locale, 'route')}<select required value={form.route_id} onChange={(event) => setForm((current) => ({ ...current, route_id: event.target.value }))}><option value="">{t(locale, 'route')}</option>{meta.routes.filter((route) => Number(route.area_id) === Number(form.area_id)).map((route) => <option key={route.id} value={route.id}>{route.code} - {route.name}</option>)}</select></label>
+                                <label>{t(locale, 'recipientName')}<input required maxLength="150" value={form.recipient_name} onChange={(event) => setForm((current) => ({ ...current, recipient_name: event.target.value }))} /></label>
+                                <label>{t(locale, 'recipientPhone')}<input type="tel" maxLength="50" value={form.recipient_phone} onChange={(event) => setForm((current) => ({ ...current, recipient_phone: event.target.value }))} /></label>
+                                <label className="wide">{t(locale, 'address')}<textarea required rows="3" maxLength="500" value={form.delivery_address} onChange={(event) => setForm((current) => ({ ...current, delivery_address: event.target.value }))} /></label>
+                                <label className="wide">{t(locale, 'requestedDelivery')}<input type="date" value={form.requested_delivery_date} onChange={(event) => setForm((current) => ({ ...current, requested_delivery_date: event.target.value }))} /></label>
+                                <label className="wide">{t(locale, 'notes')}<textarea rows="3" maxLength="500" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
+                            </div>
+                            <div className="sales-order-wizard-actions"><button className="button primary" type="button" disabled={!basicStepComplete} onClick={() => setWizardStep(2)}>Continue to products</button></div>
+                        </section>}
+
+                        {wizardStep === 2 && <section className="sales-order-wizard-panel">
+                            <header><span>Step 2 of 3</span><h2>Product quantities & FOC</h2><p>Enter quantities directly in the grid. Leave unused products blank.</p></header>
+                            <label className="sales-product-search"><Search size={15} /><input type="search" value={productSearch} placeholder="Search SKU or product" onChange={(event) => setProductSearch(event.target.value)} /></label>
+                            <div className="sales-product-grid-wrap">
+                                <table className="sales-product-grid">
+                                    <thead><tr><th>Product</th><th>Qty</th><th>FOC</th></tr></thead>
+                                    <tbody>{visibleProducts.map((product) => {
+                                        const row = form.items.find((item) => Number(item.product_id) === Number(product.id));
+                                        return <tr className={Number(row?.quantity || 0) > 0 || Number(row?.foc_quantity || 0) > 0 ? 'has-value' : ''} key={product.id}>
+                                            <td><strong>{product.name}</strong><small><span>{product.sku} · {product.unit}</span><b>{money(priceForProduct(product, priceTypeId))}</b></small></td>
+                                            <td className="editable"><input aria-label={`${product.name} quantity`} type="number" min="0" step="0.01" inputMode="decimal" value={row?.quantity || ''} onChange={(event) => updateProductRow(product.id, { quantity: event.target.value })} /></td>
+                                            <td className="editable foc"><input aria-label={`${product.name} FOC quantity`} type="number" min="0" step="0.01" inputMode="decimal" value={row?.foc_quantity || ''} onChange={(event) => updateProductRow(product.id, { foc_quantity: event.target.value })} /></td>
+                                        </tr>;
+                                    })}</tbody>
+                                </table>
+                            </div>
+                            <div className="sales-product-grid-summary"><span>{selectedProductRows.length} products selected</span><strong>{Number(preview.saleQuantity || 0).toLocaleString()} sale · {Number(preview.focQuantity || 0).toLocaleString()} FOC</strong></div>
+                            <div className="sales-order-wizard-actions"><button className="button primary" type="button" disabled={!productStepComplete} onClick={() => setWizardStep(3)}>Continue to review</button></div>
+                        </section>}
+
+                        {wizardStep === 3 && <section className="sales-order-wizard-panel">
+                            <header><span>Step 3 of 3</span><h2>Promotion, discount & review</h2><p>Add an order promotion title and discount, then review the final order.</p></header>
+                            <div className="sales-order-promotion-fields">
+                                <label>Promotion title<input maxLength="150" value={form.promotion_title} placeholder="Optional campaign or promotion" onChange={(event) => setForm((current) => ({ ...current, promotion_title: event.target.value }))} /></label>
+                                <label>Order discount (MMK)<input type="number" min="0" max={preview.subtotal} step="1" inputMode="decimal" value={form.order_discount} placeholder="0" onChange={(event) => setForm((current) => ({ ...current, order_discount: event.target.value }))} /></label>
+                            </div>
+                            <section className="sales-order-final-review">
+                                <header><strong>Final review</strong><span>{selectedCustomer?.shop_name || form.recipient_name}</span></header>
+                                <dl><div><dt>Destination</dt><dd>{form.delivery_address}</dd></div><div><dt>Products</dt><dd>{selectedProductRows.length}</dd></div><div><dt>Sale quantity</dt><dd>{Number(preview.saleQuantity || 0).toLocaleString()}</dd></div><div><dt>FOC quantity</dt><dd>{Number(preview.focQuantity || 0).toLocaleString()}</dd></div><div><dt>Subtotal</dt><dd>{money(preview.subtotal)}</dd></div><div><dt>Discount</dt><dd>-{money(preview.discount)}</dd></div><div className="total"><dt>Order total</dt><dd>{money(preview.total)}</dd></div></dl>
+                            </section>
+                            <div className="sales-order-wizard-actions split"><button className="button" type="submit" value="draft" disabled={saving || meta.loading}><Save size={16} /> {t(locale, 'saveDraft')}</button><button className="button primary" type="submit" value="pending" disabled={saving || meta.loading}><Save size={16} /> {editOrderId ? t(locale, 'updateOrder') : t(locale, 'saveMobileOrder')}</button></div>
+                        </section>}
+                    </>}
+
+                    {meta.app !== 'sales' && <>
                     {meta.app === 'sales' && (
                         <div className="mobile-order-customer-field"><span>{t(locale, 'optionalCustomer')}</span><OrderCustomerCombobox customers={meta.customers} value={form.customer_id} locale={locale} required={false} onChange={selectMobileCustomer} /></div>
                     )}
-                    {selectedCustomer && <MobileCreditCard customer={selectedCustomer} previewTotal={preview.total} locale={locale} />}
                     <div className="mobile-order-destination">
                         <label>{t(locale, 'area')}<select required value={form.area_id} onChange={(event) => selectMobileArea(event.target.value)}><option value="">{t(locale, 'area')}</option>{meta.areas.map((area) => <option key={area.id} value={area.id}>{area.code} - {area.name}</option>)}</select></label>
                         <label>{t(locale, 'route')}<select required value={form.route_id} onChange={(event) => setForm((current) => ({ ...current, route_id: event.target.value }))}><option value="">{t(locale, 'route')}</option>{meta.routes.filter((route) => Number(route.area_id) === Number(form.area_id)).map((route) => <option key={route.id} value={route.id}>{route.code} - {route.name}</option>)}</select></label>
@@ -1156,27 +1374,32 @@ export function MobileOrdersScreen({ appId, locale, onViewOrder }) {
                     </div>
                     <div className="mobile-order-lines">
                         {form.items.map((item, index) => (
-                            <div className="mobile-order-line" key={index}>
+                            <div className={`mobile-order-line ${item.item_type === 'foc' ? 'is-foc' : ''}`} key={index}>
                                 <label>{t(locale, 'product')}<select required value={item.product_id} onChange={(event) => updateItem(index, { product_id: event.target.value })}><option value="">{t(locale, 'product')}</option>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select></label>
+                                {item.product_id && (() => { const product = meta.products.find((value) => Number(value.id) === Number(item.product_id)); const priceTypeId = selectedCustomer?.price_type_id || defaultPriceTypeId(null, meta.price_types); return <div className="mobile-product-availability"><span><Package size={14} />{t(locale, 'availableStock')}: <strong>{Number(product?.available_stock || 0).toLocaleString()} {product?.unit}</strong></span><span>{t(locale, 'unitPrice')}: <strong>{item.item_type === 'foc' ? `${t(locale, 'foc')} · ${money(0)}` : money(priceForProduct(product, priceTypeId))}</strong></span></div>; })()}
                                 <div className="mobile-order-line-grid">
                                     <label>{t(locale, 'quantity')}<input required type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} /></label>
-                                    {meta.app === 'sales' && <label>{t(locale, 'itemType')}<select value={item.item_type} onChange={(event) => updateItem(index, { item_type: event.target.value })}><option value="sale">{t(locale, 'sale')}</option><option value="foc">{t(locale, 'foc')}</option></select></label>}
+                                    {meta.app === 'sales' && <label>{t(locale, 'itemType')}<select value={item.item_type} onChange={(event) => updateItem(index, { item_type: event.target.value, ...(event.target.value === 'foc' ? { discount_amount: 0 } : {}) })}><option value="sale">{t(locale, 'sale')}</option><option value="foc">{t(locale, 'foc')} · No charge</option></select></label>}
                                 </div>
+                                {meta.app === 'sales' && item.item_type !== 'foc' && <label>{t(locale, 'discount')}<input type="number" min="0" step="1" value={item.discount_amount || 0} onChange={(event) => updateItem(index, { discount_amount: event.target.value })} /></label>}
                                 {form.items.length > 1 && <button className="button danger" type="button" onClick={() => setForm((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={15} /> {t(locale, 'remove')}</button>}
                             </div>
                         ))}
                     </div>
-                    <button className="button" type="button" onClick={() => setForm((current) => ({ ...current, items: [...current.items, { product_id: '', quantity: 1, item_type: 'sale' }] }))}><Plus size={15} /> {t(locale, 'addItem')}</button>
+                    <div className="mobile-order-add-actions"><button className="button" type="button" onClick={() => setForm((current) => ({ ...current, items: [...current.items, { product_id: '', quantity: 1, item_type: 'sale', discount_amount: 0 }] }))}><Plus size={15} /> Add sale item</button>{meta.app === 'sales' && <button className="button mobile-add-foc" type="button" onClick={() => setForm((current) => ({ ...current, items: [...current.items, { product_id: '', quantity: 1, item_type: 'foc', discount_amount: 0 }] }))}><Plus size={15} /> Add FOC item</button>}</div>
                     <button className="button mobile-order-more" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((value) => !value)}>{showDetails ? '−' : '+'} {locale === 'my' ? 'ပို့ဆောင်ရက်၊ ငွေပေးချေမှုနှင့် မှတ်ချက်' : 'Delivery date, payment & notes'}</button>
-                    {showDetails && <div className="mobile-order-optional"><label>{t(locale, 'requestedDelivery')}<input type="date" value={form.requested_delivery_date} onChange={(event) => setForm((current) => ({ ...current, requested_delivery_date: event.target.value }))} /></label><label>{t(locale, 'paymentType')}<select required value={form.payment_type} onChange={(event) => setForm((current) => ({ ...current, payment_type: event.target.value }))}><option value="cash">{t(locale, 'cash')}</option>{form.customer_id && <option value="credit">{t(locale, 'credit')}</option>}</select></label><label>{t(locale, 'notes')}<textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label></div>}
+                    {showDetails && <div className="mobile-order-optional"><label>{t(locale, 'requestedDelivery')}<input type="date" value={form.requested_delivery_date} onChange={(event) => setForm((current) => ({ ...current, requested_delivery_date: event.target.value }))} /></label><label>{t(locale, 'notes')}<textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label></div>}
                     <div className="mobile-order-preview"><span>{t(locale, 'total')}</span><strong>{money(preview.total)}</strong></div>
-                    <button className="button primary" type="submit" disabled={saving || meta.loading}><Save size={16} /> {t(locale, 'saveMobileOrder')}</button>
+                    <div className="mobile-order-save-actions"><button className="button" type="submit" value="draft" disabled={saving || meta.loading}><Save size={16} /> {t(locale, 'saveDraft')}</button><button className="button primary" type="submit" value="pending" disabled={saving || meta.loading}><Save size={16} /> {editOrderId ? t(locale, 'updateOrder') : t(locale, 'saveMobileOrder')}</button></div>
+                    </>}
                 </form>
             ) : (
                 <section className="mobile-master-section">
                     <div className="mobile-order-filters">
                         <label className="mobile-search"><Search size={16} /><input value={filters.search} placeholder={t(locale, 'searchOrders')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
-                        <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">{t(locale, 'allStatuses')}</option>{['pending', 'confirmed', 'invoiced', 'assigned', 'delivering', 'delivered', 'cancelled'].map((status) => <option value={status} key={status}>{t(locale, status)}</option>)}</select>
+                        <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">{t(locale, 'allStatuses')}</option>{['draft', 'pending', 'confirmed', 'invoiced', 'assigned', 'delivering', 'delivered', 'cancelled'].map((status) => <option value={status} key={status}>{t(locale, status)}</option>)}</select>
+                        <input aria-label="From date" type="date" value={filters.date_from} max={filters.date_to} onChange={(event) => setFilters((current) => ({ ...current, date_from: event.target.value }))} />
+                        <input aria-label="To date" type="date" value={filters.date_to} min={filters.date_from} onChange={(event) => setFilters((current) => ({ ...current, date_to: event.target.value }))} />
                     </div>
                     {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={ShoppingCart} title={t(locale, 'empty')} compact /> : (
                         <div className="mobile-order-list">
@@ -1243,7 +1466,7 @@ function MobileOrderDetailSheet({ viewing, locale, onClose }) {
                     <>
                         <section className="mobile-order-detail-total"><small>{state.order.shop_name}</small><strong>{money(state.order.total)}</strong><span>{state.order.order_date} · <StatusBadge status={state.order.status} locale={locale} /></span></section>
                         <MobileOrderTimeline order={state.order} locale={locale} />
-                        <div className="mobile-order-detail-items">{state.items.map((item) => <div key={item.id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></span><span>{Number(item.quantity).toLocaleString()} × {money(item.unit_price)}</span></div>)}</div>
+                        <MobileOrderItemsTable items={state.items} order={state.order} locale={locale} />
                         <dl className="mobile-info-list">
                             <div><dt>{t(locale, 'area')} / {t(locale, 'route')}</dt><dd>{state.order.area || '-'} / {state.order.route || '-'}</dd></div>
                             <div><dt>{t(locale, 'address')}</dt><dd>{state.order.delivery_address || '-'}</dd></div>
@@ -1260,8 +1483,10 @@ function MobileOrderDetailSheet({ viewing, locale, onClose }) {
     );
 }
 
-export function MobileOrderDetailPage({ orderId, locale, onBack }) {
+export function MobileOrderDetailPage({ orderId, locale, onBack, onEdit, onRepeat }) {
     const [state, setState] = useState({ loading: true, order: null, items: [], error: '' });
+    const [processing, setProcessing] = useState(false);
+    const [attempt, setAttempt] = useState(0);
 
     useEffect(() => {
         let mounted = true;
@@ -1270,20 +1495,34 @@ export function MobileOrderDetailPage({ orderId, locale, onBack }) {
             .then(({ data }) => mounted && setState({ loading: false, order: data.data.order, items: data.data.items, error: '' }))
             .catch((error) => mounted && setState({ loading: false, order: null, items: [], error: requestMessage(error, locale) }));
         return () => { mounted = false; };
-    }, [locale, orderId]);
+    }, [attempt, locale, orderId]);
+
+    const cancelMobileOrder = async () => {
+        if (!window.confirm(t(locale, 'cancelOrderPrompt'))) return;
+        setProcessing(true);
+        try {
+            await window.axios.post(`${apiBase('mobileOrders')}/${orderId}/cancel`);
+            setAttempt((value) => value + 1);
+        } catch (error) {
+            setState((current) => ({ ...current, error: requestMessage(error, locale) }));
+        } finally {
+            setProcessing(false);
+        }
+    };
 
     return (
         <div className="mobile-master-stack mobile-order-detail-page">
+            <ShellBackButton onClick={onBack} label={t(locale, 'cancel')} />
             <div className="mobile-master-heading">
-                <button className="icon-button" type="button" onClick={onBack} aria-label={t(locale, 'cancel')}><ArrowLeft size={18} /></button>
                 <div><p className="eyebrow">{t(locale, 'details')}</p><h1>{state.order?.code || t(locale, 'order')}</h1></div>
             </div>
             <section className="mobile-master-section mobile-order-detail-content">
                 {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={onBack} actionLabel={t(locale, 'cancel')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : (
                     <div>
                         <section className="mobile-order-detail-total"><small>{state.order.shop_name}</small><strong>{money(state.order.total)}</strong><span>{state.order.order_date} · <StatusBadge status={state.order.status} locale={locale} /></span></section>
+                        <div className="mobile-order-detail-actions"><button className="button" type="button" onClick={() => onRepeat?.(state.order.id)}><Copy size={14} />{t(locale, 'repeatOrder')}</button>{['draft', 'pending'].includes(state.order.status) && state.order.source_app === 'sales' && <button className="button" type="button" onClick={() => onEdit?.(state.order.id)}><Pencil size={14} />{t(locale, 'editOrder')}</button>}<button className="button" type="button" onClick={() => window.print()}><Printer size={14} />{t(locale, 'printOrder')}</button>{['draft', 'pending'].includes(state.order.status) && state.order.source_app === 'sales' && <button className="button danger" type="button" disabled={processing} onClick={cancelMobileOrder}><Ban size={14} />{t(locale, 'cancelOrder')}</button>}</div>
                         <MobileOrderTimeline order={state.order} locale={locale} />
-                        <div className="mobile-order-detail-items">{state.items.map((item) => <div key={item.id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></span><span>{Number(item.quantity).toLocaleString()} × {money(item.unit_price)}</span></div>)}</div>
+                        <MobileOrderItemsTable items={state.items} order={state.order} locale={locale} />
                         <dl className="mobile-info-list">
                             <div><dt>{t(locale, 'area')} / {t(locale, 'route')}</dt><dd>{state.order.area || '-'} / {state.order.route || '-'}</dd></div>
                             <div><dt>{t(locale, 'address')}</dt><dd>{state.order.delivery_address || '-'}</dd></div>
@@ -1304,13 +1543,10 @@ function MobileOrderTimeline({ order, locale }) {
     const steps = [
         { key: 'pending', label: t(locale, 'submitted'), meta: order.order_date },
         { key: 'confirmed', label: t(locale, 'confirmed'), meta: order.confirmed_at ? formatDateTime(order.confirmed_at) : null },
-        { key: 'invoiced', label: t(locale, 'invoiced'), meta: order.invoice_code ? `${order.invoice_code} · ${order.invoice_date || '-'}` : null },
-        { key: 'assigned', label: t(locale, 'assigned'), meta: t(locale, 'delivery') },
-        { key: 'delivering', label: t(locale, 'delivering'), meta: t(locale, 'delivery') },
-        { key: 'delivered', label: t(locale, 'delivered'), meta: t(locale, 'delivery') },
+        { key: 'delivered', label: t(locale, 'delivered'), meta: order.status === 'delivered' ? t(locale, 'delivered') : null },
     ];
-    const currentIndex = steps.findIndex((step) => step.key === order.status);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const statusStage = { draft: 0, pending: 0, confirmed: 1, invoiced: 1, assigned: 1, delivering: 1, delivered: 2 };
+    const currentIndex = statusStage[order.status] ?? 0;
 
     return (
         <section className="mobile-order-timeline" aria-label={t(locale, 'statusTimeline')}>
@@ -1319,7 +1555,7 @@ function MobileOrderTimeline({ order, locale }) {
                 {steps.map((step, index) => {
                     const state = order.status === 'cancelled'
                         ? (index === 0 ? 'done' : 'pending')
-                        : index < safeCurrentIndex ? 'done' : index === safeCurrentIndex ? 'current' : 'pending';
+                        : index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending';
                     return (
                         <li className={state} key={step.key}>
                             <span />
@@ -1331,6 +1567,40 @@ function MobileOrderTimeline({ order, locale }) {
                     );
                 })}
             </ol>
+        </section>
+    );
+}
+
+function MobileOrderItemsTable({ items, order, locale }) {
+    const rows = [...items.reduce((grouped, item) => {
+        const key = item.product_id || item.product_sku;
+        if (!grouped.has(key)) grouped.set(key, { ...item, quantity: 0, foc_quantity: 0, discount_amount: 0, line_total: 0 });
+        const row = grouped.get(key);
+        if (item.item_type === 'foc') row.foc_quantity += Number(item.quantity || 0);
+        else {
+            row.quantity += Number(item.quantity || 0);
+            row.unit_price = Number(item.unit_price || 0);
+            row.discount_amount += Number(item.discount_amount || 0);
+            row.line_total += Number(item.line_total || 0);
+        }
+        return grouped;
+    }, new Map()).values()];
+
+    return (
+        <section className="mobile-order-items-invoice">
+            <div className="mobile-order-items-scroll">
+                <table>
+                    <caption><span>Order items</span><small>Amounts in MMK</small></caption>
+                    <colgroup><col className="mobile-item-product-col" /><col className="mobile-item-qty-col" /><col className="mobile-item-foc-col" /><col className="mobile-item-money-col" /><col className="mobile-item-money-col" /><col className="mobile-item-money-col" /></colgroup>
+                    <thead><tr><th>{t(locale, 'product')}</th><th>Qty</th><th>{t(locale, 'foc')}</th><th>{t(locale, 'price')}</th><th>Disc.</th><th>{t(locale, 'total')}</th></tr></thead>
+                    <tbody>{rows.map((item) => <tr key={item.product_id || item.product_sku}><td><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></td><td>{Number(item.quantity).toLocaleString()}</td><td className={Number(item.foc_quantity) > 0 ? 'is-foc-value' : ''}>{Number(item.foc_quantity).toLocaleString()}</td><td>{Number(item.unit_price || 0).toLocaleString()}</td><td>{Number(item.discount_amount || 0).toLocaleString()}</td><td>{Number(item.line_total || 0).toLocaleString()}</td></tr>)}</tbody>
+                </table>
+            </div>
+            <dl className="mobile-order-invoice-totals">
+                <div><dt>{t(locale, 'subtotal')}</dt><dd>{money(order.subtotal)}</dd></div>
+                {Number(order.discount_total || 0) > 0 && <div><dt>Discount</dt><dd>-{money(order.discount_total)}</dd></div>}
+                <div className="is-total"><dt>{t(locale, 'total')}</dt><dd>{money(order.total)}</dd></div>
+            </dl>
         </section>
     );
 }
@@ -1451,14 +1721,14 @@ function SalesReturnCreatePage({ locale, canManage, onBack, onSaved }) {
 
     return (
         <section className="master-workspace return-create-page">
+            <ShellBackButton onClick={onBack} label="Back to sales returns" />
             <div className="master-heading">
                 <div><p className="eyebrow">Sales return</p><h1>New sales return</h1><span className="muted">Return products from an original delivered order and settle the customer balance.</span></div>
-                <button className="button" type="button" onClick={onBack}><ArrowLeft size={16} /> Back</button>
             </div>
 
             {(error || meta.error) && <div className="inline-error"><AlertCircle size={15} /> {error || meta.error}</div>}
             {meta.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : meta.returnable_orders.length === 0 ? (
-                <div className="master-panel"><WorkspaceState icon={RotateCcw} title="No delivered orders have returnable products." action={onBack} actionLabel="Back to sales returns" /></div>
+                <div className="master-panel"><WorkspaceState icon={RotateCcw} title="No delivered orders have returnable products." /></div>
             ) : (
                 <form onSubmit={submit}>
                     <div className="master-panel return-source-panel">
@@ -1668,17 +1938,16 @@ function AdjustmentScreen({ type, title, hint, icon: Icon, actionLabel, locale, 
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Icon} title={t(locale, 'empty')} compact /> : (
                     <div className="master-table-wrap">
                         <table className="master-table adjustment-table">
-                            <thead><tr><th>{t(locale, 'adjustmentRecord')}</th><th>{t(locale, 'customer')}</th><th>{t(locale, 'entryDate')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'value')}</th><th>{t(locale, 'status')}</th><th>{t(locale, 'actions')}</th></tr></thead>
+                            <thead><tr><th>{t(locale, 'adjustmentRecord')}</th><th>{t(locale, 'customer')}</th><th>{t(locale, 'entryDate')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'value')}</th><th>{t(locale, 'status')}</th></tr></thead>
                             <tbody>
                                 {state.items.map((record) => (
-                                    <tr key={record.id}>
+                                    <tr className="clickable-row" key={record.id} tabIndex={0} onClick={() => onNavigate?.(`${listPath}/${record.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onNavigate?.(`${listPath}/${record.id}`); } }}>
                                         <td><strong>{record.code}</strong><span className="muted">{t(locale, 'updated')}: {formatDateTime(record.updated_at)}</span></td>
                                         <td><strong>{record.shop_name}</strong><span className="muted">{record.customer_code} · {record.route || '-'}</span></td>
                                         <td>{record.entry_date}</td>
                                         <td className="numeric">{Number(record.quantity_total || 0).toLocaleString()}</td>
                                         <td className="numeric">{money(record.total)}</td>
                                         <td><StatusBadge status={record.status} locale={locale} /></td>
-                                        <td className="row-actions"><button type="button" aria-label={t(locale, 'details')} title={t(locale, 'details')} onClick={() => onNavigate?.(`${listPath}/${record.id}`)}><Eye size={15} /></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1837,9 +2106,52 @@ function calculateMobilePreview(items, products, priceTypeId) {
         const product = products.find((product) => Number(product.id) === Number(item.product_id));
         const price = item.item_type === 'foc' ? 0 : Number(priceForProduct(product, priceTypeId) || 0);
         const subtotal = Number(item.quantity || 0) * price;
+        const discount = item.item_type === 'foc' ? 0 : Number(item.discount_amount || 0);
 
-        return { total: carry.total + subtotal };
+        return { total: carry.total + Math.max(subtotal - discount, 0) };
     }, { total: 0 });
+}
+
+function calculateSalesWizardPreview(items, products, priceTypeId, orderDiscount = 0) {
+    const totals = items.reduce((carry, item) => {
+        const product = products.find((value) => Number(value.id) === Number(item.product_id));
+        const saleQuantity = Number(item.quantity || 0);
+        const focQuantity = Number(item.foc_quantity || 0);
+        const subtotal = saleQuantity * Number(priceForProduct(product, priceTypeId) || 0);
+
+        return {
+            saleQuantity: carry.saleQuantity + saleQuantity,
+            focQuantity: carry.focQuantity + focQuantity,
+            subtotal: carry.subtotal + subtotal,
+            discount: carry.discount,
+            total: carry.total + subtotal,
+        };
+    }, { saleQuantity: 0, focQuantity: 0, subtotal: 0, discount: 0, total: 0 });
+    totals.discount = Math.min(Math.max(Number(orderDiscount || 0), 0), totals.subtotal);
+    totals.total = Math.max(totals.subtotal - totals.discount, 0);
+    return totals;
+}
+
+function distributeOrderDiscount(items, products, priceTypeId, requestedDiscount) {
+    const saleRows = items.map((item) => {
+        const product = products.find((value) => Number(value.id) === Number(item.product_id));
+        const subtotal = Number(item.quantity || 0) * Number(priceForProduct(product, priceTypeId) || 0);
+        return { ...item, lineSubtotal: subtotal, allocated_discount: 0 };
+    });
+    const subtotal = saleRows.reduce((total, item) => total + item.lineSubtotal, 0);
+    let remainingDiscount = Math.min(Math.max(Number(requestedDiscount || 0), 0), subtotal);
+    let remainingSubtotal = subtotal;
+
+    return saleRows.map((item, index) => {
+        if (item.lineSubtotal <= 0 || remainingDiscount <= 0) return item;
+        const discount = index === saleRows.length - 1 || remainingSubtotal <= 0
+            ? remainingDiscount
+            : Math.min(item.lineSubtotal, remainingDiscount * item.lineSubtotal / remainingSubtotal);
+        item.allocated_discount = discount;
+        remainingDiscount = Math.max(remainingDiscount - discount, 0);
+        remainingSubtotal = Math.max(remainingSubtotal - item.lineSubtotal, 0);
+        return item;
+    });
 }
 
 function adjustmentPreview(items) {

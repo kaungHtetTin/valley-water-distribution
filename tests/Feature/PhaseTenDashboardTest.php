@@ -119,11 +119,16 @@ class PhaseTenDashboardTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.app', 'sales')
             ->assertJsonPath('data.summary.monthly_sales', 117000)
+            ->assertJsonPath('data.summary.yearly_sales', 117000)
             ->assertJsonPath('data.summary.target', 150000)
             ->assertJsonPath('data.summary.achievement', 78)
             ->assertJsonPath('data.summary.orders_count', 1)
             ->assertJsonPath('data.summary.assigned_route', 'Taunggyi North')
-            ->assertJsonCount(6, 'data.trend');
+            ->assertJsonCount(6, 'data.trend')
+            ->assertJsonCount(5, 'data.month_trend')
+            ->assertJsonCount(12, 'data.year_trend')
+            ->assertJsonPath('data.month_trend.2.value', 117000)
+            ->assertJsonPath('data.year_trend.7.value', 117000);
         $this->assertArrayNotHasKey('collections', $response->json('data.summary'));
     }
 

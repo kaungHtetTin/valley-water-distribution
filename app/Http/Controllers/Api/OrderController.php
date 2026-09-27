@@ -144,7 +144,6 @@ class OrderController extends Controller
             ? DB::table('customers')->where('is_active', true)->find($validated['customer_id'])
             : null;
         abort_if(! empty($validated['customer_id']) && ! $customer, 422, 'The selected customer is not active.');
-        abort_if(! $customer && $validated['payment_type'] === 'credit', 422, 'Credit orders require a registered customer.');
         $destination = $this->resolveDestination($validated, $customer);
         $orderDate = Carbon::parse($validated['order_date'] ?? now());
         $priceTypeId = $validated['price_type_id'] ?? $customer->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
@@ -164,8 +163,8 @@ class OrderController extends Controller
                 'source_app' => 'office',
                 'order_date' => $orderDate->toDateString(),
                 'requested_delivery_date' => $validated['requested_delivery_date'] ?? null,
-                'credit_due_date' => $validated['payment_type'] === 'credit' ? ($validated['credit_due_date'] ?? $orderDate->copy()->addDays(7)->toDateString()) : null,
-                'payment_type' => $validated['payment_type'],
+                'credit_due_date' => null,
+                'payment_type' => 'unsettled',
                 'status' => 'pending',
                 'subtotal' => $totals['subtotal'],
                 'discount_total' => $totals['discount_total'],
@@ -214,6 +213,98 @@ class OrderController extends Controller
         return ApiResponse::success('Order confirmed and ready for delivery.', [
             'order' => $this->payload($orderPayload),
             'financial_record' => ['id' => $invoice->id, 'code' => $invoice->code, 'status' => $invoice->status],
+        ]);
+    }
+
+    public function update(Request $request, Order $order)
+    {
+        $this->authorizePermission($request, 'office.orders.manage');
+        abort_unless(in_array($order->status, ['pending', 'confirmed', 'invoiced'], true), 409, 'Only unassigned orders can be edited.');
+
+        $validated = $request->validate($this->rules());
+        $customer = ! empty($validated['customer_id'])
+            ? DB::table('customers')->where('is_active', true)->find($validated['customer_id'])
+            : null;
+        abort_if(! empty($validated['customer_id']) && ! $customer, 422, 'The selected customer is not active.');
+        $destination = $this->resolveDestination($validated, $customer);
+        $orderDate = Carbon::parse($validated['order_date'] ?? $order->order_date);
+        $priceTypeId = $validated['price_type_id'] ?? $customer?->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
+        $items = $this->normalizeItems($validated['items'], $priceTypeId, $orderDate);
+
+        DB::transaction(function () use ($customer, $destination, $items, $order, $orderDate, $priceTypeId, $validated) {
+            $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
+            abort_unless(in_array($lockedOrder->status, ['pending', 'confirmed', 'invoiced'], true), 409, 'Only unassigned orders can be edited.');
+
+            $invoice = Invoice::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('status', '!=', 'cancelled')
+                ->lockForUpdate()
+                ->first();
+            if ($invoice) {
+                abort_if(
+                    DB::table('collections')->where('invoice_id', $invoice->id)->where('status', 'approved')->exists(),
+                    409,
+                    'An order with recorded payments cannot be edited.'
+                );
+            }
+
+            $totals = $this->totals($items);
+            $lockedOrder->update([
+                'customer_id' => $customer?->id,
+                'area_id' => $destination['area_id'],
+                'route_id' => $destination['route_id'],
+                'price_type_id' => $priceTypeId,
+                'recipient_name' => $destination['recipient_name'],
+                'recipient_phone' => $destination['recipient_phone'],
+                'delivery_address' => $destination['delivery_address'],
+                'order_date' => $orderDate->toDateString(),
+                'requested_delivery_date' => $validated['requested_delivery_date'] ?? null,
+                'credit_due_date' => null,
+                'payment_type' => 'unsettled',
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'tax_total' => 0,
+                'total' => $totals['total'],
+                'notes' => $validated['notes'] ?? null,
+            ]);
+            $lockedOrder->items()->delete();
+            foreach ($items as $item) {
+                $lockedOrder->items()->create($item);
+            }
+
+            if ($invoice) {
+                $invoice->update([
+                    'customer_id' => $customer?->id,
+                    'area_id' => $destination['area_id'],
+                    'route_id' => $destination['route_id'],
+                    'recipient_name' => $destination['recipient_name'],
+                    'recipient_phone' => $destination['recipient_phone'],
+                    'delivery_address' => $destination['delivery_address'],
+                    'invoice_date' => $orderDate->toDateString(),
+                    'due_date' => null,
+                    'subtotal' => $totals['subtotal'],
+                    'discount_total' => $totals['discount_total'],
+                    'tax_total' => 0,
+                    'total' => $totals['total'],
+                    'notes' => $validated['notes'] ?? null,
+                ]);
+                $invoice->items()->delete();
+                foreach ($items as $item) {
+                    $invoice->items()->create($item);
+                }
+                FinancialTransaction::query()
+                    ->where('reference_type', 'invoice')
+                    ->where('reference_id', $invoice->id)
+                    ->delete();
+            }
+        });
+
+        $orderPayload = $this->baseQuery()->select($this->orderColumns())->where('orders.id', $order->id)->first();
+        abort_unless($orderPayload, 404);
+
+        return ApiResponse::success('Order updated.', [
+            'order' => $this->payload($orderPayload),
+            'items' => $order->items()->orderBy('id')->get()->map(fn ($item) => $this->itemPayload($item)),
         ]);
     }
 
@@ -274,7 +365,7 @@ class OrderController extends Controller
             'order_date' => ['nullable', 'date'],
             'requested_delivery_date' => ['nullable', 'date'],
             'credit_due_date' => ['nullable', 'date', 'after_or_equal:order_date'],
-            'payment_type' => ['required', Rule::in(['cash', 'credit'])],
+            'payment_type' => ['nullable', Rule::in(['cash', 'credit', 'unsettled'])],
             'notes' => ['nullable', 'string', 'max:500'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
@@ -388,6 +479,7 @@ class OrderController extends Controller
             'delivery_address' => $order->delivery_address,
             'contact_name' => $order->contact_name,
             'route' => $order->route,
+            'price_type_id' => $order->price_type_id,
             'price_type' => $order->price_type,
             'source_app' => $order->source_app,
             'order_date' => Carbon::parse($order->order_date)->toDateString(),
@@ -395,6 +487,9 @@ class OrderController extends Controller
             'credit_due_date' => $order->credit_due_date ? Carbon::parse($order->credit_due_date)->toDateString() : null,
             'payment_type' => $order->payment_type,
             'status' => $order->status,
+            'driver_modified' => (bool) $order->driver_modified,
+            'driver_modification_note' => $order->driver_modification_note,
+            'driver_modified_at' => $order->driver_modified_at ? Carbon::parse($order->driver_modified_at)->toDateTimeString() : null,
             'subtotal' => (float) $order->subtotal,
             'discount_total' => (float) $order->discount_total,
             'tax_total' => (float) $order->tax_total,
@@ -465,6 +560,7 @@ class OrderController extends Controller
                 'product_sku' => $item->product_sku,
                 'product_name' => $item->product_name,
                 'unit' => $item->unit,
+                'item_type' => $item->item_type,
                 'quantity' => $item->quantity,
                 'unit_price' => $item->unit_price,
                 'discount_amount' => $item->discount_amount,

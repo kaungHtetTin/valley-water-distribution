@@ -43,6 +43,8 @@ class DatabaseSeeder extends Seeder
             'sales.route' => ['view'],
             'sales.orders' => ['view', 'create'],
             'sales.customers' => ['view', 'create'],
+            'sales.attendance' => ['view'],
+            'sales.payroll' => ['view'],
             'driver.home' => ['view'],
             'driver.profile' => ['view'],
             'driver.vehicle' => ['view'],
@@ -126,11 +128,12 @@ class DatabaseSeeder extends Seeder
             'Sales Representative' => [
                 'sales.home.view',
                 'sales.profile.view',
-                'sales.route.view',
                 'sales.orders.view',
                 'sales.orders.create',
                 'sales.customers.view',
                 'sales.customers.create',
+                'sales.attendance.view',
+                'sales.payroll.view',
             ],
             'Driver' => [
                 'driver.home.view',
@@ -297,6 +300,7 @@ class DatabaseSeeder extends Seeder
         }
 
         DB::table('attendance_locations')->updateOrInsert(['code' => 'ATT-OFFICE'], [
+            'warehouse_id' => $mainWarehouseId,
             'name' => 'Taunggyi Office',
             'address' => 'East Circular Road, Taunggyi',
             'latitude' => 20.7892000,
@@ -717,6 +721,63 @@ class DatabaseSeeder extends Seeder
         $officeUserId = User::where('email', 'office@valley.test')->value('id');
         $salesUserId = User::where('email', 'sales@valley.test')->value('id');
         $driverUserId = User::where('email', 'driver@valley.test')->value('id');
+
+        // KPI profile creation cannot rely on the migration because a clean
+        // install runs migrations before demo employees are seeded. Assign the
+        // workbook defaults after employees exist so fresh installs and test
+        // databases have the same usable KPI setup as upgraded databases.
+        foreach ([
+            'sales' => 'SALES-REP-V1',
+            'driver' => 'DRIVER-V1',
+            'warehouse' => 'STOREKEEPER-V1',
+        ] as $employeeType => $templateCode) {
+            $template = DB::table('kpi_templates')->where('code', $templateCode)->first();
+            if (! $template) {
+                continue;
+            }
+
+            $metrics = DB::table('kpi_template_metrics')
+                ->where('kpi_template_id', $template->id)
+                ->where('calculation_type', '!=', 'manual')
+                ->whereNotNull('default_target')
+                ->get(['id', 'default_target']);
+
+            $employees = DB::table('employees')
+                ->where('employee_type', $employeeType)
+                ->where('is_active', true)
+                ->get(['id']);
+
+            foreach ($employees as $employee) {
+                DB::table('kpi_staff_profiles')->updateOrInsert(
+                    ['employee_id' => $employee->id],
+                    [
+                        'kpi_template_id' => $template->id,
+                        'target_bonus' => $template->target_bonus,
+                        'updated_by' => $officeUserId,
+                        'updated_at' => $now,
+                        'created_at' => $now,
+                    ]
+                );
+
+                $profileId = DB::table('kpi_staff_profiles')
+                    ->where('employee_id', $employee->id)
+                    ->value('id');
+
+                foreach ($metrics as $metric) {
+                    DB::table('kpi_staff_target_items')->updateOrInsert(
+                        [
+                            'kpi_staff_profile_id' => $profileId,
+                            'kpi_template_metric_id' => $metric->id,
+                        ],
+                        [
+                            'target_value' => $metric->default_target,
+                            'updated_at' => $now,
+                            'created_at' => $now,
+                        ]
+                    );
+                }
+            }
+        }
 
         DB::table('uat_issues')->updateOrInsert(['code' => 'UAT-202608-0001'], [
             'module' => 'delivery',

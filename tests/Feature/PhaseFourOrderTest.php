@@ -34,6 +34,7 @@ class PhaseFourOrderTest extends TestCase
             ]],
         ])->assertCreated()
             ->assertJsonPath('data.order.customer_id', null)
+            ->assertJsonPath('data.order.payment_type', 'unsettled')
             ->assertJsonPath('data.order.shop_name', 'North Walk-in Shop')
             ->assertJsonPath('data.order.area_id', $route->area_id)
             ->assertJsonPath('data.order.route_id', $route->id)
@@ -59,12 +60,9 @@ class PhaseFourOrderTest extends TestCase
             'recipient_name' => 'North Walk-in Shop',
             'status' => 'issued',
         ]);
-        $this->assertDatabaseHas('financial_transactions', [
+        $this->assertDatabaseMissing('financial_transactions', [
             'reference_type' => 'invoice',
             'reference_id' => $invoiceId,
-            'direction' => 'in',
-            'category' => 'cash_sale',
-            'amount' => 9000,
         ]);
 
         $delivery = $this->postJson('/api/deliveries', [
@@ -86,7 +84,7 @@ class PhaseFourOrderTest extends TestCase
         ]);
     }
 
-    public function test_guest_order_requires_a_valid_destination_and_cash_payment()
+    public function test_guest_order_requires_a_valid_destination_and_defers_payment_to_delivery()
     {
         $this->seed();
         $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
@@ -104,8 +102,9 @@ class PhaseFourOrderTest extends TestCase
         ];
 
         $this->postJson('/api/orders', $payload)
-            ->assertUnprocessable()
-            ->assertJsonPath('message', 'Credit orders require a registered customer.');
+            ->assertCreated()
+            ->assertJsonPath('data.order.payment_type', 'unsettled')
+            ->assertJsonPath('data.order.credit_due_date', null);
 
         $otherAreaId = DB::table('areas')->where('id', '!=', $route->area_id)->value('id');
         $this->postJson('/api/orders', array_merge($payload, ['payment_type' => 'cash', 'area_id' => $otherAreaId]))
@@ -136,6 +135,7 @@ class PhaseFourOrderTest extends TestCase
             ],
         ])->assertCreated()
             ->assertJsonPath('data.order.status', 'pending')
+            ->assertJsonPath('data.order.payment_type', 'unsettled')
             ->assertJsonPath('data.order.total', 30000)
             ->assertJsonPath('data.items.0.product_sku', 'VAL-5G')
             ->assertJsonPath('data.items.0.unit_price', 3000);
@@ -165,18 +165,19 @@ class PhaseFourOrderTest extends TestCase
         $this->postJson("/api/orders/{$orderId}/confirm")
             ->assertOk()
             ->assertJsonPath('data.order.status', 'invoiced')
-            ->assertJsonPath('data.order.credit_due_date', '2026-08-25')
+            ->assertJsonPath('data.order.credit_due_date', null)
             ->assertJsonPath('data.financial_record.status', 'issued');
 
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'status' => 'invoiced',
-            'credit_due_date' => '2026-08-25 00:00:00',
+            'payment_type' => 'unsettled',
+            'credit_due_date' => null,
         ]);
         $this->assertDatabaseHas('invoices', [
             'order_id' => $orderId,
             'status' => 'issued',
-            'due_date' => '2026-08-25 00:00:00',
+            'due_date' => null,
         ]);
 
         $this->postJson("/api/orders/{$orderId}/confirm")
@@ -190,6 +191,7 @@ class PhaseFourOrderTest extends TestCase
 
         $this->getJson('/api/orders')->assertUnauthorized();
         $this->getJson('/api/orders/meta')->assertUnauthorized();
+        $this->putJson("/api/orders/{$orderId}", [])->assertUnauthorized();
         $this->postJson("/api/orders/{$orderId}/cancel")->assertUnauthorized();
 
         $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail())
@@ -197,7 +199,91 @@ class PhaseFourOrderTest extends TestCase
             ->assertForbidden();
 
         $this->postJson('/api/orders', [])->assertForbidden();
+        $this->putJson("/api/orders/{$orderId}", [])->assertForbidden();
         $this->postJson("/api/orders/{$orderId}/cancel")->assertForbidden();
+    }
+
+    public function test_office_can_edit_an_invoiced_order_and_still_cancel_it()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+
+        $customerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
+        $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
+        $created = $this->postJson('/api/orders', [
+            'customer_id' => $customerId,
+            'order_date' => '2026-09-15',
+            'items' => [[
+                'product_id' => $productId,
+                'quantity' => 4,
+                'item_type' => 'sale',
+            ]],
+        ])->assertCreated();
+        $orderId = $created->json('data.order.id');
+        $confirmed = $this->postJson("/api/orders/{$orderId}/confirm")
+            ->assertOk()
+            ->assertJsonPath('data.order.status', 'invoiced');
+        $invoiceId = $confirmed->json('data.financial_record.id');
+
+        $this->putJson("/api/orders/{$orderId}", [
+            'customer_id' => $customerId,
+            'order_date' => '2026-09-16',
+            'requested_delivery_date' => '2026-09-18',
+            'notes' => 'Edited before assignment',
+            'items' => [
+                [
+                    'product_id' => $productId,
+                    'quantity' => 2,
+                    'unit_price' => 4000,
+                    'discount_amount' => 500,
+                    'item_type' => 'sale',
+                ],
+                [
+                    'product_id' => $productId,
+                    'quantity' => 1,
+                    'unit_price' => 0,
+                    'discount_amount' => 0,
+                    'item_type' => 'foc',
+                ],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.order.status', 'invoiced')
+            ->assertJsonPath('data.order.payment_type', 'unsettled')
+            ->assertJsonPath('data.order.subtotal', 8000)
+            ->assertJsonPath('data.order.discount_total', 500)
+            ->assertJsonPath('data.order.total', 7500)
+            ->assertJsonCount(2, 'data.items');
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoiceId,
+            'due_date' => null,
+            'subtotal' => 8000,
+            'discount_total' => 500,
+            'total' => 7500,
+            'notes' => 'Edited before assignment',
+        ]);
+        $this->assertSame('2026-09-16', substr((string) DB::table('invoices')->where('id', $invoiceId)->value('invoice_date'), 0, 10));
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $invoiceId,
+            'product_id' => $productId,
+            'item_type' => 'sale',
+            'quantity' => 2,
+            'unit_price' => 4000,
+            'discount_amount' => 500,
+            'line_total' => 7500,
+        ]);
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $invoiceId,
+            'product_id' => $productId,
+            'item_type' => 'foc',
+            'quantity' => 1,
+            'line_total' => 0,
+        ]);
+
+        $this->postJson("/api/orders/{$orderId}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.order.status', 'cancelled');
+        $this->assertDatabaseHas('invoices', ['id' => $invoiceId, 'status' => 'cancelled']);
     }
 
     public function test_office_can_cancel_pending_and_confirmed_orders()

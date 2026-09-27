@@ -17,6 +17,15 @@ class CustomerCreditService
         $payments = (float) DB::table('collections')
             ->where('customer_id', $customerId)
             ->where('status', 'approved')
+            ->where(function ($query) {
+                $query->whereNull('invoice_id')->orWhereExists(function ($subquery) {
+                    $subquery->selectRaw('1')
+                        ->from('invoices')
+                        ->join('orders', 'invoices.order_id', '=', 'orders.id')
+                        ->whereColumn('invoices.id', 'collections.invoice_id')
+                        ->where('orders.payment_type', 'credit');
+                });
+            })
             ->sum('amount');
         $returnCredits = (float) DB::table('orders as returns')
             ->join('orders as originals', 'returns.original_order_id', '=', 'originals.id')

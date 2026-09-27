@@ -48,12 +48,13 @@ class PhaseFourInvoiceTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'status' => 'invoiced',
+            'payment_type' => 'unsettled',
         ]);
         $this->assertDatabaseHas('invoices', [
             'id' => $invoiceId,
             'order_id' => $orderId,
             'total' => 24000,
-            'due_date' => '2026-08-28 00:00:00',
+            'due_date' => null,
             'status' => 'issued',
         ]);
 

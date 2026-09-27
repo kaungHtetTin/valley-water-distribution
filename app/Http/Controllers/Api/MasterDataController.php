@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class MasterDataController extends Controller
 {
@@ -197,10 +198,16 @@ class MasterDataController extends Controller
     {
         $this->authorizeOffice($request, 'office.master-data.manage');
         $config = $this->resource($resource);
+        if ($resource === 'customers' && ! $request->filled('credit_limit')) {
+            $request->merge([
+                'credit_limit' => (float) (DB::table('companies')->oldest('id')->value('default_customer_credit_limit') ?? 500000),
+            ]);
+        }
         $validated = $request->validate($this->rules($resource));
+        $assignedVehicleId = $resource === 'employees' ? ($validated['assigned_vehicle_id'] ?? null) : null;
         $permissionIds = $validated['permission_ids'] ?? [];
         $password = $validated['password'] ?? null;
-        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation']);
+        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation'], $validated['assigned_vehicle_id']);
         if ($resource === 'roles') {
             $validated['allowed_apps'] = json_encode($validated['allowed_apps'] ?? []);
         }
@@ -216,7 +223,7 @@ class MasterDataController extends Controller
         $validated['created_at'] = now();
         $validated['updated_at'] = now();
 
-        $id = DB::transaction(function () use ($config, $generateCode, $password, $permissionIds, $resource, $validated) {
+        $id = DB::transaction(function () use ($config, $generateCode, $password, $permissionIds, $resource, $validated, $assignedVehicleId) {
             $id = DB::table($config['table'])->insertGetId($validated);
             if ($generateCode) {
                 $validated['code'] = $this->generatedCode($resource, $id);
@@ -224,6 +231,9 @@ class MasterDataController extends Controller
             }
             $this->syncRolePermissions($resource, $id, $permissionIds);
             $this->syncLoginAccount($resource, $id, $validated, $password);
+            if ($resource === 'employees') {
+                $this->syncAssignedVehicle($id, $validated['employee_type'] === 'driver' ? $assignedVehicleId : null);
+            }
 
             return $id;
         });
@@ -240,9 +250,11 @@ class MasterDataController extends Controller
         abort_unless(DB::table($config['table'])->where('id', $id)->exists(), 404);
         $previousRoleName = $resource === 'roles' ? DB::table('roles')->where('id', $id)->value('name') : null;
         $validated = $request->validate($this->rules($resource, $id));
+        $hasVehicleAssignment = $resource === 'employees' && array_key_exists('assigned_vehicle_id', $validated);
+        $assignedVehicleId = $hasVehicleAssignment ? $validated['assigned_vehicle_id'] : null;
         $permissionIds = $validated['permission_ids'] ?? null;
         $password = $validated['password'] ?? null;
-        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation']);
+        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation'], $validated['assigned_vehicle_id']);
         if ($resource === 'roles') {
             $validated['allowed_apps'] = json_encode($validated['allowed_apps'] ?? []);
         }
@@ -254,7 +266,7 @@ class MasterDataController extends Controller
         }
         $validated['updated_at'] = now();
 
-        DB::transaction(function () use ($id, $config, $password, $permissionIds, $previousRoleName, $resource, $validated) {
+        DB::transaction(function () use ($id, $config, $password, $permissionIds, $previousRoleName, $resource, $validated, $hasVehicleAssignment, $assignedVehicleId) {
             DB::table($config['table'])->where('id', $id)->update($validated);
             if ($resource === 'roles' && $previousRoleName !== $validated['name']) {
                 User::query()->where('role', $previousRoleName)->update(['role' => $validated['name']]);
@@ -264,6 +276,9 @@ class MasterDataController extends Controller
             }
             $record = (array) DB::table($config['table'])->find($id);
             $this->syncLoginAccount($resource, $id, $record, $password);
+            if ($resource === 'employees' && ($hasVehicleAssignment || $validated['employee_type'] !== 'driver')) {
+                $this->syncAssignedVehicle($id, $validated['employee_type'] === 'driver' ? $assignedVehicleId : null);
+            }
         });
 
         return ApiResponse::success("{$config['singular']} updated.", [
@@ -384,6 +399,7 @@ class MasterDataController extends Controller
             ],
             'employees' => [
                 'assigned_route_id' => ['nullable', 'integer', 'exists:routes,id'],
+                'assigned_vehicle_id' => ['nullable', 'integer', Rule::exists('vehicles', 'id')->where('is_active', true)],
                 'code' => ['nullable', 'string', 'max:30', $unique('employees', 'code')],
                 'name' => ['required', 'string', 'max:150'],
                 'employee_type' => ['required', Rule::in(['office', 'sales', 'driver', 'warehouse'])],
@@ -443,6 +459,29 @@ class MasterDataController extends Controller
         DB::table('permission_role')->where('role_id', $roleId)->delete();
         foreach (array_unique($permissionIds) as $permissionId) {
             DB::table('permission_role')->insert(['role_id' => $roleId, 'permission_id' => $permissionId]);
+        }
+    }
+
+    private function syncAssignedVehicle(int $employeeId, ?int $vehicleId): void
+    {
+        if ($vehicleId) {
+            $vehicle = DB::table('vehicles')->where('id', $vehicleId)->lockForUpdate()->first();
+            if (! $vehicle || ! $vehicle->is_active) {
+                throw ValidationException::withMessages(['assigned_vehicle_id' => 'Choose an active vehicle.']);
+            }
+            if ($vehicle->assigned_driver_id && (int) $vehicle->assigned_driver_id !== $employeeId) {
+                throw ValidationException::withMessages(['assigned_vehicle_id' => 'This vehicle is already assigned to another driver.']);
+            }
+        }
+
+        $currentAssignments = DB::table('vehicles')->where('assigned_driver_id', $employeeId);
+        if ($vehicleId) {
+            $currentAssignments->where('id', '!=', $vehicleId);
+        }
+        $currentAssignments->update(['assigned_driver_id' => null, 'updated_at' => now()]);
+
+        if ($vehicleId) {
+            DB::table('vehicles')->where('id', $vehicleId)->update(['assigned_driver_id' => $employeeId, 'updated_at' => now()]);
         }
     }
 
@@ -532,6 +571,12 @@ class MasterDataController extends Controller
             $item['allowed_apps'] = json_decode($item['allowed_apps'] ?? '[]', true) ?: [];
         }
 
+        if ($resource === 'employees') {
+            $vehicle = DB::table('vehicles')->where('assigned_driver_id', $item['id'])->orderBy('id')->first(['id', 'code', 'plate_no']);
+            $item['assigned_vehicle_id'] = $vehicle?->id;
+            $item['assigned_vehicle'] = $vehicle ? $vehicle->code.' · '.$vehicle->plate_no : null;
+        }
+
         return $item;
     }
 
@@ -544,6 +589,7 @@ class MasterDataController extends Controller
             'products' => ['products', 'name'],
             'price-types' => ['price_types', 'name'],
             'employees' => ['employees', 'name'],
+            'vehicles' => ['vehicles', 'code'],
             'permissions' => ['permissions', 'name'],
         ];
 
@@ -555,6 +601,9 @@ class MasterDataController extends Controller
 
             return $query->orderBy($definition[1])->get(['id', DB::raw("{$definition[1]} as label")]);
         })->all();
+
+        $options['vehicles'] = DB::table('vehicles')->where('is_active', true)->orderBy('code')->get(['id', 'code', 'plate_no'])
+            ->map(fn ($vehicle) => ['id' => $vehicle->id, 'label' => $vehicle->code.' · '.$vehicle->plate_no]);
 
         $options['apps'] = collect(AppAccess::APPS)->map(fn ($app) => [
             'id' => $app,
@@ -610,11 +659,11 @@ class MasterDataController extends Controller
                 [['name' => 'product_id', 'label' => 'Product', 'type' => 'select', 'source' => 'products', 'required' => true], ['name' => 'price_type_id', 'label' => 'Price type', 'type' => 'select', 'source' => 'price-types', 'required' => true], ['name' => 'amount', 'label' => 'Amount', 'type' => 'number', 'required' => true], ['name' => 'effective_from', 'label' => 'Effective from', 'type' => 'date'], $active],
                 ['product', 'price_type', 'amount', 'effective_from', 'is_active'], ['effective_from'], ['product_id', 'price_type_id'], ['product_id' => ['products', 'name', 'product'], 'price_type_id' => ['price_types', 'name', 'price_type']]),
             'customers' => $this->config('customers', 'Customers', 'Customer', 'Reseller shops, contacts, route, and credit settings.',
-                [['name' => 'area_id', 'label' => 'Area', 'type' => 'select', 'source' => 'areas'], ['name' => 'route_id', 'label' => 'Route', 'type' => 'select', 'source' => 'routes'], ['name' => 'price_type_id', 'label' => 'Price type', 'type' => 'select', 'source' => 'price-types'], $code, ['name' => 'shop_name', 'label' => 'Shop name', 'type' => 'text', 'required' => true], ['name' => 'contact_name', 'label' => 'Contact name', 'type' => 'text', 'required' => true], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text', 'required' => true], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], ['name' => 'credit_limit', 'label' => 'Credit limit', 'type' => 'number', 'required' => true], $active],
+                [['name' => 'area_id', 'label' => 'Area', 'type' => 'select', 'source' => 'areas'], ['name' => 'route_id', 'label' => 'Route', 'type' => 'select', 'source' => 'routes'], ['name' => 'price_type_id', 'label' => 'Price type', 'type' => 'select', 'source' => 'price-types'], $code, ['name' => 'shop_name', 'label' => 'Shop name', 'type' => 'text', 'required' => true], ['name' => 'contact_name', 'label' => 'Contact name', 'type' => 'text', 'required' => true], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text', 'required' => true], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], ['name' => 'credit_limit', 'label' => 'Credit limit', 'type' => 'number', 'required' => true, 'default' => (float) (DB::table('companies')->oldest('id')->value('default_customer_credit_limit') ?? 500000)], $active],
                 ['code', 'shop_name', 'contact_name', 'route', 'phone', 'is_active'], ['code', 'shop_name', 'contact_name', 'phone', 'email', 'address'], ['area_id', 'route_id', 'price_type_id'], ['area_id' => ['areas', 'name', 'area'], 'route_id' => ['routes', 'name', 'route'], 'price_type_id' => ['price_types', 'name', 'price_type']]),
             'employees' => $this->config('employees', 'Employees', 'Employee', 'Office, warehouse, sales, and driver records.',
-                [['name' => 'assigned_route_id', 'label' => 'Assigned route', 'type' => 'select', 'source' => 'routes'], $code, $name, ['name' => 'employee_type', 'label' => 'Employee type', 'type' => 'select', 'required' => true, 'options' => ['office', 'sales', 'driver', 'warehouse']], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'hire_date', 'label' => 'Hire date', 'type' => 'date'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
-                ['code', 'name', 'employee_type', 'assigned_route', 'phone', 'is_active'], ['code', 'name', 'employee_type', 'phone', 'email'], ['assigned_route_id', 'employee_type'], ['assigned_route_id' => ['routes', 'name', 'assigned_route']]),
+                [['name' => 'assigned_route_id', 'label' => 'Assigned route', 'type' => 'select', 'source' => 'routes'], $code, $name, ['name' => 'employee_type', 'label' => 'Employee type', 'type' => 'select', 'required' => true, 'options' => ['office', 'sales', 'driver', 'warehouse']], ['name' => 'assigned_vehicle_id', 'label' => 'Assigned vehicle', 'type' => 'select', 'source' => 'vehicles', 'depends_on' => 'employee_type', 'show_when' => 'driver'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'hire_date', 'label' => 'Hire date', 'type' => 'date'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
+                ['code', 'name', 'employee_type', 'assigned_route', 'assigned_vehicle', 'phone', 'is_active'], ['code', 'name', 'employee_type', 'phone', 'email'], ['assigned_route_id', 'employee_type'], ['assigned_route_id' => ['routes', 'name', 'assigned_route']]),
             'vehicles' => $this->config('vehicles', 'Vehicles', 'Vehicle', 'Delivery vehicles and assigned drivers.',
                 [['name' => 'assigned_driver_id', 'label' => 'Assigned driver', 'type' => 'select', 'source' => 'employees'], $code, ['name' => 'plate_no', 'label' => 'Plate no.', 'type' => 'text', 'required' => true], ['name' => 'vehicle_type', 'label' => 'Vehicle type', 'type' => 'select', 'required' => true, 'options' => ['truck', 'van', 'motorbike', 'other']], ['name' => 'make', 'label' => 'Make', 'type' => 'text'], ['name' => 'model', 'label' => 'Model', 'type' => 'text'], ['name' => 'capacity', 'label' => 'Capacity', 'type' => 'number'], $active],
                 ['code', 'plate_no', 'vehicle_type', 'assigned_driver', 'capacity', 'is_active'], ['code', 'plate_no', 'make', 'model'], ['assigned_driver_id', 'vehicle_type'], ['assigned_driver_id' => ['employees', 'name', 'assigned_driver']]),

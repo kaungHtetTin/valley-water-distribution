@@ -15,8 +15,18 @@ class PhaseTwoAttendanceTest extends TestCase
     {
         $this->seed();
         $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $warehouseId = DB::table('warehouses')->insertGetId([
+            'area_id' => DB::table('areas')->where('code', 'AREA-TGI')->value('id'),
+            'code' => 'WH-ATT',
+            'name' => 'Attendance Test Warehouse',
+            'address' => 'Industrial Zone, Taunggyi',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $created = $this->postJson('/api/attendance/locations', [
+            'warehouse_id' => $warehouseId,
             'code' => 'ATT-WH',
             'name' => 'Taunggyi Warehouse Gate',
             'address' => 'Industrial Zone, Taunggyi',
@@ -26,6 +36,7 @@ class PhaseTwoAttendanceTest extends TestCase
             'is_active' => true,
         ])->assertCreated()
             ->assertJsonPath('data.location.allowed_radius_m', 20)
+            ->assertJsonPath('data.location.warehouse_id', $warehouseId)
             ->assertJsonPath('data.location.is_active', true);
 
         $locationId = $created->json('data.location.id');
@@ -129,15 +140,18 @@ class PhaseTwoAttendanceTest extends TestCase
             ->assertJsonPath('data.meta.total', 1);
     }
 
-    public function test_only_driver_can_view_their_own_mobile_attendance_history()
+    public function test_sales_and_driver_can_view_only_their_own_mobile_attendance_history()
     {
         $this->seed();
 
         $this->getJson('/api/mobile/attendance/records')->assertUnauthorized();
 
         $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail())
-            ->getJson('/api/mobile/attendance/records')
-            ->assertForbidden();
+            ->getJson('/api/mobile/attendance/records?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('data.summary.total', 1)
+            ->assertJsonPath('data.summary.accepted', 1)
+            ->assertJsonPath('data.items.0.entered_employee_code', 'SAL-001');
 
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail())
             ->getJson('/api/mobile/attendance/records')

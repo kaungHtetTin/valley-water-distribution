@@ -2,16 +2,19 @@
 
 use App\Http\Controllers\Api\AttendanceLocationController;
 use App\Http\Controllers\Api\AttendanceRecordController;
+use App\Http\Controllers\Api\ActionAlertController;
 use App\Http\Controllers\Api\CompanySettingsController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DeliveryController;
 use App\Http\Controllers\Api\FinanceController;
 use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\KpiReviewController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\MobileMasterDataController;
 use App\Http\Controllers\Api\MobileOrderController;
 use App\Http\Controllers\Api\OrderAdjustmentController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\OperationsReportController;
 use App\Http\Controllers\Api\PayrollAdjustmentController;
 use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\StockController;
@@ -43,6 +46,7 @@ Route::prefix('api/auth')->group(function () {
 });
 
 Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
+    Route::get('/action-alerts', [ActionAlertController::class, 'index']);
     Route::get('/settings/company', [CompanySettingsController::class, 'show']);
     Route::put('/settings/company', [CompanySettingsController::class, 'update']);
 
@@ -59,15 +63,19 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/mobile/master/customers', [MobileMasterDataController::class, 'assignedCustomers']);
     Route::post('/mobile/master/customers', [MobileMasterDataController::class, 'storeCustomer']);
     Route::get('/mobile/master/customers/{id}', [MobileMasterDataController::class, 'customer'])->whereNumber('id');
-    Route::get('/mobile/sales-route', [MobileMasterDataController::class, 'salesRoute']);
-    Route::post('/mobile/sales-route/customers/{customerId}/visit', [MobileMasterDataController::class, 'updateSalesRouteVisit'])->whereNumber('customerId');
+    Route::put('/mobile/master/customers/{id}', [MobileMasterDataController::class, 'updateCustomer'])->whereNumber('id');
     Route::get('/mobile/master/vehicle', [MobileMasterDataController::class, 'assignedVehicle']);
+    Route::get('/mobile/attendance/locations', [MobileMasterDataController::class, 'attendanceLocations']);
+    Route::post('/mobile/attendance/check-in', [MobileMasterDataController::class, 'recordAttendance'])->middleware('throttle:10,1');
     Route::get('/mobile/attendance/records', [MobileMasterDataController::class, 'attendanceRecords']);
     Route::get('/mobile/payroll/history', [MobileMasterDataController::class, 'payrollHistory']);
+    Route::get('/mobile/kpi', [KpiReviewController::class, 'mobile']);
     Route::get('/mobile/orders/meta', [MobileOrderController::class, 'meta']);
     Route::get('/mobile/orders', [MobileOrderController::class, 'index']);
     Route::post('/mobile/orders', [MobileOrderController::class, 'store']);
     Route::get('/mobile/orders/{order}', [MobileOrderController::class, 'show']);
+    Route::put('/mobile/orders/{order}', [MobileOrderController::class, 'update']);
+    Route::post('/mobile/orders/{order}/cancel', [MobileOrderController::class, 'cancel']);
     Route::get('/mobile/delivery-status', [DeliveryController::class, 'mobileStatusIndex']);
     Route::get('/mobile/delivery-status/{delivery}', [DeliveryController::class, 'mobileStatusShow']);
     Route::get('/mobile/deliveries', [DeliveryController::class, 'driverIndex']);
@@ -76,6 +84,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::post('/mobile/deliveries/{delivery}/start-route', [DeliveryController::class, 'startRoute']);
     Route::post('/mobile/deliveries/{delivery}/location', [DeliveryController::class, 'storeLocation']);
     Route::post('/mobile/deliveries/{delivery}/complete', [DeliveryController::class, 'completeDelivery']);
+    Route::post('/mobile/deliveries/{delivery}/complete-trip', [DeliveryController::class, 'completeTrip']);
     Route::get('/mobile/finance/meta', [FinanceController::class, 'mobileMeta']);
     Route::get('/mobile/finance', [FinanceController::class, 'mobileIndex']);
     Route::post('/mobile/finance/collections', [FinanceController::class, 'mobileStoreCollection']);
@@ -88,6 +97,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::put('/orders/{order}', [OrderController::class, 'update']);
     Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::get('/order-adjustments/meta', [OrderAdjustmentController::class, 'meta']);
@@ -128,6 +138,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/finance/meta', [FinanceController::class, 'meta']);
     Route::get('/finance/collections', [FinanceController::class, 'collections']);
     Route::post('/finance/collections', [FinanceController::class, 'storeCollection']);
+    Route::post('/finance/cash-handovers/{employeeId}/receive', [FinanceController::class, 'receiveCashHandover'])->whereNumber('employeeId');
     Route::post('/finance/collections/{collection}/review', [FinanceController::class, 'reviewCollection']);
     Route::get('/finance/receivables', [FinanceController::class, 'receivables']);
     Route::get('/finance/customers/{customerId}/ledger', [FinanceController::class, 'customerLedger'])->whereNumber('customerId');
@@ -154,6 +165,8 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/vehicle-reports/performance', [VehicleCostController::class, 'performance']);
     Route::get('/dashboards/{dashboard}', [DashboardController::class, 'summary'])->whereIn('dashboard', ['owner', 'sales', 'stock', 'delivery', 'finance']);
     Route::get('/dashboard-charts/{dashboard}', [DashboardController::class, 'charts'])->whereIn('dashboard', ['owner', 'sales', 'stock', 'delivery', 'finance']);
+    Route::get('/reports/operations', [OperationsReportController::class, 'index']);
+    Route::get('/reports/operations/export', [OperationsReportController::class, 'export']);
     Route::get('/uat/overview', [UatController::class, 'overview']);
     Route::get('/uat/issues', [UatController::class, 'issues']);
     Route::post('/uat/issues', [UatController::class, 'storeIssue']);
@@ -175,12 +188,27 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/payrolls', [PayrollController::class, 'index']);
     Route::post('/payrolls/generate', [PayrollController::class, 'generate']);
     Route::get('/payrolls/{payroll}', [PayrollController::class, 'show']);
+    Route::delete('/payrolls/{payroll}', [PayrollController::class, 'destroy']);
     Route::post('/payrolls/{payroll}/approve', [PayrollController::class, 'approve']);
     Route::post('/payrolls/{payroll}/mark-paid', [PayrollController::class, 'markPaid']);
     Route::get('/payroll-adjustments', [PayrollAdjustmentController::class, 'index']);
     Route::post('/payroll-adjustments', [PayrollAdjustmentController::class, 'store']);
     Route::put('/payroll-adjustments/{payrollAdjustment}', [PayrollAdjustmentController::class, 'update']);
     Route::delete('/payroll-adjustments/{payrollAdjustment}', [PayrollAdjustmentController::class, 'destroy']);
+    Route::get('/kpi-targets', [KpiReviewController::class, 'targets']);
+    Route::get('/kpi-targets/employees/{employeeId}', [KpiReviewController::class, 'employeeTarget'])->whereNumber('employeeId');
+    Route::put('/kpi-targets/roles/{templateId}', [KpiReviewController::class, 'saveRoleTarget'])->whereNumber('templateId');
+    Route::put('/kpi-targets/{employeeId}', [KpiReviewController::class, 'saveTarget'])->whereNumber('employeeId');
+    Route::get('/kpi-reviews/meta', [KpiReviewController::class, 'meta']);
+    Route::get('/kpi-reports', [KpiReviewController::class, 'report']);
+    Route::get('/kpi-reviews', [KpiReviewController::class, 'index']);
+    Route::post('/kpi-reviews/generate', [KpiReviewController::class, 'generate']);
+    Route::get('/kpi-reviews/{id}', [KpiReviewController::class, 'show'])->whereNumber('id');
+    Route::put('/kpi-reviews/{id}', [KpiReviewController::class, 'update'])->whereNumber('id');
+    Route::post('/kpi-reviews/{id}/refresh', [KpiReviewController::class, 'refresh'])->whereNumber('id');
+    Route::post('/kpi-reviews/{id}/submit', [KpiReviewController::class, 'submit'])->whereNumber('id');
+    Route::post('/kpi-reviews/{id}/approve', [KpiReviewController::class, 'approve'])->whereNumber('id');
+    Route::post('/kpi-reviews/{id}/post-bonus', [KpiReviewController::class, 'postBonus'])->whereNumber('id');
 });
 
 Route::view('/office', 'app')->name('office');

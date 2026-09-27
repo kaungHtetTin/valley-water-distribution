@@ -5,5 +5,6 @@ return [
     'backup_retention_days' => (int) env('VALLEY_BACKUP_RETENTION_DAYS', 14),
     'backup_directory' => env('VALLEY_BACKUP_DIRECTORY', storage_path('app/backups')),
     'mysqldump_path' => env('MYSQLDUMP_PATH'),
+    'mysql_path' => env('MYSQL_PATH'),
     'demo_endpoints' => (bool) env('VALLEY_DEMO_ENDPOINTS', in_array(env('APP_ENV', 'production'), ['local', 'testing'], true)),
 ];

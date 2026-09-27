@@ -9,6 +9,7 @@ const profilePath = path.join(os.tmpdir(), `valley-phase7-${Date.now()}`);
 const artifactPath = path.resolve('artifacts');
 const onlyPhase10 = process.argv.includes('--phase10');
 const onlyPhase11 = process.argv.includes('--phase11');
+const onlyPhase9 = process.argv.includes('--phase9');
 
 async function login(email, app) {
     const cookies = new Map();
@@ -43,11 +44,17 @@ async function setCookies(send, header) {
 
 async function capture(send, route, width, height, name, cookies, locale = 'en', theme = 'light', density = 'compact') {
     await setCookies(send, cookies); await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 500 }); await send('Page.navigate', { url: `${baseUrl}${route}` }); await new Promise((resolve) => setTimeout(resolve, 2200));
-    await send('Runtime.evaluate', { expression: `window.localStorage.setItem('valley-locale', '${locale}'); window.localStorage.setItem('valley-theme', '${theme}'); window.localStorage.setItem('valley-density', '${density}')` }); await send('Page.reload'); await new Promise((resolve) => setTimeout(resolve, 1400));
-    const result = await send('Runtime.evaluate', { expression: `({ title: document.querySelector('h1')?.innerText, error: document.querySelector('.inline-error')?.innerText, body: document.body.innerText.slice(0, 500) })`, returnByValue: true });
-    if (!result.result.value?.title || result.result.value?.error) throw new Error(`${route}: ${JSON.stringify(result.result.value)}`);
+    await send('Runtime.evaluate', { expression: `window.localStorage.setItem('valley-locale', '${locale}'); window.localStorage.setItem('valley-theme', '${theme}'); window.localStorage.setItem('valley-density', '${density}')` }); await send('Page.reload');
+    let state = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+        const result = await send('Runtime.evaluate', { expression: `({ title: document.querySelector('h1')?.innerText, error: document.querySelector('.inline-error, .form-alert')?.innerText, loading: !!document.querySelector('.workspace-state .spin') || /Checking sign in|Loading|Calculating|Preparing/.test(document.body.innerText), path: window.location.pathname, body: document.body.innerText.slice(0, 500) })`, returnByValue: true });
+        state = result.result.value;
+        if (state?.title && !state.error && !state.loading) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (!state?.title || state.error || state.loading || !state.path?.endsWith(route)) throw new Error(`${route}: ${JSON.stringify(state)}`);
     const image = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await writeFile(path.join(artifactPath, name), Buffer.from(image.data, 'base64'));
-    console.log(`${route} -> ${result.result.value.title}`);
+    console.log(`${route} -> ${state.title}`);
 }
 
 async function capturePrimaryDialog(send, name) {
@@ -62,9 +69,13 @@ async function capturePrimaryDialog(send, name) {
 async function captureAfterClick(send, text, name, expectedSelector) {
     const clicked = await send('Runtime.evaluate', { expression: `(() => { const target = [...document.querySelectorAll('button')].find((item) => item.innerText.includes(${JSON.stringify(text)}) || item.getAttribute('aria-label')?.includes(${JSON.stringify(text)})); if (!target) return false; target.click(); return true; })()`, returnByValue: true });
     if (!clicked.result.value) throw new Error(`Action not found: ${text}`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const visible = await send('Runtime.evaluate', { expression: `!!document.querySelector(${JSON.stringify(expectedSelector)})`, returnByValue: true });
-    if (!visible.result.value) throw new Error(`Expected state not visible after ${text}: ${expectedSelector}`);
+    let found = false;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const visible = await send('Runtime.evaluate', { expression: `!!document.querySelector(${JSON.stringify(expectedSelector)})`, returnByValue: true });
+        if (visible.result.value) { found = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (!found) throw new Error(`Expected state not visible after ${text}: ${expectedSelector}`);
     const image = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await writeFile(path.join(artifactPath, name), Buffer.from(image.data, 'base64'));
 }
 
@@ -73,11 +84,17 @@ const office = await login('office@valley.test', 'office'); const client = await
 const edge = spawn(edgePath, ['--headless=new', '--disable-gpu', '--remote-debugging-port=9222', `--user-data-dir=${profilePath}`, 'about:blank'], { stdio: 'ignore' });
 try {
     await waitForEdge(); const { socket, send } = await connect(); await send('Page.enable'); await send('Network.enable');
+    if (onlyPhase9) {
+    await capture(send, '/office/reports/operations', 1440, 900, 'phase9-office-operations.png', office);
+    await capture(send, '/office/reports/operations', 1024, 768, 'phase9-office-operations-tablet.png', office);
+    } else {
     if (!onlyPhase10 && !onlyPhase11) {
     await capture(send, '/office/finance/receivables', 1440, 900, 'phase7-office-receivables.png', office);
     await capture(send, '/office/finance/outdoor-expenses', 1280, 760, 'phase7-office-outdoor-expenses.png', office);
     await capture(send, '/office/finance/profit-loss', 1440, 900, 'phase7-office-profit-loss.png', office);
     await capture(send, '/office/finance/profit-loss', 1280, 720, 'phase7-office-profit-loss-my.png', office, 'my');
+    await capture(send, '/office/reports/operations', 1440, 900, 'phase9-office-operations.png', office);
+    await capture(send, '/office/reports/operations', 1024, 768, 'phase9-office-operations-tablet.png', office);
     await capture(send, '/client/ledger', 390, 844, 'phase7-client-ledger.png', client);
     await capture(send, '/sales/collections', 430, 932, 'phase7-sales-collections.png', sales);
     await capture(send, '/driver/expenses', 390, 844, 'phase7-driver-expenses.png', driver);
@@ -126,9 +143,10 @@ try {
     await capture(send, '/sales/collections', 390, 844, 'phase11-sales-collections.png', sales);
     await capture(send, '/sales/expenses', 390, 844, 'phase11-sales-expenses.png', sales);
     await capture(send, '/driver/attendance', 390, 844, 'phase11-driver-attendance.png', driver);
-    await capture(send, '/driver/route', 390, 844, 'phase11-driver-route.png', driver);
+    await capture(send, '/driver/tasks', 390, 844, 'phase11-driver-tasks.png', driver);
     await capture(send, '/driver/expenses', 390, 844, 'phase11-driver-expenses.png', driver);
     await capture(send, '/attendance/demo-taunggyi-office-attendance-token-2026', 390, 844, 'phase11-public-attendance.png', office, 'my');
+    }
     await send('Browser.close').catch(() => {}); socket.close();
 } finally {
     if (edge.exitCode === null) edge.kill(); await Promise.race([new Promise((resolve) => edge.once('exit', resolve)), new Promise((resolve) => setTimeout(resolve, 3000))]);

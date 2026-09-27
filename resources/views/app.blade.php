@@ -23,10 +23,10 @@
                     password: @json(url('/api/auth/password')),
                 },
                 api: {
+                    actionAlerts: @json(url('/api/action-alerts')),
                     companySettings: @json(url('/api/settings/company')),
                     masterData: @json(url('/api/master-data')),
                     mobileMaster: @json(url('/api/mobile/master')),
-                    mobileSalesRoute: @json(url('/api/mobile/sales-route')),
                     mobileAttendance: @json(url('/api/mobile/attendance')),
                     mobilePayroll: @json(url('/api/mobile/payroll')),
                     mobileOrders: @json(url('/api/mobile/orders')),
@@ -53,6 +53,11 @@
                     payrollHistory: @json(url('/api/payroll-history')),
                     payrolls: @json(url('/api/payrolls')),
                     payrollAdjustments: @json(url('/api/payroll-adjustments')),
+                    kpiReviews: @json(url('/api/kpi-reviews')),
+                    kpiTargets: @json(url('/api/kpi-targets')),
+                    kpiReports: @json(url('/api/kpi-reports')),
+                    operationsReports: @json(url('/api/reports/operations')),
+                    mobileKpi: @json(url('/api/mobile/kpi')),
                     publicAttendance: @json(url('/api/public/attendance')),
                 },
             };

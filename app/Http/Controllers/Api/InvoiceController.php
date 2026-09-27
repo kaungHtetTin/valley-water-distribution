@@ -144,6 +144,7 @@ class InvoiceController extends Controller
                     'product_sku' => $item->product_sku,
                     'product_name' => $item->product_name,
                     'unit' => $item->unit,
+                    'item_type' => $item->item_type,
                     'quantity' => $item->quantity,
                     'unit_price' => $item->unit_price,
                     'discount_amount' => $item->discount_amount,
