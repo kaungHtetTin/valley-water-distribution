@@ -59,7 +59,38 @@ class AppAccess
 
     public static function canAccess(User $user, string $app): bool
     {
-        return in_array($app, self::allowedAppsForRole($user->role), true);
+        return self::isActiveAccount($user)
+            && in_array($app, self::allowedAppsForRole($user->role), true);
+    }
+
+    public static function isActiveAccount(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        $role = DB::table('roles')->where('name', $user->role)->first(['is_active']);
+        if ($role && ! $role->is_active) {
+            return false;
+        }
+
+        if ($user->employee_id) {
+            return DB::table('employees')
+                ->where('id', $user->employee_id)
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->exists();
+        }
+
+        if ($user->customer_id) {
+            return DB::table('customers')
+                ->where('id', $user->customer_id)
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->exists();
+        }
+
+        return true;
     }
 
     public static function permissionsForRole(?string $role): array

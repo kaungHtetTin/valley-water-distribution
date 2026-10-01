@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\TrustHosts;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpFoundation\Exception\SuspiciousOperationException;
 use Tests\TestCase;
 
 class PhaseElevenHardeningTest extends TestCase
@@ -49,6 +53,34 @@ class PhaseElevenHardeningTest extends TestCase
         config(['valley.demo_endpoints' => false]);
         $this->getJson('/api/phase-zero')->assertNotFound();
         config(['valley.demo_endpoints' => true]);
+    }
+
+    public function test_production_https_responses_send_hsts(): void
+    {
+        $originalEnvironment = app()->environment();
+        app()->detectEnvironment(fn () => 'production');
+
+        try {
+            $request = Request::create('https://valley.example.com/office');
+            $response = app(SecurityHeaders::class)->handle($request, fn () => response('OK'));
+
+            $this->assertSame('max-age=31536000; includeSubDomains', $response->headers->get('Strict-Transport-Security'));
+        } finally {
+            app()->detectEnvironment(fn () => $originalEnvironment);
+        }
+    }
+
+    public function test_untrusted_hosts_are_rejected(): void
+    {
+        config(['app.url' => 'https://valley.example.com']);
+        Request::setTrustedHosts(array_filter(app(TrustHosts::class)->hosts()));
+
+        try {
+            $this->expectException(SuspiciousOperationException::class);
+            Request::create('https://attacker.example/office')->getHost();
+        } finally {
+            Request::setTrustedHosts([]);
+        }
     }
 
     public function test_demo_login_checks_the_password_instead_of_only_the_email()

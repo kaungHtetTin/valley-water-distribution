@@ -17,6 +17,10 @@ class SecurityHeaders
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
         $response->headers->set('Cross-Origin-Opener-Policy', 'same-origin');
 
+        if (app()->environment('production') && $request->isSecure()) {
+            $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+        }
+
         if ($request->is('api/*')) {
             $response->headers->set('Cache-Control', 'no-store, private');
         }

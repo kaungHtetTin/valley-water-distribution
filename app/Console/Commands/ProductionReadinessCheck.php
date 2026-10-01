@@ -30,6 +30,7 @@ class ProductionReadinessCheck extends Command
             ['Application key', str_starts_with((string) config('app.key'), 'base64:'), 'Generate and securely store a unique APP_KEY.'],
             ['Yangon timezone', config('app.timezone') === 'Asia/Yangon', 'Set APP_TIMEZONE=Asia/Yangon.'],
             ['Demo endpoints disabled', config('valley.demo_endpoints') === false, 'Set VALLEY_DEMO_ENDPOINTS=false.'],
+            ['Encrypted sessions', config('session.encrypt') === true, 'Set SESSION_ENCRYPT=true.'],
             ['Secure session cookie', config('session.secure') === true, 'Set SESSION_SECURE_COOKIE=true.'],
             ['MySQL database', in_array($database['driver'] ?? null, ['mysql', 'mariadb'], true), 'Use a production MySQL or MariaDB connection.'],
             ['Least privilege database user', filled($database['username'] ?? null) && strtolower((string) $database['username']) !== 'root', 'Use a dedicated non-root DB_USERNAME.'],

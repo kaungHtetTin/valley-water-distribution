@@ -66,6 +66,7 @@ class ProductionOperationsTest extends TestCase
             'valley.initial_admin.password' => 'production-test-secret',
             'valley.backup_directory' => storage_path('app/backups'),
             'uploads.profile_photos_path' => storage_path('app/backups'),
+            'session.encrypt' => true,
             'session.secure' => true,
             'database.default' => 'production_check',
             'database.connections.production_check' => [
@@ -94,6 +95,7 @@ class ProductionOperationsTest extends TestCase
             'valley.initial_admin.password' => 'password',
             'valley.backup_directory' => storage_path('app/backups'),
             'uploads.profile_photos_path' => storage_path('app/backups'),
+            'session.encrypt' => true,
             'session.secure' => true,
             'database.default' => 'production_check',
             'database.connections.production_check' => [

@@ -46,6 +46,18 @@ class AppAuthController extends Controller
         $request->session()->regenerate();
         $user = $request->user();
 
+        if (! AppAccess::isActiveAccount($user)) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return ApiResponse::error(
+                'This account is inactive.',
+                ['email' => ['Contact an administrator to reactivate this account.']],
+                403
+            );
+        }
+
         if (! AppAccess::canAccess($user, $credentials['app'])) {
             Auth::logout();
             $request->session()->invalidate();
@@ -161,6 +173,10 @@ class AppAuthController extends Controller
                     'password' => Hash::make(Str::random(48)),
                 ]);
             });
+
+            if (! AppAccess::isActiveAccount($user)) {
+                return $this->googleFailure('This account is inactive. Contact an administrator to reactivate it.');
+            }
 
             Auth::login($user, true);
             $request->session()->regenerate();

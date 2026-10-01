@@ -28,6 +28,7 @@ Create a release candidate only when all of these checks pass:
    - a unique `APP_KEY`
    - `APP_TIMEZONE=Asia/Yangon`
    - the dedicated database credentials
+   - `SESSION_ENCRYPT=true`
    - `SESSION_SECURE_COOKIE=true`
    - `VALLEY_DEMO_ENDPOINTS=false`
    - an absolute protected `VALLEY_BACKUP_DIRECTORY`, preferably copied off host

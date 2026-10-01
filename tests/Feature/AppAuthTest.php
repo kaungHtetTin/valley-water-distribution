@@ -62,6 +62,77 @@ class AppAuthTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_inactive_employee_cannot_sign_in(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+        DB::table('employees')->where('id', $user->employee_id)->update(['is_active' => false]);
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'driver@valley.test',
+            'password' => 'password',
+            'app' => 'driver',
+        ])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'This account is inactive.')
+            ->assertJsonStructure(['errors' => ['email']]);
+
+        $this->assertGuest();
+    }
+
+    public function test_inactive_employee_existing_session_is_terminated(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'sales@valley.test')->firstOrFail();
+        DB::table('employees')->where('id', $user->employee_id)->update(['is_active' => false]);
+
+        $this->actingAs($user)
+            ->getJson('/api/auth/user')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'This account is inactive.');
+
+        $this->assertGuest();
+    }
+
+    public function test_inactive_customer_existing_session_is_terminated(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'client@valley.test')->firstOrFail();
+        DB::table('customers')->where('id', $user->customer_id)->update(['is_active' => false]);
+
+        $this->actingAs($user)
+            ->getJson('/api/auth/user')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'This account is inactive.');
+
+        $this->assertGuest();
+    }
+
+    public function test_unlinked_owner_account_remains_active(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'owner@valley.test')->firstOrFail();
+
+        $this->actingAs($user)
+            ->getJson('/api/auth/user')
+            ->assertOk()
+            ->assertJsonPath('data.user.role', 'Owner');
+    }
+
+    public function test_disabling_a_role_terminates_existing_sessions(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+        DB::table('roles')->where('name', 'Driver')->update(['is_active' => false]);
+
+        $this->actingAs($user)
+            ->getJson('/api/auth/user')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'This account is inactive.');
+
+        $this->assertGuest();
+    }
+
     public function test_sales_access_matches_the_mobile_field_workflow()
     {
         $this->seed();

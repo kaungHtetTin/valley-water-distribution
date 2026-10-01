@@ -47,7 +47,7 @@ Status: Complete. Verified with 96 automated tests, a production Vite build, and
 - [x] Production configuration checker, CI quality gate, and deployment/rollback runbook.
 - [ ] Business Android real-phone execution and owner UAT sign-off.
 
-Status: Release candidate ready after production environment setup. Reverified on 2026-10-01 with 149 passing tests (1,642 assertions), zero Composer/npm advisories, a UTF-8 source check, a production Vite build, cacheable routes/config/views, a fresh isolated MySQL restore drill, and authenticated Office, Client, Sales, Driver, and Supervisor visual smoke checks. The open medium Delivery finding tracks the remaining physical Android GPS sign-off.
+Status: Release candidate ready after production environment setup. Reverified on 2026-10-01 with 156 passing tests (1,660 assertions), zero Composer/npm advisories, a UTF-8 source check, a production Vite build, cacheable routes/config/views, a fresh isolated MySQL restore drill, and authenticated Office, Client, Sales, Driver, and Supervisor visual smoke checks. Trusted-host validation, production HSTS, encrypted sessions, and immediate linked-account deactivation are covered. The open medium Delivery finding tracks the remaining physical Android GPS sign-off.
 
 ## Sales Supervisor Mobile Application
 
