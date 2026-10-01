@@ -4,11 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Support\AppAccess;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 use Tests\TestCase;
 
 class AppAuthTest extends TestCase
@@ -93,6 +96,74 @@ class AppAuthTest extends TestCase
             ]);
 
         $this->assertGuest();
+    }
+
+    public function test_active_user_can_request_a_password_reset_link(): void
+    {
+        Notification::fake();
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+
+        $this->postJson('/api/auth/forgot-password', ['email' => $user->email])
+            ->assertOk()
+            ->assertJsonPath('message', 'If an active account matches that email, a password reset link has been sent.');
+
+        Notification::assertSentTo($user, ResetPassword::class, function (ResetPassword $notification) use ($user) {
+            $url = $notification->toMail($user)->actionUrl;
+
+            return str_contains($url, '/reset-password/') && str_contains($url, rawurlencode($user->email));
+        });
+    }
+
+    public function test_password_reset_request_does_not_reveal_unknown_accounts(): void
+    {
+        Notification::fake();
+        $this->seed();
+
+        $response = $this->postJson('/api/auth/forgot-password', ['email' => 'unknown@valley.test'])
+            ->assertOk()
+            ->assertJsonPath('message', 'If an active account matches that email, a password reset link has been sent.');
+
+        $this->assertSame([], $response->json('errors'));
+        Notification::assertNothingSent();
+    }
+
+    public function test_user_can_reset_password_with_a_valid_token(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+        $token = Password::broker()->createToken($user);
+
+        $this->actingAs($user)->postJson('/api/auth/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'New-secure-password-2026',
+            'password_confirmation' => 'New-secure-password-2026',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.redirect_to', url('/driver'));
+
+        $this->assertTrue(Hash::check('New-secure-password-2026', $user->fresh()->password));
+        $this->assertGuest();
+    }
+
+    public function test_inactive_user_cannot_use_a_password_reset_token(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+        $token = Password::broker()->createToken($user);
+        DB::table('employees')->where('id', $user->employee_id)->update(['is_active' => false]);
+
+        $this->postJson('/api/auth/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'New-secure-password-2026',
+            'password_confirmation' => 'New-secure-password-2026',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('email');
+
+        $this->assertTrue(Hash::check('password', $user->fresh()->password));
     }
 
     public function test_inactive_employee_cannot_sign_in(): void

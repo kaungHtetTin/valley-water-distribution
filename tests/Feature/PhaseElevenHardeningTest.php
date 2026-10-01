@@ -19,7 +19,7 @@ class PhaseElevenHardeningTest extends TestCase
     public function test_every_api_route_is_authenticated_or_explicitly_public_and_throttled_where_sensitive()
     {
         $public = [
-            'api/auth/user', 'api/auth/login', 'api/auth/register', 'api/auth/google/redirect', 'api/auth/google/callback', 'api/auth/logout',
+            'api/auth/user', 'api/auth/login', 'api/auth/register', 'api/auth/forgot-password', 'api/auth/reset-password', 'api/auth/google/redirect', 'api/auth/google/callback', 'api/auth/logout',
             'api/phase-zero', 'api/phase-zero/login',
             'api/public/attendance/{token}',
         ];
@@ -30,7 +30,7 @@ class PhaseElevenHardeningTest extends TestCase
             }
             $middleware = $route->gatherMiddleware();
             if (in_array($route->uri(), $public, true)) {
-                if (in_array($route->uri(), ['api/auth/login', 'api/auth/register', 'api/auth/google/redirect', 'api/auth/google/callback', 'api/phase-zero/login', 'api/public/attendance/{token}'], true)) {
+                if (in_array($route->uri(), ['api/auth/login', 'api/auth/register', 'api/auth/forgot-password', 'api/auth/reset-password', 'api/auth/google/redirect', 'api/auth/google/callback', 'api/phase-zero/login', 'api/public/attendance/{token}'], true)) {
                     $this->assertTrue(collect($middleware)->contains(fn ($item) => str_starts_with($item, 'throttle:')), "{$route->uri()} must be throttled");
                 }
 

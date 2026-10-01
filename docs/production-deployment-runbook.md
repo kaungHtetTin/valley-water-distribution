@@ -45,7 +45,7 @@ Create a release candidate only when all of these checks pass:
 12. Run `php artisan optimize`.
 13. Point the web server document root to the release `public` directory and reload PHP/web services.
 14. Run `php artisan up`.
-15. Verify login and one read-only screen for each app. Then verify Office reports, a test attendance scan, and a controlled order-to-cash transaction.
+15. Verify login and one read-only screen for each app. Request a password reset into a controlled mailbox and complete it. Then verify Office reports, a test attendance scan, and a controlled order-to-cash transaction.
 
 ## Required scheduled jobs
 

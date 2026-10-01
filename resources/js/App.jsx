@@ -150,8 +150,19 @@ const copy = {
         signIn: 'Sign in',
         email: 'Email or phone',
         emailHint: 'Enter your email address or phone number',
+        emailAddress: 'Email address',
+        emailAddressHint: 'Enter your account email address',
         password: 'Password',
         passwordHint: 'Enter your password',
+        forgotPassword: 'Forgot password?',
+        forgotPasswordTitle: 'Reset your password',
+        forgotPasswordHint: 'Enter your account email and we will send a secure reset link.',
+        sendResetLink: 'Send reset link',
+        backToSignIn: 'Back to sign in',
+        resetPasswordTitle: 'Choose a new password',
+        resetPasswordHint: 'Enter and confirm the new password for your account.',
+        newPassword: 'New password',
+        resetPasswordAction: 'Reset password',
         status: 'Status',
         ready: 'Ready',
         currentRoute: 'Current route',
@@ -239,8 +250,19 @@ const copy = {
         signIn: 'ဝင်ရန်',
         email: 'Email သို့မဟုတ် ဖုန်း',
         emailHint: 'Email သို့မဟုတ် ဖုန်းနံပါတ် ထည့်ပါ',
+        emailAddress: 'Email လိပ်စာ',
+        emailAddressHint: 'အကောင့် Email လိပ်စာ ထည့်ပါ',
         password: 'Password',
         passwordHint: 'Password ထည့်ပါ',
+        forgotPassword: 'စကားဝှက် မေ့နေပါသလား',
+        forgotPasswordTitle: 'စကားဝှက် ပြန်လည်သတ်မှတ်ရန်',
+        forgotPasswordHint: 'အကောင့် Email ကို ထည့်ပါ။ လုံခြုံသော ပြန်လည်သတ်မှတ်ရေး link ပို့ပေးပါမည်။',
+        sendResetLink: 'ပြန်လည်သတ်မှတ်ရေး link ပို့ရန်',
+        backToSignIn: 'အကောင့်ဝင်ရန် ပြန်သွားမည်',
+        resetPasswordTitle: 'စကားဝှက်အသစ် သတ်မှတ်ရန်',
+        resetPasswordHint: 'စကားဝှက်အသစ်ကို နှစ်ကြိမ်မှန်ကန်စွာ ထည့်ပါ။',
+        newPassword: 'စကားဝှက်အသစ်',
+        resetPasswordAction: 'စကားဝှက် ပြန်သတ်မှတ်ရန်',
         status: 'အခြေအနေ',
         ready: 'အသင့်',
         currentRoute: 'လက်ရှိ route',
@@ -611,6 +633,7 @@ function App() {
     const activeApp = resolveAppFromPath(pathname);
     const attendanceToken = resolveAttendanceToken(pathname);
     const selectedApp = appConfig[activeApp];
+    const passwordResetting = normalizePath(pathname).includes('/reset-password/');
     const rootStyle = useMemo(() => ({ '--color-primary': activeApp === 'office' ? branding.primary_color : selectedApp.accent }), [activeApp, branding.primary_color, selectedApp.accent]);
 
     useEffect(() => window.localStorage.setItem('valley-theme', theme), [theme]);
@@ -737,6 +760,40 @@ function App() {
         }
     };
 
+    const handleForgotPassword = async (payload) => {
+        setAuth((current) => ({ ...current, errors: {}, message: '', submitting: true }));
+
+        try {
+            const response = await window.axios.post(authRoute('forgotPassword', '/api/auth/forgot-password'), payload);
+            setAuth({ loading: false, user: null, errors: {}, message: response.data.message, submitting: false, success: true });
+        } catch (error) {
+            setAuth({
+                loading: false,
+                user: null,
+                errors: error.response?.data?.errors || {},
+                message: error.response?.data?.message || 'Unable to send the password reset link.',
+                submitting: false,
+            });
+        }
+    };
+
+    const handleResetPassword = async (payload) => {
+        setAuth((current) => ({ ...current, errors: {}, message: '', submitting: true }));
+
+        try {
+            const response = await window.axios.post(authRoute('resetPassword', '/api/auth/reset-password'), payload);
+            window.location.assign(response.data.data.redirect_to || appConfig.office.path);
+        } catch (error) {
+            setAuth({
+                loading: false,
+                user: null,
+                errors: error.response?.data?.errors || {},
+                message: error.response?.data?.message || 'Unable to reset the password.',
+                submitting: false,
+            });
+        }
+    };
+
     const handleLogout = async () => {
         await window.axios.post(authRoute('logout', '/api/auth/logout'));
         setAuth({ loading: false, user: null, errors: {}, message: '' });
@@ -778,7 +835,7 @@ function App() {
                 <PublicAttendanceScreen token={attendanceToken} locale={locale} setLocale={handleLocaleChange} />
             ) : auth.loading ? (
                 <AppLoading t={t} />
-            ) : !auth.user ? (
+            ) : !auth.user || passwordResetting ? (
                 <AuthScreen
                     app={selectedApp}
                     t={t}
@@ -789,6 +846,8 @@ function App() {
                     auth={auth}
                     onLogin={handleLogin}
                     onRegister={handleRegister}
+                    onForgotPassword={handleForgotPassword}
+                    onResetPassword={handleResetPassword}
                 />
             ) : activeApp === 'office' ? (
                 <OfficeApp
@@ -1944,8 +2003,13 @@ function AppLoading({ t }) {
     );
 }
 
-function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin, onRegister }) {
-    const registering = app.id === 'client' && normalizePath(window.location.pathname).endsWith('/register');
+function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin, onRegister, onForgotPassword, onResetPassword }) {
+    const authPath = normalizePath(window.location.pathname);
+    const registering = app.id === 'client' && authPath.endsWith('/register');
+    const forgetting = authPath.endsWith('/forgot-password');
+    const resetting = authPath.includes('/reset-password/');
+    const title = registering ? t.createNewAccount : forgetting ? t.forgotPasswordTitle : resetting ? t.resetPasswordTitle : t[app.id];
+    const hint = registering ? t.customerRegistrationHint : forgetting ? t.forgotPasswordHint : resetting ? t.resetPasswordHint : t[`${app.id}Hint`];
 
     return (
         <main className="auth-screen">
@@ -1969,10 +2033,10 @@ function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin,
             </header>
             <section className="auth-card-wrap">
                 <div>
-                    <h1>{registering ? t.createNewAccount : t[app.id]}</h1>
-                    <span className="muted">{registering ? t.customerRegistrationHint : t[`${app.id}Hint`]}</span>
+                    <h1>{title}</h1>
+                    <span className="muted">{hint}</span>
                 </div>
-                <LoginPanel app={app} t={t} auth={auth} onLogin={onLogin} onRegister={onRegister} />
+                <LoginPanel app={app} t={t} auth={auth} onLogin={onLogin} onRegister={onRegister} onForgotPassword={onForgotPassword} onResetPassword={onResetPassword} />
             </section>
         </main>
     );
@@ -2065,14 +2129,22 @@ function ProfileMenu({ user, t, locale, setLocale, onLogout, onProfile, compact 
     );
 }
 
-function LoginPanel({ app, t, auth, onLogin, onRegister }) {
+function LoginPanel({ app, t, auth, onLogin, onRegister, onForgotPassword, onResetPassword }) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [registration, setRegistration] = useState({ name: '', shop_name: '', phone: '', email: '', address: '', password: '', password_confirmation: '' });
+    const authPath = normalizePath(window.location.pathname);
+    const queryEmail = new URLSearchParams(window.location.search).get('email') || '';
+    const [reset, setReset] = useState({ email: queryEmail, password: '', password_confirmation: '' });
+    const forgetting = authPath.endsWith('/forgot-password');
+    const resetting = authPath.includes('/reset-password/');
+    const token = resetting ? decodeURIComponent(authPath.split('/').filter(Boolean).pop() || '') : '';
 
     const submit = (event) => {
         event.preventDefault();
-        if (registering) onRegister(registration);
+        if (forgetting) onForgotPassword({ email });
+        else if (resetting) onResetPassword({ ...reset, token });
+        else if (registering) onRegister(registration);
         else onLogin({ email, password });
     };
 
@@ -2082,13 +2154,21 @@ function LoginPanel({ app, t, auth, onLogin, onRegister }) {
     const registering = canRegister && normalizePath(window.location.pathname).endsWith('/register');
     const googleEnabled = canRegister && Boolean(window.ValleyRuntime?.auth?.googleEnabled);
     const clientBase = String(app.path).replace(/\/$/, '');
+    const panelTitle = registering ? t.customerRegistration : forgetting ? t.forgotPasswordTitle : resetting ? t.resetPasswordTitle : t.authRequired;
+    const submitLabel = registering ? t.createAccount : forgetting ? t.sendResetLink : resetting ? t.resetPasswordAction : t.signIn;
 
     return (
         <form className="login-card auth-card" autoComplete="off" onSubmit={submit}>
-            <strong>{registering ? t.customerRegistration : t.authRequired}</strong>
-            {registering && <span className="muted auth-form-hint">{t.customerRegistrationHint}</span>}
-            {auth.message && <p className="form-alert">{auth.message}</p>}
-            {!registering ? <>
+            <strong>{panelTitle}</strong>
+            {(registering || forgetting || resetting) && <span className="muted auth-form-hint">{registering ? t.customerRegistrationHint : forgetting ? t.forgotPasswordHint : t.resetPasswordHint}</span>}
+            {auth.message && <p className={`form-alert ${auth.success ? 'success' : ''}`}>{auth.message}</p>}
+            {forgetting ? (
+                <label>{t.emailAddress}<input required type="email" autoComplete="email" placeholder={t.emailAddressHint} value={email} onChange={(event) => setEmail(event.target.value)} />{errorFor('email')}</label>
+            ) : resetting ? <>
+                <label>{t.emailAddress}<input required readOnly type="email" autoComplete="email" value={reset.email} />{errorFor('email')}</label>
+                <label>{t.newPassword}<input required minLength="8" maxLength="72" type="password" autoComplete="new-password" value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} />{errorFor('password')}</label>
+                <label>{t.confirmPassword}<input required minLength="8" maxLength="72" type="password" autoComplete="new-password" value={reset.password_confirmation} onChange={(event) => setReset((current) => ({ ...current, password_confirmation: event.target.value }))} /></label>
+            </> : !registering ? <>
                 <label>{t.email}<input name="login-identifier" autoComplete="email" placeholder={t.emailHint} value={email} onChange={(event) => setEmail(event.target.value)} />{errorFor('email')}</label>
                 <label>{t.password}<input name="login-secret" autoComplete="current-password" placeholder={t.passwordHint} value={password} onChange={(event) => setPassword(event.target.value)} type="password" />{errorFor('password')}</label>
             </> : <div className="customer-registration-fields">
@@ -2103,10 +2183,12 @@ function LoginPanel({ app, t, auth, onLogin, onRegister }) {
             {auth.errors.app && <p className="form-alert">{auth.errors.app[0]}</p>}
             <button className="button primary" type="submit" disabled={auth.submitting}>
                 <User size={16} />
-                {registering ? t.createAccount : t.signIn}
+                {submitLabel}
             </button>
-            {googleEnabled && <><div className="auth-divider"><span>or</span></div><a className="button auth-google-button" href={authRoute('googleRedirect', '/api/auth/google/redirect')}><b aria-hidden="true">G</b>{t.continueWithGoogle}</a></>}
-            {canRegister && <a className="auth-text-action" href={registering ? clientBase : `${clientBase}/register`}>{registering ? `${t.existingAccount} ${t.signIn}` : t.createNewAccount}</a>}
+            {!registering && !forgetting && !resetting && <a className="auth-text-action" href={`${clientBase}/forgot-password`}>{t.forgotPassword}</a>}
+            {googleEnabled && !forgetting && !resetting && <><div className="auth-divider"><span>or</span></div><a className="button auth-google-button" href={authRoute('googleRedirect', '/api/auth/google/redirect')}><b aria-hidden="true">G</b>{t.continueWithGoogle}</a></>}
+            {(forgetting || resetting) && <a className="auth-text-action" href={clientBase}>{t.backToSignIn}</a>}
+            {canRegister && !forgetting && !resetting && <a className="auth-text-action" href={registering ? clientBase : `${clientBase}/register`}>{registering ? `${t.existingAccount} ${t.signIn}` : t.createNewAccount}</a>}
         </form>
     );
 }

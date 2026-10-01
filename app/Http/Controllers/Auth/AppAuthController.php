@@ -7,12 +7,14 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -119,6 +121,62 @@ class AppAuthController extends Controller
             'user' => AppAccess::userPayload($user),
             'redirect_to' => url('/client'),
         ], 201);
+    }
+
+    public function forgotPassword(Request $request)
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        Password::sendResetLink(['email' => $validated['email']], function (User $user, string $token) {
+            if (AppAccess::isActiveAccount($user)) {
+                $user->sendPasswordResetNotification($token);
+            }
+        });
+
+        return ApiResponse::success('If an active account matches that email, a password reset link has been sent.');
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $validated = $request->validate([
+            'token' => ['required', 'string'],
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'min:8', 'max:72', 'confirmed'],
+        ]);
+        $user = User::query()->where('email', $validated['email'])->first();
+
+        if (! AppAccess::isActiveAccount($user)) {
+            throw ValidationException::withMessages([
+                'email' => ['This password reset link is invalid or expired.'],
+            ]);
+        }
+
+        $status = Password::reset($validated, function (User $user, string $password) {
+            $user->forceFill([
+                'password' => Hash::make($password),
+                'remember_token' => Str::random(60),
+            ])->save();
+
+            event(new PasswordReset($user));
+        });
+
+        if ($status !== Password::PASSWORD_RESET) {
+            throw ValidationException::withMessages([
+                'email' => ['This password reset link is invalid or expired.'],
+            ]);
+        }
+
+        if ($request->user()) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
+
+        return ApiResponse::success('Password reset successfully.', [
+            'redirect_to' => url('/'.(AppAccess::defaultAppForRole($user->role) ?: 'office')),
+        ]);
     }
 
     public function googleRedirect(): RedirectResponse

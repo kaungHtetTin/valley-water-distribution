@@ -2565,6 +2565,12 @@ label input {
     font-weight: 700;
 }
 
+.form-alert.success {
+    border-color: color-mix(in srgb, var(--color-success) 32%, var(--color-border));
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 9%, transparent);
+}
+
 .field-error {
     color: var(--color-danger);
     font-size: 11px;

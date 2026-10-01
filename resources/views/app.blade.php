@@ -19,6 +19,8 @@
                     user: @json(url('/api/auth/user')),
                     login: @json(url('/api/auth/login')),
                     register: @json(url('/api/auth/register')),
+                    forgotPassword: @json(url('/api/auth/forgot-password')),
+                    resetPassword: @json(url('/api/auth/reset-password')),
                     googleRedirect: @json(url('/api/auth/google/redirect')),
                     googleEnabled: @json(filled(config('services.google.client_id')) && filled(config('services.google.client_secret')) && filled(config('services.google.redirect'))),
                     logout: @json(url('/api/auth/logout')),

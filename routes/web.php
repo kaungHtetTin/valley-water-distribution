@@ -41,6 +41,8 @@ Route::prefix('api/auth')->group(function () {
     Route::get('/user', [AppAuthController::class, 'user']);
     Route::post('/login', [AppAuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('/register', [AppAuthController::class, 'register'])->middleware('throttle:6,1');
+    Route::post('/forgot-password', [AppAuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
+    Route::post('/reset-password', [AppAuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::get('/google/redirect', [AppAuthController::class, 'googleRedirect'])->middleware('throttle:20,1');
     Route::get('/google/callback', [AppAuthController::class, 'googleCallback'])->middleware('throttle:20,1');
     Route::post('/logout', [AppAuthController::class, 'logout']);
@@ -237,6 +239,7 @@ Route::view('/sales', 'app')->name('sales');
 Route::view('/supervisor', 'app')->name('supervisor');
 Route::view('/driver', 'app')->name('driver');
 Route::view('/attendance/{token}', 'app')->name('attendance.public');
+Route::view('/reset-password/{token}', 'app')->name('password.reset');
 
 Route::view('/office/{any}', 'app')->where('any', '.*');
 Route::view('/client/{any}', 'app')->where('any', '.*');
