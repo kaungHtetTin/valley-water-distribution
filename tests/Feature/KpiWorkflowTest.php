@@ -41,7 +41,7 @@ class KpiWorkflowTest extends TestCase
     public function test_role_targets_apply_to_every_staff_member_in_that_role(): void
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $template = DB::table('kpi_templates')->where('code', 'SALES-REP-V1')->first();
         $metrics = DB::table('kpi_template_metrics')
@@ -82,7 +82,7 @@ class KpiWorkflowTest extends TestCase
     public function test_employee_override_review_approval_bonus_and_reports_work_end_to_end(): void
     {
         $this->seed();
-        $office = User::where('email', 'office@valley.test')->firstOrFail();
+        $office = User::where('email', 'owner@valley.test')->firstOrFail();
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $employeeId = (int) $sales->employee_id;
         $template = DB::table('kpi_templates')->where('code', 'SALES-REP-V1')->first();

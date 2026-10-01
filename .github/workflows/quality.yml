@@ -30,6 +30,8 @@ jobs:
         run: |
           composer validate --strict
           composer audit --locked
+          composer check:encoding
+          php vendor/bin/pint --test
 
       - name: Install frontend dependencies
         run: npm ci

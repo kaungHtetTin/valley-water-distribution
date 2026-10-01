@@ -17,7 +17,7 @@ class PhaseZeroController extends Controller
         abort_unless(config('valley.demo_endpoints'), 404);
 
         return ApiResponse::success(__('phase0.api_ready'), [
-            'apps' => ['office', 'client', 'sales', 'driver'],
+            'apps' => AppAccess::APPS,
             'locales' => ['en', 'my'],
             'roles' => AppAccess::rolePayloads(),
             'permissions' => DB::table('permissions')

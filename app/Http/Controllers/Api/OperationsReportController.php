@@ -203,6 +203,7 @@ class OperationsReportController extends Controller
                 'drivers' => $deliveryRows->groupBy('driver_id')->map(function ($rows) {
                     $first = $rows->first();
                     $completed = $rows->whereIn('status', ['delivered', 'partially_delivered'])->count();
+
                     return [
                         'code' => $first->driver_code, 'name' => $first->driver_name,
                         'deliveries' => $rows->count(), 'completed' => $completed,
@@ -214,6 +215,7 @@ class OperationsReportController extends Controller
                 })->sortByDesc('quantity')->values(),
                 'stock' => $stockRows->groupBy(fn ($row) => $row->sku.'|'.$row->warehouse_name)->map(function ($rows) {
                     $first = $rows->first();
+
                     return [
                         'code' => $first->sku, 'name' => $first->product_name,
                         'warehouse' => $first->warehouse_name,
@@ -248,6 +250,7 @@ class OperationsReportController extends Controller
     {
         return $rows->groupBy(fn ($row) => $row->{$groupKey} ?: 'unassigned')->map(function ($items) use ($codeKey, $nameKey) {
             $first = $items->first();
+
             return [
                 'code' => $first->{$codeKey} ?: '—',
                 'name' => $first->{$nameKey} ?: 'Unassigned',
@@ -279,6 +282,7 @@ class OperationsReportController extends Controller
     private function meta(): array
     {
         $map = fn ($rows) => $rows->map(fn ($row) => ['id' => (int) $row->id, 'label' => trim(($row->code ? $row->code.' · ' : '').$row->name)]);
+
         return [
             'routes' => $map(DB::table('routes')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name'])),
             'customers' => DB::table('customers')->where('is_active', true)->orderBy('shop_name')->get(['id', 'code', 'shop_name as name'])->map(fn ($row) => ['id' => (int) $row->id, 'label' => "{$row->code} · {$row->name}"]),
@@ -300,6 +304,7 @@ class OperationsReportController extends Controller
         foreach ($fields as $field) {
             $payload[$field] = (float) $payload[$field];
         }
+
         return $payload;
     }
 

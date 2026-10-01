@@ -3,11 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Collection;
 use App\Models\Delivery;
 use App\Models\DeliveryItem;
 use App\Models\DeliveryLocation;
 use App\Models\DeliveryTrip;
-use App\Models\Collection;
 use App\Models\FinancialTransaction;
 use App\Models\Invoice;
 use App\Models\Order;
@@ -715,7 +715,9 @@ class DeliveryController extends Controller
             $movementDate = Carbon::now();
             foreach ($returnItems as $item) {
                 $quantity = (float) $item->return_quantity;
-                if ($quantity <= 0.001) continue;
+                if ($quantity <= 0.001) {
+                    continue;
+                }
 
                 $this->inventory->applyMovement([
                     'movement_type' => 'delivery_return',
@@ -816,7 +818,9 @@ class DeliveryController extends Controller
             $donors = DeliveryItem::query()->whereIn('delivery_id', $donorDeliveryIds)->where('product_id', $productId)
                 ->where('loaded_quantity', '>', 0)->orderBy('delivery_id')->orderBy('id')->lockForUpdate()->get();
             foreach ($donors as $donor) {
-                if ($extra <= 0.001) break;
+                if ($extra <= 0.001) {
+                    break;
+                }
                 $take = min($extra, (float) $donor->loaded_quantity);
                 $donor->update(['loaded_quantity' => (float) $donor->loaded_quantity - $take]);
                 Delivery::whereKey($donor->delivery_id)->decrement('loaded_quantity', $take);
@@ -857,7 +861,9 @@ class DeliveryController extends Controller
 
         foreach ($availableByProduct as $productId => $available) {
             $leftover = $available - ($consumedByProduct[$productId] ?? 0);
-            if ($leftover <= 0.001) continue;
+            if ($leftover <= 0.001) {
+                continue;
+            }
             $nextStop = $delivery->trip_id
                 ? Delivery::query()->where('trip_id', $delivery->trip_id)->where('id', '!=', $delivery->id)
                     ->where('status', 'on_route')->orderBy('stop_sequence')->lockForUpdate()->first()
@@ -883,6 +889,7 @@ class DeliveryController extends Controller
                     ]);
                 }
                 $nextStop->increment('loaded_quantity', $leftover);
+
                 continue;
             }
 
@@ -904,6 +911,7 @@ class DeliveryController extends Controller
         $damagedByProduct = $items->groupBy('product_id')->map(fn ($rows) => (float) $rows->sum('damaged_quantity'))->all();
 
         $finalOrderDiscount = (float) $normalized->where('itemType', 'sale')->sum('discount');
+
         return [$items, $loadedByProduct, $returnedByProduct, $damagedByProduct, $planned !== $final || ($orderDiscount !== null && abs($originalOrderDiscount - $finalOrderDiscount) > 0.001)];
     }
 
@@ -1235,7 +1243,7 @@ class DeliveryController extends Controller
                     'loaded_quantity' => (float) $items->sum('loaded_quantity'),
                     'unit_price' => $this->findDeliveryUnitPrice(Delivery::find($record->id), (int) $first['product_id']) ?? 0,
                 ];
-        })->filter(fn ($item) => $item['loaded_quantity'] > 0)->values();
+            })->filter(fn ($item) => $item['loaded_quantity'] > 0)->values();
         $trip = $record->trip_id ? DeliveryTrip::find($record->trip_id) : null;
         $cashHoldCollections = DB::table('collections')
             ->join('deliveries', 'collections.delivery_id', '=', 'deliveries.id')

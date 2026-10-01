@@ -14,7 +14,7 @@ class PhaseThreePayrollTest extends TestCase
     public function test_office_can_generate_monthly_payroll_draft_from_attendance()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $generated = $this->postJson('/api/payrolls/generate', [
             'month' => '2026-08',
@@ -50,7 +50,7 @@ class PhaseThreePayrollTest extends TestCase
     public function test_generating_same_draft_refreshes_existing_payroll()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $first = $this->postJson('/api/payrolls/generate', [
             'month' => '2026-08',
@@ -76,7 +76,7 @@ class PhaseThreePayrollTest extends TestCase
     public function test_office_can_approve_and_mark_payroll_paid()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $generated = $this->postJson('/api/payrolls/generate', [
             'month' => '2026-08',
@@ -112,7 +112,7 @@ class PhaseThreePayrollTest extends TestCase
     public function test_office_can_manage_payroll_adjustments()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $employeeId = DB::table('employees')->where('code', 'SAL-002')->value('id');
 
@@ -180,7 +180,7 @@ class PhaseThreePayrollTest extends TestCase
     public function test_office_can_filter_paid_salary_history()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->getJson('/api/payroll-history?month=2026-07&employee_type=sales&search=SAL-001')
             ->assertOk()

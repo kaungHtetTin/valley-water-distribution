@@ -21,10 +21,10 @@ class PhaseZeroApiTest extends TestCase
             ->assertJsonPath('data.apps.0', 'office')
             ->assertJsonPath('data.apps.1', 'client')
             ->assertJsonPath('data.apps.2', 'sales')
-            ->assertJsonPath('data.apps.3', 'driver')
-            ->assertJsonPath('data.roles.0.name', 'Owner')
-            ->assertJsonPath('data.roles.0.allowed_apps.0', 'office')
-            ->assertJsonPath('data.demo_users.0.email', 'owner@valley.test');
+            ->assertJsonPath('data.apps.3', 'supervisor')
+            ->assertJsonPath('data.apps.4', 'driver')
+            ->assertJsonFragment(['name' => 'Owner', 'allowed_apps' => ['office']])
+            ->assertJsonFragment(['email' => 'owner@valley.test']);
     }
 
     public function test_demo_login_validation_uses_standard_api_error_shape()

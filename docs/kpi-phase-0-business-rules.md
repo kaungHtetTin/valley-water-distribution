@@ -9,7 +9,7 @@ Roadmap: [`kpi-implementation-roadmap.md`](./kpi-implementation-roadmap.md)
 
 The first KPI release must be easy for Office staff to operate. It covers Sales Representatives and Drivers only. The application uses the useful weights from the workbook without copying its broken formulas or repeated employee blocks.
 
-Supervisor, helper, storekeeper, team hierarchy, formula builders, period reopening, and complex audit workflows are postponed until the core monthly review is proven useful.
+Helper and storekeeper reviews, formula builders, period reopening, and complex audit workflows remain postponed. Sales Supervisor team hierarchy and scoped representative KPI review were added after the core monthly flow was validated.
 
 ## Accepted Rules
 
@@ -73,7 +73,15 @@ Manager entry keeps the first release operational where the application does not
 - Driver attendance, completed delivery, damage, complaint, and vehicle cost automation.
 - Bonus posting to payroll.
 - Personal KPI pages in the Sales and Driver apps.
-- Team assignments, template version management, locking, reopening, and historical Excel import.
+- Template version management, locking, reopening, and historical Excel import.
+
+## Sales Supervisor Update — 2026-10-01
+
+- Sales Supervisor is a separate employee type and does not create sales.
+- One supervisor can manage multiple Sales Representatives.
+- A Sales Representative can belong to only one supervisor.
+- The Supervisor mobile application provides team, attendance, profile/security, and scoped KPI reporting.
+- Supervisor access is read only for representative results; KPI preparation and approval remain Office permissions.
 
 ## Staff Target Setup Update — 2026-09-27
 

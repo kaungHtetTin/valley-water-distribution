@@ -58,7 +58,7 @@ class PhaseTenDashboardTest extends TestCase
     public function test_office_kpi_dashboards_cover_sales_stock_delivery_and_finance()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->getJson('/api/dashboards/sales?month=2026-08-01')
             ->assertOk()
@@ -157,7 +157,7 @@ class PhaseTenDashboardTest extends TestCase
         $this->actingAs(User::where('email', 'client@valley.test')->firstOrFail());
         $this->getJson('/api/dashboards/owner')->assertForbidden();
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->getJson('/api/mobile/dashboard')->assertForbidden();
         $this->getJson('/api/dashboards/unknown')->assertNotFound();
     }
@@ -165,7 +165,7 @@ class PhaseTenDashboardTest extends TestCase
     public function test_office_dashboards_accept_a_date_range()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $query = '?date_from=2026-08-01&date_to=2026-08-31';
 
         $this->getJson('/api/dashboards/sales'.$query)

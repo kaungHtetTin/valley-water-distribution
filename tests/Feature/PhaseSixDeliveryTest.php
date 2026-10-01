@@ -14,7 +14,7 @@ class PhaseSixDeliveryTest extends TestCase
     public function test_office_can_assign_an_issued_invoice_for_delivery()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $invoiceId = DB::table('invoices')->where('code', 'INV-202608-0001')->value('id');
         $this->postJson("/api/invoices/{$invoiceId}/issue")->assertOk();
@@ -124,7 +124,7 @@ class PhaseSixDeliveryTest extends TestCase
             'latitude' => 20.7892,
             'longitude' => 97.0378,
         ])->assertCreated();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->getJson('/api/deliveries/live-map')
             ->assertOk()
             ->assertJsonPath('data.summary.active_count', 2)
@@ -161,7 +161,7 @@ class PhaseSixDeliveryTest extends TestCase
     public function test_office_can_edit_and_cancel_a_trip_before_loading_starts()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
         $warehouseId = DB::table('warehouses')->where('code', 'WH-NSN')->value('id');
@@ -292,7 +292,7 @@ class PhaseSixDeliveryTest extends TestCase
             'signed_quantity' => 0,
         ]);
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->getJson('/api/stock/movements?type_group=issue&search=DEL-202608-0001')
             ->assertOk()
             ->assertJsonPath('data.meta.total', 1)
@@ -442,7 +442,7 @@ class PhaseSixDeliveryTest extends TestCase
 
         $this->getJson('/api/mobile/delivery-status')->assertUnauthorized();
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->getJson('/api/mobile/delivery-status')->assertForbidden();
         $this->getJson("/api/mobile/delivery-status/{$deliveryId}")->assertForbidden();
 
@@ -485,7 +485,7 @@ class PhaseSixDeliveryTest extends TestCase
             'longitude' => 97.0378,
         ]);
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->getJson('/api/deliveries/live-map')
             ->assertOk()
             ->assertJsonPath('data.summary.active_count', 2)
@@ -608,7 +608,7 @@ class PhaseSixDeliveryTest extends TestCase
         $this->assertSame(45000.0, (float) $collection->amount);
         $this->assertDatabaseMissing('financial_transactions', ['reference_type' => 'collection', 'reference_id' => $collection->id]);
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail())
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail())
             ->postJson("/api/finance/cash-handovers/{$driver->employee_id}/receive", [
                 'collection_ids' => [$collection->id],
                 'received_amount' => 45000,
@@ -764,7 +764,7 @@ class PhaseSixDeliveryTest extends TestCase
             'order_modified' => true,
         ]);
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail())
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail())
             ->getJson("/api/orders/{$delivery->order_id}")
             ->assertOk()
             ->assertJsonPath('data.order.driver_modified', true)

@@ -19,6 +19,9 @@
     <env name="QUEUE_CONNECTION" value="sync"/>
     <env name="SESSION_DRIVER" value="array"/>
     <env name="TELESCOPE_ENABLED" value="false"/>
+    <env name="VALLEY_ADMIN_NAME" value="Test Owner" force="true"/>
+    <env name="VALLEY_ADMIN_EMAIL" value="owner@valley.test" force="true"/>
+    <env name="VALLEY_ADMIN_PASSWORD" value="password" force="true"/>
   </php>
   <source>
     <include>

@@ -14,7 +14,7 @@ class ActionAlertTest extends TestCase
     public function test_office_alerts_combine_actionable_queues()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->getJson('/api/action-alerts?app=office')
             ->assertOk()

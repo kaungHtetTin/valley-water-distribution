@@ -25,6 +25,7 @@ import {
     TrendingUp,
     Truck,
     User,
+    Users,
     WalletCards,
     X,
     ImagePlus,
@@ -1408,6 +1409,69 @@ function VehicleAssignmentDialog({ employee, vehicle, vehicles, locale, onClose,
     </div>;
 }
 
+function SupervisorTeamDialog({ supervisor, representatives, teamMembers, locale, onClose, onSaved }) {
+    const [selectedIds, setSelectedIds] = useState(() => teamMembers.filter((member) => member.is_active).map((member) => String(member.id)));
+    const [search, setSearch] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const handleKeyDown = (event) => event.key === 'Escape' && !saving && onClose();
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [onClose, saving]);
+
+    const visibleRepresentatives = representatives.filter((representative) => {
+        const term = search.trim().toLowerCase();
+        return !term || [representative.code, representative.name, representative.assigned_route, representative.phone]
+            .some((value) => String(value || '').toLowerCase().includes(term));
+    });
+    const toggle = (id) => setSelectedIds((current) => current.includes(String(id))
+        ? current.filter((selectedId) => selectedId !== String(id))
+        : [...current, String(id)]);
+    const submit = async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError('');
+        try {
+            const { data } = await window.axios.put(`${apiBase('masterData')}/employees/${supervisor.id}/sales-team`, {
+                sales_representative_ids: selectedIds.map(Number),
+            });
+            onSaved(data.data);
+        } catch (requestFailure) {
+            setError(requestFailure.response?.data?.errors?.sales_representative_ids?.[0] || requestError(requestFailure, locale, 'saveError'));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+        <form className="master-dialog supervisor-team-dialog" role="dialog" aria-modal="true" aria-labelledby="supervisor-team-title" onSubmit={submit}>
+            <header>
+                <div><p className="eyebrow">Sales team</p><h2 id="supervisor-team-title">Assign sales representatives</h2></div>
+                <button className="icon-button" type="button" aria-label="Close team assignment" onClick={onClose} disabled={saving}><X size={17} /></button>
+            </header>
+            <div className="supervisor-team-dialog-body">
+                <p>Select the representatives managed by <strong>{supervisor.name}</strong>. Each representative can belong to one supervisor only.</p>
+                <label className="supervisor-team-search"><Search size={16} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search representative, code, route, or phone" autoFocus /></label>
+                <div className="supervisor-team-selection" role="group" aria-label="Available sales representatives">
+                    {visibleRepresentatives.length ? visibleRepresentatives.map((representative) => <label key={representative.id} className={selectedIds.includes(String(representative.id)) ? 'is-selected' : ''}>
+                        <input type="checkbox" checked={selectedIds.includes(String(representative.id))} onChange={() => toggle(representative.id)} />
+                        <span><strong>{representative.name}</strong><small>{representative.code} · {representative.assigned_route || 'Route not assigned'}</small></span>
+                        <Check size={16} />
+                    </label>) : <div className="supervisor-team-empty">No available sales representatives match this search.</div>}
+                </div>
+                <div className="supervisor-team-selection-count"><Users size={16} /><strong>{selectedIds.length}</strong> representative{selectedIds.length === 1 ? '' : 's'} selected</div>
+                {error && <div className="inline-error"><AlertCircle size={15} /> {error}</div>}
+            </div>
+            <footer>
+                <button className="button" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+                <button className="button primary" type="submit" disabled={saving}><Save size={15} /> Save team</button>
+            </footer>
+        </form>
+    </div>;
+}
+
 function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack, onEdit, revision = 0 }) {
     const managerScoreRequested = new URLSearchParams(window.location.search).get('manager-score') === '1';
     const [activeTab, setActiveTab] = useState(managerScoreRequested ? 'performance' : 'activity');
@@ -1419,7 +1483,9 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
     const [targetOpen, setTargetOpen] = useState(false);
     const [managerScoreOpen, setManagerScoreOpen] = useState(managerScoreRequested);
     const [vehicleAssignmentOpen, setVehicleAssignmentOpen] = useState(false);
-    const [state, setState] = useState({ loading: true, attendanceLoading: true, employee: null, vehicle: null, availableVehicles: [], attendanceSummary: {}, attendance: [], payroll: [], roleMetrics: [], activity: [], error: '', attendanceError: '' });
+    const [teamAssignmentOpen, setTeamAssignmentOpen] = useState(false);
+    const [teamRevision, setTeamRevision] = useState(0);
+    const [state, setState] = useState({ loading: true, attendanceLoading: true, employee: null, vehicle: null, availableVehicles: [], teamMembers: [], availableSalesRepresentatives: [], attendanceSummary: {}, attendance: [], payroll: [], roleMetrics: [], activity: [], error: '', attendanceError: '' });
 
     useEffect(() => {
         let mounted = true;
@@ -1439,6 +1505,8 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                 employee: data.data.employee,
                 vehicle: data.data.vehicle,
                 availableVehicles: data.data.available_vehicles || [],
+                teamMembers: data.data.team_members || [],
+                availableSalesRepresentatives: data.data.available_sales_representatives || [],
                 attendanceSummary: data.data.attendance_summary || {},
                 attendance: data.data.attendance || [],
                 payroll: data.data.payroll || [],
@@ -1451,7 +1519,13 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                 ? { ...current, loading: false, attendanceLoading: false, attendanceError: requestError(error, locale, 'loadRecordsError') }
                 : { ...current, loading: false, attendanceLoading: false, error: requestError(error, locale, 'loadRecordsError') }));
         return () => { mounted = false; };
-    }, [attendanceMonth, employeeId, locale, revision]);
+    }, [attendanceMonth, employeeId, locale, revision, teamRevision]);
+
+    useEffect(() => {
+        if (state.employee && state.employee.employee_type !== 'sales_supervisor' && activeTab === 'team') {
+            setActiveTab('activity');
+        }
+    }, [activeTab, state.employee]);
 
     if (state.loading) return <WorkspaceState icon={RefreshCw} title="Loading employee detail" loading />;
     if (state.error || !state.employee) return <WorkspaceState icon={AlertCircle} title={state.error || 'Employee not found.'} action={onBack} actionLabel="Back to employees" />;
@@ -1545,6 +1619,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                     <div className="employee-profile-wide"><dt>Address</dt><dd>{employee.address || '—'}</dd></div>
                     <div><dt>Hire date</dt><dd>{dateLabel(employee.hire_date)}</dd></div>
                     {['sales', 'driver'].includes(employee.employee_type) && <div><dt>Assigned route</dt><dd>{employee.assigned_route || 'Not assigned'}</dd></div>}
+                    {employee.employee_type === 'sales' && <div className="employee-profile-wide"><dt>Sales supervisor</dt><dd>{employee.supervisor_name ? `${employee.supervisor_code} · ${employee.supervisor_name}` : 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'driver' && <div className="employee-profile-wide"><dt>Assigned vehicle</dt><dd>{employee.assigned_vehicle || 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'driver' && vehicle && <div className="employee-profile-wide"><dt>Vehicle details</dt><dd>{titleCase(vehicle.vehicle_type)} · {[vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.plate_no}{vehicle.capacity ? ` · ${Number(vehicle.capacity).toLocaleString()} capacity` : ''}</dd></div>}
                 </dl>
@@ -1552,7 +1627,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
 
             <section className="customer-history-panel employee-history-panel">
                 <div className="customer-history-tabs employee-history-tabs" role="tablist" aria-label="Employee information">
-                    {[['activity', 'Role activity'], ['attendance', 'Attendance'], ['payroll', 'Payroll'], ['performance', 'KPI performance']].map(([key, label]) => <button type="button" role="tab" aria-selected={activeTab === key} className={activeTab === key ? 'is-active' : ''} onClick={() => { setTargetOpen(false); closeManagerScores(); setActiveTab(key); }} key={key}>{label}</button>)}
+                    {[['activity', 'Role activity'], ...(employee.employee_type === 'sales_supervisor' ? [['team', 'Sales representatives']] : []), ['attendance', 'Attendance'], ['payroll', 'Payroll'], ['performance', 'KPI performance']].map(([key, label]) => <button type="button" role="tab" aria-selected={activeTab === key} className={activeTab === key ? 'is-active' : ''} onClick={() => { setTargetOpen(false); closeManagerScores(); setActiveTab(key); }} key={key}>{label}</button>)}
                 </div>
 
                 {activeTab === 'activity' && <div className="customer-history-content" role="tabpanel">
@@ -1584,6 +1659,11 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                     </div>
                 </div>}
 
+                {activeTab === 'team' && employee.employee_type === 'sales_supervisor' && <div className="customer-history-content supervisor-team-tab" role="tabpanel">
+                    <div className="customer-section-heading"><div><p className="eyebrow">Assigned team</p><h2>Sales representatives</h2></div><div className="supervisor-team-heading-actions"><span>{state.teamMembers.length} representative{state.teamMembers.length === 1 ? '' : 's'}</span>{canManage && <button className="button primary" type="button" onClick={() => setTeamAssignmentOpen(true)}><Users size={16} /> Manage team</button>}</div></div>
+                    {state.teamMembers.length ? <div className="customer-history-table-wrap supervisor-team-table-wrap"><table className="customer-history-table supervisor-team-table"><thead><tr><th>Representative</th><th>Route</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead><tbody>{state.teamMembers.map((member) => <tr key={member.id}><td><strong>{member.name}</strong><small>{member.code}</small></td><td>{member.assigned_route || 'Not assigned'}</td><td>{member.phone || '—'}</td><td>{member.email || '—'}</td><td><span className={`status ${member.is_active ? 'success' : 'neutral'}`}>{member.is_active ? 'Active' : 'Inactive'}</span></td></tr>)}</tbody></table></div> : <WorkspaceState icon={Users} title="No sales representatives are assigned to this supervisor." compact />}
+                </div>}
+
                 {activeTab === 'payroll' && <div className="customer-history-content" role="tabpanel">
                     <div className="customer-section-heading"><div><p className="eyebrow">Payroll</p><h2>Salary history</h2></div><span>Latest 24 payroll periods</span></div>
                     {state.payroll.length ? <div className="customer-history-table-wrap"><table className="customer-history-table employee-payroll-table"><thead><tr><th>Payroll</th><th>Month</th><th>Status</th><th className="numeric">Base salary</th><th className="numeric">Gross pay</th><th className="numeric">Deductions</th><th className="numeric">Net pay</th></tr></thead><tbody>{state.payroll.map((item) => <tr key={item.id}><td><strong>{item.code}</strong></td><td>{item.month}</td><td><span className={`status ${statusTone(item.status)}`}>{titleCase(item.status)}</span></td><td className="numeric">{money(item.base_salary)}</td><td className="numeric">{money(item.gross_pay)}</td><td className="numeric">{money(Number(item.advance_deduction || 0) + Number(item.other_deduction || 0))}</td><td className="numeric"><strong>{money(item.net_pay)}</strong></td></tr>)}</tbody></table></div> : <WorkspaceState icon={WalletCards} title="No payroll history is available for this employee." compact />}
@@ -1601,6 +1681,11 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
             employee: { ...current.employee, assigned_vehicle_id: assignment.assigned_vehicle_id, assigned_vehicle: assignment.assigned_vehicle },
         }));
         setVehicleAssignmentOpen(false);
+    }} />}
+    {teamAssignmentOpen && <SupervisorTeamDialog supervisor={employee} representatives={state.availableSalesRepresentatives} teamMembers={state.teamMembers} locale={locale} onClose={() => setTeamAssignmentOpen(false)} onSaved={(assignment) => {
+        setState((current) => ({ ...current, teamMembers: assignment.team_members || [], availableSalesRepresentatives: assignment.available_sales_representatives || [] }));
+        setTeamAssignmentOpen(false);
+        setTeamRevision((current) => current + 1);
     }} />}
     </>;
 }

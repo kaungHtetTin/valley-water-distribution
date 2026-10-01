@@ -27,4 +27,14 @@ class Employee extends Model
     {
         return $this->hasMany(Vehicle::class, 'assigned_driver_id');
     }
+
+    public function supervisor()
+    {
+        return $this->belongsTo(self::class, 'supervisor_id');
+    }
+
+    public function salesRepresentatives()
+    {
+        return $this->hasMany(self::class, 'supervisor_id');
+    }
 }

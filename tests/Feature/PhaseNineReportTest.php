@@ -27,7 +27,7 @@ class PhaseNineReportTest extends TestCase
 
     public function test_office_can_run_consolidated_monthly_operations_report(): void
     {
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->getJson('/api/reports/operations?date_from=2026-08-01&date_to=2026-08-31')
             ->assertOk()
@@ -45,7 +45,7 @@ class PhaseNineReportTest extends TestCase
 
     public function test_report_filters_and_csv_export_use_the_same_scope(): void
     {
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $routeId = DB::table('routes')->where('code', 'TGI-N')->value('id');
         $warehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
 

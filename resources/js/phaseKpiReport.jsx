@@ -1,4 +1,4 @@
-import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Download, Printer, RefreshCw, Search, TrendingUp, Users, WalletCards } from 'lucide-react';
+import { AlertCircle, BadgeCheck, CalendarDays, ChevronDown, CircleGauge, Download, Printer, RefreshCw, Search, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ShellPageActions } from './components/ShellPageActions';
 
@@ -141,7 +141,7 @@ export function KpiReportsScreen() {
                         <StatusSummary items={state.data.status_summary} total={summary.reviews} posted={summary.posted} />
                     </div>
 
-                    <MetricBreakdown items={state.data.metric_breakdown} />
+                    <MetricBreakdown key={`${filters.period}-${filters.month}-${filters.year}-${filters.employee_type}-${filters.employee_id}`} items={state.data.metric_breakdown} roleSummary={state.data.role_summary} selectedType={filters.employee_type} employeeSelected={Boolean(filters.employee_id)} />
                     <ReviewTable items={state.data.reviews} />
                 </>
             )}
@@ -194,11 +194,30 @@ function StatusSummary({ items, total, posted }) {
     </ReportPanel>;
 }
 
-function MetricBreakdown({ items }) {
-    return <ReportPanel title="Target versus actual" hint="Average result for every metric in the selected period" icon={TrendingUp} className="kpi-metric-report">
-        <div className="kpi-metric-report-list">{items.map((item) => {
-            const achievement = Math.min(Math.max(Number(item.achievement_average || 0), 0), 100);
-            return <article key={`${item.template_code}-${item.code}`}><div className="kpi-metric-report-title"><span><strong>{item.name}</strong><small>{item.template_name} · {item.code}</small></span><b>{item.achievement_average === null ? 'Pending' : `${number(item.achievement_average)}%`}</b></div><div className="kpi-metric-report-bar"><i style={{ width: `${achievement}%` }} /></div><div className="kpi-metric-report-values"><span>Target <strong>{metricValue(item.target_average, item.unit)}</strong></span><span>Actual <strong>{metricValue(item.actual_average, item.unit)}</strong></span><span>Points <strong>{item.points_average === null ? '—' : `${number(item.points_average)} / ${number(item.weight)}`}</strong></span></div></article>;
+function MetricBreakdown({ items, roleSummary, selectedType, employeeSelected }) {
+    const typeOrder = ['sales', 'sales_supervisor', 'driver', 'warehouse', 'office'];
+    const typeLabels = { sales: 'Sales representatives', sales_supervisor: 'Sales supervisors', driver: 'Drivers', warehouse: 'Warehouse staff', office: 'Office staff' };
+    const groupedItems = typeOrder
+        .map((employeeType) => ({ employeeType, items: items.filter((item) => item.employee_type === employeeType) }))
+        .filter((group) => group.items.length);
+    const summaryFor = (employeeType) => roleSummary.find((summary) => summary.employee_type === employeeType) || {};
+
+    return <ReportPanel title="Target versus actual" hint="Average result grouped by employee type" icon={TrendingUp} className="kpi-metric-report">
+        <div className="kpi-metric-type-list">{groupedItems.map((group, index) => {
+            const groupSummary = summaryFor(group.employeeType);
+            const defaultOpen = selectedType === group.employeeType || employeeSelected || (!selectedType && !employeeSelected && index === 0);
+            return <details className="kpi-metric-type-section" key={group.employeeType} open={defaultOpen ? true : undefined}>
+                <summary>
+                    <span className="kpi-metric-type-icon"><Users size={17} /></span>
+                    <span><strong>{typeLabels[group.employeeType] || titleCase(group.employeeType)}</strong><small>{Number(groupSummary.employees || 0).toLocaleString()} employee{Number(groupSummary.employees || 0) === 1 ? '' : 's'} · {Number(groupSummary.reviews || 0).toLocaleString()} review{Number(groupSummary.reviews || 0) === 1 ? '' : 's'}</small></span>
+                    <span className="kpi-metric-type-score"><small>Average score</small><strong>{number(groupSummary.average_score)}%</strong></span>
+                    <ChevronDown size={17} />
+                </summary>
+                <div className="kpi-metric-report-list">{group.items.map((item) => {
+                    const achievement = Math.min(Math.max(Number(item.achievement_average || 0), 0), 100);
+                    return <article key={`${item.template_code}-${item.code}`}><div className="kpi-metric-report-title"><span><strong>{item.name}</strong><small>{item.code} · {item.reviews} result{item.reviews === 1 ? '' : 's'}</small></span><b>{item.achievement_average === null ? 'Pending' : `${number(item.achievement_average)}%`}</b></div><div className="kpi-metric-report-bar"><i style={{ width: `${achievement}%` }} /></div><div className="kpi-metric-report-values"><span>Target <strong>{metricValue(item.target_average, item.unit)}</strong></span><span>Actual <strong>{metricValue(item.actual_average, item.unit)}</strong></span><span>Points <strong>{item.points_average === null ? '—' : `${number(item.points_average)} / ${number(item.weight)}`}</strong></span></div></article>;
+                })}</div>
+            </details>;
         })}</div>
     </ReportPanel>;
 }

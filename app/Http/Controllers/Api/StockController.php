@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\StockMovement;
 use App\Models\FinancialTransaction;
+use App\Models\StockMovement;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierLedgerEntry;
 use App\Models\SupplierPayment;
@@ -24,9 +24,7 @@ class StockController extends Controller
 
     private const ADJUSTMENT_REASONS = ['damage', 'expired', 'loss', 'internal_use', 'count_correction', 'found_stock', 'other'];
 
-    public function __construct(private InventoryService $inventory)
-    {
-    }
+    public function __construct(private InventoryService $inventory) {}
 
     public function meta(Request $request)
     {
@@ -285,10 +283,18 @@ class StockController extends Controller
             ->where('stock_movements.movement_type', 'transfer_out')
             ->whereNotNull('stock_movements.document_code');
 
-        if ($request->filled('from_warehouse_id')) $query->where('stock_movements.warehouse_id', $request->query('from_warehouse_id'));
-        if ($request->filled('to_warehouse_id')) $query->where('transfer_in.warehouse_id', $request->query('to_warehouse_id'));
-        if ($request->filled('product_id')) $query->where('stock_movements.product_id', $request->query('product_id'));
-        if ($request->filled('date')) $query->whereDate('stock_movements.movement_date', $request->query('date'));
+        if ($request->filled('from_warehouse_id')) {
+            $query->where('stock_movements.warehouse_id', $request->query('from_warehouse_id'));
+        }
+        if ($request->filled('to_warehouse_id')) {
+            $query->where('transfer_in.warehouse_id', $request->query('to_warehouse_id'));
+        }
+        if ($request->filled('product_id')) {
+            $query->where('stock_movements.product_id', $request->query('product_id'));
+        }
+        if ($request->filled('date')) {
+            $query->whereDate('stock_movements.movement_date', $request->query('date'));
+        }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($query) use ($search) {
                 $query->where('stock_movements.document_code', 'like', "%{$search}%")
@@ -818,6 +824,7 @@ class StockController extends Controller
                 [$inMovement, $destinationBalance] = $this->applyMovement($common + ['movement_type' => 'transfer_in', 'warehouse_id' => $validated['to_warehouse_id']], $movementDate, $request, "{$transferCode}{$line}-IN");
                 $lines[] = compact('outMovement', 'inMovement', 'sourceBalance', 'destinationBalance');
             }
+
             return [$transferCode, $lines];
         });
 

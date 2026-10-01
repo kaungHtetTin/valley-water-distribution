@@ -25,6 +25,7 @@ class ActionAlertController extends Controller
             'office' => $this->officeAlerts($user->role),
             'client' => $this->clientAlerts($user->customer_id),
             'sales' => $this->salesAlerts($user->id),
+            'supervisor' => [],
             'driver' => $this->driverAlerts($user->employee_id),
         };
 

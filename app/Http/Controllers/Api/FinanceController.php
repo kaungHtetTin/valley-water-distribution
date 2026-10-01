@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Collection;
 use App\Models\Expense;
 use App\Models\FinancialTransaction;
-use App\Models\SupplierLedgerEntry;
 use App\Models\SupplierInvoice;
+use App\Models\SupplierLedgerEntry;
 use App\Models\SupplierPayment;
 use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
@@ -24,9 +24,7 @@ class FinanceController extends Controller
 
     private const MANAGE_PERMISSION = 'office.finance.manage';
 
-    public function __construct(private readonly CustomerCreditService $customerCredit)
-    {
-    }
+    public function __construct(private readonly CustomerCreditService $customerCredit) {}
 
     public function meta(Request $request)
     {
@@ -296,7 +294,9 @@ class FinanceController extends Controller
             'sort' => ['nullable', Rule::in(['newest', 'oldest', 'amount_desc', 'amount_asc'])],
         ]);
         $optionQuery = $this->expenseQuery();
-        if (! empty($filters['expense_type'])) $optionQuery->where('expenses.expense_type', $filters['expense_type']);
+        if (! empty($filters['expense_type'])) {
+            $optionQuery->where('expenses.expense_type', $filters['expense_type']);
+        }
         $filterOptions = [
             'categories' => (clone $optionQuery)->whereNotNull('expenses.category')->distinct()->orderBy('expenses.category')->pluck('expenses.category')->values(),
             'source_apps' => (clone $optionQuery)->whereNotNull('expenses.source_app')->distinct()->orderBy('expenses.source_app')->pluck('expenses.source_app')->values(),
@@ -318,16 +318,34 @@ class FinanceController extends Controller
                 ->orWhere('reviewers.name', 'like', "%{$search}%"));
         }
         foreach (['expense_type', 'status', 'category', 'employee_id', 'payment_method', 'source_app', 'submitted_by', 'reviewed_by'] as $filter) {
-            if (! empty($filters[$filter])) $query->where("expenses.{$filter}", $filters[$filter]);
+            if (! empty($filters[$filter])) {
+                $query->where("expenses.{$filter}", $filters[$filter]);
+            }
         }
-        if (($filters['employee_scope'] ?? null) === 'office') $query->whereNull('expenses.employee_id');
-        if (($filters['employee_scope'] ?? null) === 'employee') $query->whereNotNull('expenses.employee_id');
-        if (! empty($filters['date_from'])) $query->whereDate('expenses.expense_date', '>=', $filters['date_from']);
-        if (! empty($filters['date_to'])) $query->whereDate('expenses.expense_date', '<=', $filters['date_to']);
-        if (! empty($filters['reviewed_from'])) $query->whereDate('expenses.reviewed_at', '>=', $filters['reviewed_from']);
-        if (! empty($filters['reviewed_to'])) $query->whereDate('expenses.reviewed_at', '<=', $filters['reviewed_to']);
-        if (isset($filters['amount_min'])) $query->where('expenses.amount', '>=', $filters['amount_min']);
-        if (isset($filters['amount_max'])) $query->where('expenses.amount', '<=', $filters['amount_max']);
+        if (($filters['employee_scope'] ?? null) === 'office') {
+            $query->whereNull('expenses.employee_id');
+        }
+        if (($filters['employee_scope'] ?? null) === 'employee') {
+            $query->whereNotNull('expenses.employee_id');
+        }
+        if (! empty($filters['date_from'])) {
+            $query->whereDate('expenses.expense_date', '>=', $filters['date_from']);
+        }
+        if (! empty($filters['date_to'])) {
+            $query->whereDate('expenses.expense_date', '<=', $filters['date_to']);
+        }
+        if (! empty($filters['reviewed_from'])) {
+            $query->whereDate('expenses.reviewed_at', '>=', $filters['reviewed_from']);
+        }
+        if (! empty($filters['reviewed_to'])) {
+            $query->whereDate('expenses.reviewed_at', '<=', $filters['reviewed_to']);
+        }
+        if (isset($filters['amount_min'])) {
+            $query->where('expenses.amount', '>=', $filters['amount_min']);
+        }
+        if (isset($filters['amount_max'])) {
+            $query->where('expenses.amount', '<=', $filters['amount_max']);
+        }
         $summary = (clone $query)->reorder()->selectRaw("COUNT(*) records_count, COALESCE(SUM(expenses.amount),0) total_amount, COALESCE(SUM(CASE WHEN expenses.status='submitted' THEN expenses.amount ELSE 0 END),0) submitted_amount, COALESCE(SUM(CASE WHEN expenses.status='approved' THEN expenses.amount ELSE 0 END),0) approved_amount")->first();
         match ($filters['sort'] ?? 'newest') {
             'oldest' => $query->orderBy('expenses.expense_date')->orderBy('expenses.id'),
@@ -412,14 +430,30 @@ class FinanceController extends Controller
                     ->orWhere('category', 'like', "%{$search}%");
             });
         }
-        if (! empty($filters['direction'])) $query->where('direction', $filters['direction']);
-        if (! empty($filters['category'])) $query->where('category', $filters['category']);
-        if (! empty($filters['reference_type'])) $query->where('reference_type', $filters['reference_type']);
-        if (! empty($filters['created_by'])) $query->where('created_by', $filters['created_by']);
-        if (! empty($filters['date_from'])) $query->whereDate('transaction_date', '>=', $filters['date_from']);
-        if (! empty($filters['date_to'])) $query->whereDate('transaction_date', '<=', $filters['date_to']);
-        if (isset($filters['amount_min'])) $query->where('amount', '>=', $filters['amount_min']);
-        if (isset($filters['amount_max'])) $query->where('amount', '<=', $filters['amount_max']);
+        if (! empty($filters['direction'])) {
+            $query->where('direction', $filters['direction']);
+        }
+        if (! empty($filters['category'])) {
+            $query->where('category', $filters['category']);
+        }
+        if (! empty($filters['reference_type'])) {
+            $query->where('reference_type', $filters['reference_type']);
+        }
+        if (! empty($filters['created_by'])) {
+            $query->where('created_by', $filters['created_by']);
+        }
+        if (! empty($filters['date_from'])) {
+            $query->whereDate('transaction_date', '>=', $filters['date_from']);
+        }
+        if (! empty($filters['date_to'])) {
+            $query->whereDate('transaction_date', '<=', $filters['date_to']);
+        }
+        if (isset($filters['amount_min'])) {
+            $query->where('amount', '>=', $filters['amount_min']);
+        }
+        if (isset($filters['amount_max'])) {
+            $query->where('amount', '<=', $filters['amount_max']);
+        }
         $query->orderBy('transaction_date')->orderBy('id');
         $items = $query->get()->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'transaction_date' => $item->transaction_date->toDateString(), 'direction' => $item->direction, 'category' => $item->category, 'amount' => (float) $item->amount, 'reference_code' => $item->reference_code, 'description' => $item->description]);
         $balance = 0;
@@ -430,7 +464,9 @@ class FinanceController extends Controller
             return $item;
         });
 
-        if (($filters['sort'] ?? 'newest') === 'newest') $items = $items->reverse()->values();
+        if (($filters['sort'] ?? 'newest') === 'newest') {
+            $items = $items->reverse()->values();
+        }
 
         return ApiResponse::success(ucfirst($book).' book loaded.', ['items' => $items, 'summary' => ['inflow' => (float) $items->where('direction', 'in')->sum('amount'), 'outflow' => (float) $items->where('direction', 'out')->sum('amount'), 'balance' => (float) $balance], 'filter_options' => $filterOptions]);
     }
@@ -503,7 +539,7 @@ class FinanceController extends Controller
             'COUNT(*) as invoice_count,
              COALESCE(SUM(total), 0) as invoice_total,
              COALESCE(SUM(paid_amount), 0) as paid_amount,
-             COALESCE(SUM(GREATEST(total - paid_amount, 0)), 0) as outstanding_amount,
+             COALESCE(SUM(CASE WHEN total > paid_amount THEN total - paid_amount ELSE 0 END), 0) as outstanding_amount,
              COALESCE(SUM(CASE WHEN due_date < ? AND total > paid_amount THEN total - paid_amount ELSE 0 END), 0) as overdue_amount,
              SUM(CASE WHEN total > paid_amount THEN 1 ELSE 0 END) as open_invoice_count,
              SUM(CASE WHEN total <= paid_amount THEN 1 ELSE 0 END) as paid_invoice_count',
@@ -650,14 +686,20 @@ class FinanceController extends Controller
 
         $bucketKey = function ($date) use ($fromDate, $granularity, $toDate) {
             $value = Carbon::parse($date);
-            if ($value->lt($fromDate)) $value = $fromDate->copy();
-            if ($value->gt($toDate)) $value = $toDate->copy();
+            if ($value->lt($fromDate)) {
+                $value = $fromDate->copy();
+            }
+            if ($value->gt($toDate)) {
+                $value = $toDate->copy();
+            }
 
             return $granularity === 'day' ? $value->format('Y-m-d') : $value->format('Y-m');
         };
         $addTrend = function ($date, string $field, float $amount) use (&$trend, $bucketKey) {
             $key = $bucketKey($date);
-            if (isset($trend[$key])) $trend[$key][$field] += $amount;
+            if (isset($trend[$key])) {
+                $trend[$key][$field] += $amount;
+            }
         };
 
         $invoiceRows = DB::table('invoices')
@@ -666,14 +708,18 @@ class FinanceController extends Controller
             ->where('invoices.status', '!=', 'cancelled')
             ->whereBetween('invoices.invoice_date', [$from, $to])
             ->get(['invoices.invoice_date', 'invoices.total']);
-        foreach ($invoiceRows as $row) $addTrend($row->invoice_date, 'revenue', (float) $row->total);
+        foreach ($invoiceRows as $row) {
+            $addTrend($row->invoice_date, 'revenue', (float) $row->total);
+        }
 
         $payrollRows = DB::table('payrolls')
             ->whereIn('status', ['approved', 'paid'])
             ->whereDate('period_end', '>=', $from)
             ->whereDate('period_start', '<=', $to)
             ->get(['period_end', 'total_net']);
-        foreach ($payrollRows as $row) $addTrend($row->period_end, 'payroll', (float) $row->total_net);
+        foreach ($payrollRows as $row) {
+            $addTrend($row->period_end, 'payroll', (float) $row->total_net);
+        }
 
         $expenseRows = DB::table('expenses')
             ->where('status', 'approved')

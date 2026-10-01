@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 
 class AppAccess
 {
-    public const APPS = ['office', 'client', 'sales', 'driver'];
+    public const APPS = ['office', 'client', 'sales', 'supervisor', 'driver'];
 
     public static function allowedAppsForRole(?string $role): array
     {

@@ -5,10 +5,10 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Support\AppAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class AppAuthTest extends TestCase
@@ -62,7 +62,7 @@ class AppAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_sales_access_is_limited_to_kpi_customers_and_orders()
+    public function test_sales_access_matches_the_mobile_field_workflow()
     {
         $this->seed();
 
@@ -77,8 +77,9 @@ class AppAuthTest extends TestCase
         $this->assertNotContains('sales.route.view', $permissions);
         $this->assertNotContains('sales.collections.view', $permissions);
         $this->assertNotContains('sales.collections.create', $permissions);
-        $this->assertNotContains('sales.finance.view', $permissions);
-        $this->assertNotContains('sales.expenses.create', $permissions);
+        $this->assertContains('sales.finance.view', $permissions);
+        $this->assertContains('sales.expenses.view', $permissions);
+        $this->assertContains('sales.expenses.create', $permissions);
         $this->assertContains('sales.attendance.view', $permissions);
         $this->assertContains('sales.payroll.view', $permissions);
     }

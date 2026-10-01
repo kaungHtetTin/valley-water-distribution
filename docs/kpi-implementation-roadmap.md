@@ -117,4 +117,4 @@ Delivered:
 
 ## Later Scope
 
-Sales Supervisor, Helper, Storekeeper, team hierarchy, historical Excel import, and advanced approval controls remain outside the current release. They should be reconsidered only after Sales and Driver users complete real monthly reviews successfully.
+Helper and Storekeeper KPI review templates, historical Excel import, and advanced approval controls remain outside the current release. Sales Supervisor team hierarchy and scoped mobile KPI reporting were completed on 2026-10-01.

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\FinancialTransaction;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\FinancialTransaction;
 use App\Services\CustomerCreditService;
 use App\Services\InventoryService;
 use App\Support\ApiResponse;
@@ -20,8 +20,7 @@ class OrderAdjustmentController extends Controller
     public function __construct(
         private readonly InventoryService $inventory,
         private readonly CustomerCreditService $customerCredit,
-    ) {
-    }
+    ) {}
 
     public function meta(Request $request)
     {

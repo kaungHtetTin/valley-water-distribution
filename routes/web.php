@@ -1,8 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\ActionAlertController;
 use App\Http\Controllers\Api\AttendanceLocationController;
 use App\Http\Controllers\Api\AttendanceRecordController;
-use App\Http\Controllers\Api\ActionAlertController;
 use App\Http\Controllers\Api\CompanySettingsController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DeliveryController;
@@ -12,12 +12,13 @@ use App\Http\Controllers\Api\KpiReviewController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\MobileMasterDataController;
 use App\Http\Controllers\Api\MobileOrderController;
+use App\Http\Controllers\Api\OperationsReportController;
 use App\Http\Controllers\Api\OrderAdjustmentController;
 use App\Http\Controllers\Api\OrderController;
-use App\Http\Controllers\Api\OperationsReportController;
 use App\Http\Controllers\Api\PayrollAdjustmentController;
 use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\StockController;
+use App\Http\Controllers\Api\SupervisorMobileController;
 use App\Http\Controllers\Api\UatController;
 use App\Http\Controllers\Api\VehicleCostController;
 use App\Http\Controllers\Auth\AppAuthController;
@@ -61,6 +62,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/master-data/customers/{id}/detail', [MasterDataController::class, 'customerDetail'])->whereNumber('id');
     Route::get('/master-data/employees/{id}/detail', [MasterDataController::class, 'employeeDetail'])->whereNumber('id');
     Route::put('/master-data/employees/{id}/vehicle', [MasterDataController::class, 'assignEmployeeVehicle'])->whereNumber('id');
+    Route::put('/master-data/employees/{id}/sales-team', [MasterDataController::class, 'assignSupervisorTeam'])->whereNumber('id');
     Route::get('/master-data/{resource}', [MasterDataController::class, 'index']);
     Route::post('/master-data/{resource}', [MasterDataController::class, 'store']);
     Route::get('/master-data/{resource}/{id}', [MasterDataController::class, 'show'])->whereNumber('id');
@@ -105,6 +107,9 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/mobile/vehicle-operations', [VehicleCostController::class, 'mobileIndex']);
     Route::post('/mobile/vehicle-operations', [VehicleCostController::class, 'mobileStore']);
     Route::get('/mobile/dashboard', [DashboardController::class, 'mobile']);
+    Route::get('/mobile/supervisor', [SupervisorMobileController::class, 'overview']);
+    Route::get('/mobile/supervisor/team', [SupervisorMobileController::class, 'team']);
+    Route::get('/mobile/supervisor/team/{employee}', [SupervisorMobileController::class, 'representative'])->whereNumber('employee');
 
     Route::get('/orders/meta', [OrderController::class, 'meta']);
     Route::get('/orders', [OrderController::class, 'index']);
@@ -229,10 +234,12 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
 Route::view('/office', 'app')->name('office');
 Route::view('/client', 'app')->name('client');
 Route::view('/sales', 'app')->name('sales');
+Route::view('/supervisor', 'app')->name('supervisor');
 Route::view('/driver', 'app')->name('driver');
 Route::view('/attendance/{token}', 'app')->name('attendance.public');
 
 Route::view('/office/{any}', 'app')->where('any', '.*');
 Route::view('/client/{any}', 'app')->where('any', '.*');
 Route::view('/sales/{any}', 'app')->where('any', '.*');
+Route::view('/supervisor/{any}', 'app')->where('any', '.*');
 Route::view('/driver/{any}', 'app')->where('any', '.*');

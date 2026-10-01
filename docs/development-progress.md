@@ -47,7 +47,19 @@ Status: Complete. Verified with 96 automated tests, a production Vite build, and
 - [x] Production configuration checker, CI quality gate, and deployment/rollback runbook.
 - [ ] Business Android real-phone execution and owner UAT sign-off.
 
-Status: Release candidate ready after production environment setup. Implementation verified on 2026-09-27 with 141 passing tests (1,561 assertions), zero Composer/npm advisories, a production Vite build, cacheable routes/config/views, a fresh isolated MySQL restore drill, and authenticated desktop, tablet, dark-theme, comfortable-density, Myanmar, offline, Client, Sales, Driver, and public attendance renders. The seeded Delivery UAT finding tracks the remaining physical Android GPS/QR/route sign-off.
+Status: Release candidate ready after production environment setup. Reverified on 2026-10-01 with 149 passing tests (1,642 assertions), zero Composer/npm advisories, a UTF-8 source check, a production Vite build, cacheable routes/config/views, a fresh isolated MySQL restore drill, and authenticated Office, Client, Sales, Driver, and Supervisor visual smoke checks. The open medium Delivery finding tracks the remaining physical Android GPS sign-off.
+
+## Sales Supervisor Mobile Application
+
+- [x] Separate `sales_supervisor` employee type and Sales Supervisor default role/app permissions.
+- [x] One supervisor per Sales Representative with multiple representatives per supervisor.
+- [x] Team assignment management from Supervisor employee detail.
+- [x] Mobile Supervisor shell with authentication, profile/security, attendance, locale, theme, team and KPI navigation.
+- [x] Scoped team list and representative KPI detail with monthly/yearly duration filters.
+- [x] Authorization checks prevent non-supervisors and other supervisors from viewing a team member.
+- [x] English/Myanmar mobile visual smoke coverage and dedicated feature tests.
+
+Status: Complete. Included in the 2026-10-01 production regression and visual smoke run.
 
 ## Phase 9: Consolidated Operations Reports
 

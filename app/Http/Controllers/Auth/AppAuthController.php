@@ -9,9 +9,9 @@ use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -34,7 +34,7 @@ class AppAuthController extends Controller
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
-            'app' => ['required', 'in:office,client,sales,driver'],
+            'app' => ['required', 'in:office,client,sales,supervisor,driver'],
         ]);
 
         if (! Auth::attempt($request->only('email', 'password'), true)) {
@@ -216,7 +216,9 @@ class AppAuthController extends Controller
 
             if ($user->profile_photo_path) {
                 $previous = $directory.DIRECTORY_SEPARATOR.basename($user->profile_photo_path);
-                if (File::isFile($previous)) File::delete($previous);
+                if (File::isFile($previous)) {
+                    File::delete($previous);
+                }
             }
 
             $validated['profile_photo_path'] = trim(config('uploads.profile_photos_url'), '/').'/'.$filename;

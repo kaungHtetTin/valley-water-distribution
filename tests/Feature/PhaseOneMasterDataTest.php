@@ -5,9 +5,9 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Support\AppAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -18,7 +18,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_office_user_can_search_and_paginate_master_data()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $this->getJson('/api/master-data/meta')
             ->assertOk()
@@ -35,7 +35,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_company_is_managed_as_singleton_settings()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $this->getJson('/api/settings/company')
             ->assertOk()
@@ -68,7 +68,7 @@ class PhaseOneMasterDataTest extends TestCase
     {
         Storage::fake('public');
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $response = $this->post('/api/settings/company', [
             '_method' => 'PUT',
@@ -94,7 +94,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_empty_active_filter_does_not_hide_seeded_master_data()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $this->getJson('/api/master-data/customers?is_active=&per_page=10')
             ->assertOk()
@@ -105,7 +105,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_blank_codes_are_generated_for_all_coded_master_data_forms()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
         $areaId = DB::table('areas')->value('id');
 
         $forms = [
@@ -131,7 +131,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_blank_company_code_is_generated()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $this->putJson('/api/settings/company', [
             'code' => '',
@@ -157,7 +157,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_office_user_can_create_update_and_delete_a_master_record()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $created = $this->postJson('/api/master-data/brands', [
             'code' => 'NEW',
@@ -184,7 +184,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_master_data_validation_uses_standard_error_shape()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $this->postJson('/api/master-data/products', [
             'sku' => '',
@@ -198,7 +198,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_office_user_can_view_and_update_product_prices_as_a_matrix_row()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $matrix = $this->getJson('/api/master-data/product-prices/matrix?search=5%20Gallon')
             ->assertOk()
@@ -232,7 +232,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_customer_password_creates_and_updates_linked_login_account()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $response = $this->postJson('/api/master-data/customers', [
             'code' => 'CUS-LOGIN',
@@ -272,7 +272,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_employee_password_creates_login_with_matching_app_role()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $response = $this->postJson('/api/master-data/employees', [
             'code' => 'DRV-LOGIN',
@@ -293,7 +293,7 @@ class PhaseOneMasterDataTest extends TestCase
     public function test_password_requires_an_email_and_confirmation()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->first());
+        $this->actingAs(User::where('email', 'owner@valley.test')->first());
 
         $this->postJson('/api/master-data/customers', [
             'code' => 'CUS-NO-EMAIL',
@@ -412,5 +412,4 @@ class PhaseOneMasterDataTest extends TestCase
             'phone' => '09 777 123 456',
         ])->assertUnprocessable();
     }
-
 }

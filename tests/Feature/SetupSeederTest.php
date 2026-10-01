@@ -18,7 +18,10 @@ class SetupSeederTest extends TestCase
         $this->assertDatabaseCount('users', 1);
         $this->assertDatabaseHas('users', ['role' => 'Owner']);
         $this->assertDatabaseCount('companies', 1);
-        $this->assertDatabaseCount('roles', 5);
+        $this->assertDatabaseCount('roles', 9);
+        foreach (['Owner', 'Office Staff', 'HR', 'Accountant', 'Finance Manager', 'Customer', 'Sales Representative', 'Sales Supervisor', 'Driver'] as $role) {
+            $this->assertDatabaseHas('roles', ['name' => $role]);
+        }
         $this->assertGreaterThan(0, DB::table('permissions')->count());
 
         foreach ([

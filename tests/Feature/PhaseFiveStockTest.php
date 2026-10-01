@@ -14,7 +14,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_receive_stock_and_see_balance()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $warehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $productId = DB::table('products')->where('sku', 'VAL-500')->value('id');
@@ -66,14 +66,17 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_receive_multiple_products_as_one_receipt()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $warehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
+        $supplierId = DB::table('suppliers')->where('code', 'SUP-001')->value('id');
         $fiveGallonId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
         $smallBottleId = DB::table('products')->where('sku', 'VAL-500')->value('id');
 
         $created = $this->postJson('/api/stock/receipts', [
             'movement_type' => 'receive',
+            'supplier_id' => $supplierId,
+            'settlement_method' => 'credit',
             'warehouse_id' => $warehouseId,
             'movement_date' => '2026-08-25',
             'reference_code' => 'SUP-INV-1001',
@@ -108,7 +111,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_stock_balance_is_grouped_by_permitted_active_warehouse()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $mainWarehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $namSanWarehouseId = DB::table('warehouses')->where('code', 'WH-NSN')->value('id');
@@ -159,7 +162,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_stock_issue_rejects_insufficient_balance()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->postJson('/api/stock/movements', [
             'movement_type' => 'issue',
@@ -180,7 +183,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_issue_and_record_damage_stock()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $warehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
@@ -229,7 +232,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_transfer_stock_and_view_stock_card()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $sourceWarehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $destinationWarehouseId = DB::table('warehouses')->where('code', 'WH-NSN')->value('id');
@@ -283,7 +286,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_transfer_multiple_products_as_one_document()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $sourceId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $destinationId = DB::table('warehouses')->where('code', 'WH-NSN')->value('id');
@@ -330,7 +333,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_view_stock_value_report()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $response = $this->getJson('/api/stock/value')
             ->assertOk()
@@ -391,7 +394,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_record_closing_stock_from_a_physical_count()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $warehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
@@ -476,7 +479,7 @@ class PhaseFiveStockTest extends TestCase
     public function test_office_can_record_and_filter_reasoned_stock_adjustments()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $warehouseId = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
         $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');

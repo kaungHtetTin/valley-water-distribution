@@ -87,7 +87,9 @@ class DemoMonthSeeder extends Seeder
         $start = CarbonImmutable::parse("{$month}-01");
         $rows = [];
         for ($date = $start; $date->month === $start->month; $date = $date->addDay()) {
-            if ($date->isWeekend()) continue;
+            if ($date->isWeekend()) {
+                continue;
+            }
             foreach ($employees as $employee) {
                 $late = $date->day === 12 && $employee->code === 'DRV-001';
                 $rows[] = [
@@ -100,7 +102,9 @@ class DemoMonthSeeder extends Seeder
                 ];
             }
         }
-        foreach (array_chunk($rows, 100) as $chunk) DB::table('attendance_records')->insert($chunk);
+        foreach (array_chunk($rows, 100) as $chunk) {
+            DB::table('attendance_records')->insert($chunk);
+        }
     }
 
     private function seedOrdersAndDeliveries(string $month, array $context): void
@@ -142,7 +146,9 @@ class DemoMonthSeeder extends Seeder
                 'item_type' => 'sale', 'quantity' => $quantity, 'unit_price' => $unitPrice,
                 'discount_amount' => 0, 'line_total' => $total, 'created_at' => $date, 'updated_at' => $date,
             ]);
-            if ($isPending) continue;
+            if ($isPending) {
+                continue;
+            }
 
             $invoiceId = DB::table('invoices')->insertGetId([
                 'code' => $invoiceCode, 'order_id' => $orderId, 'customer_id' => $customer->id,
@@ -197,7 +203,9 @@ class DemoMonthSeeder extends Seeder
                 'returned_quantity' => 0, 'damaged_quantity' => 0,
                 'created_at' => $date, 'updated_at' => $date,
             ]);
-            if ($isAssigned) continue;
+            if ($isAssigned) {
+                continue;
+            }
 
             $soldQuantity += $quantity;
             DB::table('stock_movements')->insert([
@@ -300,7 +308,9 @@ class DemoMonthSeeder extends Seeder
                 'reviewed_at' => $status === 'approved' ? $date->format('Y-m-d 16:00:00') : null,
                 'created_at' => $date, 'updated_at' => $date,
             ]);
-            if ($status === 'approved') $this->postBook($code, 'expense', $expenseId, $date, $method, 'out', $category, $amount, $context['accountant_user']);
+            if ($status === 'approved') {
+                $this->postBook($code, 'expense', $expenseId, $date, $method, 'out', $category, $amount, $context['accountant_user']);
+            }
         }
     }
 
@@ -322,7 +332,9 @@ class DemoMonthSeeder extends Seeder
                 'reviewed_at' => $status === 'approved' ? $date->format('Y-m-d 16:00:00') : null,
                 'created_at' => $date, 'updated_at' => $date,
             ]);
-            if ($status === 'approved') $this->postBook($code, 'vehicle_cost', $costId, $date, $method, 'out', 'vehicle_cost', $amount, $context['accountant_user']);
+            if ($status === 'approved') {
+                $this->postBook($code, 'vehicle_cost', $costId, $date, $method, 'out', 'vehicle_cost', $amount, $context['accountant_user']);
+            }
         }
     }
 

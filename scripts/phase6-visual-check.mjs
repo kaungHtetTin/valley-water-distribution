@@ -92,14 +92,14 @@ async function screenshot(send, url, width, height, destination, cookies, locale
     let state = null;
     for (let attempt = 0; attempt < 30; attempt += 1) {
         const result = await send('Runtime.evaluate', {
-            expression: `({ title: document.querySelector('h1')?.innerText, error: document.querySelector('.inline-error')?.innerText, loading: !!document.querySelector('.workspace-state .spin') || /Checking sign in|Loading|Calculating|Preparing/.test(document.body.innerText), body: document.body.innerText.slice(0, 500) })`,
+            expression: `({ title: document.querySelector('h1')?.innerText, error: document.querySelector('.inline-error, .form-alert')?.innerText, loading: !!document.querySelector('.workspace-state .spin') || /Checking sign in|Loading|Calculating|Preparing/.test(document.body.innerText), mojibake: /Â|Ã|â€|á€|�/.test(document.body.innerText), body: document.body.innerText.slice(0, 500) })`,
             returnByValue: true,
         });
         state = result.result.value;
         if (state?.title && !state.error && !state.loading) break;
         await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    if (!state?.title || state.error || state.loading) throw new Error(`${url}: ${JSON.stringify(state)}`);
+    if (!state?.title || state.error || state.loading || state.mojibake) throw new Error(`${url}: ${JSON.stringify(state)}`);
     const result = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(destination, Buffer.from(result.data, 'base64'));
 }
@@ -110,6 +110,7 @@ const officeCookies = await login('office@valley.test', 'office');
 const clientCookies = await login('client@valley.test', 'client');
 const salesCookies = await login('sales@valley.test', 'sales');
 const driverCookies = await login('driver@valley.test', 'driver');
+const supervisorCookies = await login('sales.supervisor@valley.test', 'supervisor');
 const edge = spawn(edgePath, ['--headless=new', '--disable-gpu', '--remote-debugging-port=9222', `--user-data-dir=${profilePath}`, 'about:blank'], { stdio: 'ignore' });
 
 try {
@@ -125,6 +126,11 @@ try {
     await screenshot(send, `${baseUrl}/client/deliveries`, 390, 844, path.join(artifactPath, 'phase6-client-deliveries.png'), clientCookies.header);
     await screenshot(send, `${baseUrl}/sales/deliveries`, 430, 932, path.join(artifactPath, 'phase6-sales-deliveries.png'), salesCookies.header);
     await screenshot(send, `${baseUrl}/driver/tasks`, 390, 844, path.join(artifactPath, 'phase6-driver-tasks.png'), driverCookies.header);
+    await setLocale(driverCookies, 'my');
+    await screenshot(send, `${baseUrl}/driver/tasks`, 390, 844, path.join(artifactPath, 'phase6-driver-tasks-my.png'), driverCookies.header, 'my');
+    await setLocale(supervisorCookies, 'my');
+    await screenshot(send, `${baseUrl}/supervisor/home`, 390, 844, path.join(artifactPath, 'supervisor-home-my.png'), supervisorCookies.header, 'my');
+    await screenshot(send, `${baseUrl}/supervisor/team`, 390, 844, path.join(artifactPath, 'supervisor-team-my.png'), supervisorCookies.header, 'my');
     await send('Browser.close').catch(() => {});
     socket.close();
 } finally {

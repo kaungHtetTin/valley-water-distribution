@@ -27,9 +27,7 @@ class MasterDataController extends Controller
         'warehouse' => 'STOREKEEPER-V1',
     ];
 
-    public function __construct(private readonly CustomerCreditService $customerCredit)
-    {
-    }
+    public function __construct(private readonly CustomerCreditService $customerCredit) {}
 
     public function meta(Request $request)
     {
@@ -238,8 +236,9 @@ class MasterDataController extends Controller
 
         $employee = DB::table('employees')
             ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
+            ->leftJoin('employees as supervisors', 'employees.supervisor_id', '=', 'supervisors.id')
             ->where('employees.id', $id)
-            ->select('employees.*', 'routes.name as assigned_route')
+            ->select('employees.*', 'routes.name as assigned_route', 'supervisors.name as supervisor_name', 'supervisors.code as supervisor_code')
             ->first();
         abort_unless($employee, 404);
 
@@ -255,6 +254,25 @@ class MasterDataController extends Controller
                 })
                 ->orderBy('code')
                 ->get(['id', 'code', 'plate_no', 'vehicle_type', 'make', 'model', 'capacity'])
+            : collect();
+        $teamMembers = $employee->employee_type === 'sales_supervisor'
+            ? DB::table('employees')
+                ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
+                ->where('employees.supervisor_id', $id)
+                ->where('employees.employee_type', 'sales')
+                ->orderBy('employees.name')
+                ->get(['employees.id', 'employees.code', 'employees.name', 'employees.phone', 'employees.email', 'employees.is_active', 'routes.name as assigned_route'])
+            : collect();
+        $availableSalesRepresentatives = $employee->employee_type === 'sales_supervisor'
+            ? DB::table('employees')
+                ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
+                ->where('employees.employee_type', 'sales')
+                ->where('employees.is_active', true)
+                ->where(function ($query) use ($id) {
+                    $query->whereNull('employees.supervisor_id')->orWhere('employees.supervisor_id', $id);
+                })
+                ->orderBy('employees.name')
+                ->get(['employees.id', 'employees.code', 'employees.name', 'employees.phone', 'employees.email', 'routes.name as assigned_route'])
             : collect();
         $userId = DB::table('users')->where('employee_id', $id)->value('id');
         $monthStart = isset($validated['attendance_month'])
@@ -299,7 +317,7 @@ class MasterDataController extends Controller
 
         [$roleMetrics, $activity] = match ($employee->employee_type) {
             'sales' => $this->salesEmployeeActivity($employee, $userId),
-            'sales_supervisor' => $this->salesSupervisorActivity(),
+            'sales_supervisor' => $this->salesSupervisorActivity($employee),
             'driver' => $this->driverEmployeeActivity($employee),
             'warehouse' => $this->warehouseEmployeeActivity($userId),
             default => $this->officeEmployeeActivity($userId),
@@ -312,6 +330,8 @@ class MasterDataController extends Controller
             'employee' => $employee,
             'vehicle' => $vehicle,
             'available_vehicles' => $availableVehicles,
+            'team_members' => $teamMembers,
+            'available_sales_representatives' => $availableSalesRepresentatives,
             'attendance_summary' => $attendanceSummary,
             'attendance' => $attendance,
             'payroll' => $payroll,
@@ -357,6 +377,76 @@ class MasterDataController extends Controller
             'assigned_vehicle_id' => $vehicle?->id,
             'assigned_vehicle' => $vehicle ? $vehicle->code.' · '.$vehicle->plate_no : null,
             'available_vehicles' => $availableVehicles,
+        ]);
+    }
+
+    public function assignSupervisorTeam(Request $request, int $id)
+    {
+        $this->authorizeMasterResource($request, 'employees', 'manage');
+
+        $supervisor = DB::table('employees')->where('id', $id)->first(['id', 'employee_type']);
+        abort_unless($supervisor, 404);
+        if ($supervisor->employee_type !== 'sales_supervisor') {
+            throw ValidationException::withMessages([
+                'sales_representative_ids' => 'Sales representatives can only be assigned to a sales supervisor.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'sales_representative_ids' => ['present', 'array'],
+            'sales_representative_ids.*' => ['integer', 'distinct', 'exists:employees,id'],
+        ]);
+        $representativeIds = array_values(array_unique($validated['sales_representative_ids']));
+
+        DB::transaction(function () use ($id, $representativeIds) {
+            $representatives = DB::table('employees')
+                ->whereIn('id', $representativeIds)
+                ->lockForUpdate()
+                ->get(['id', 'employee_type', 'is_active', 'supervisor_id']);
+
+            if ($representatives->count() !== count($representativeIds)
+                || $representatives->contains(fn ($representative) => $representative->employee_type !== 'sales' || ! $representative->is_active)) {
+                throw ValidationException::withMessages([
+                    'sales_representative_ids' => 'Choose active sales representatives only.',
+                ]);
+            }
+            if ($representatives->contains(fn ($representative) => $representative->supervisor_id && (int) $representative->supervisor_id !== $id)) {
+                throw ValidationException::withMessages([
+                    'sales_representative_ids' => 'One or more sales representatives already belong to another supervisor.',
+                ]);
+            }
+
+            DB::table('employees')
+                ->where('supervisor_id', $id)
+                ->when($representativeIds, fn ($query) => $query->whereNotIn('id', $representativeIds))
+                ->update(['supervisor_id' => null, 'updated_at' => now()]);
+
+            if ($representativeIds) {
+                DB::table('employees')
+                    ->whereIn('id', $representativeIds)
+                    ->update(['supervisor_id' => $id, 'updated_at' => now()]);
+            }
+        });
+
+        $teamMembers = DB::table('employees')
+            ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
+            ->where('employees.supervisor_id', $id)
+            ->where('employees.employee_type', 'sales')
+            ->orderBy('employees.name')
+            ->get(['employees.id', 'employees.code', 'employees.name', 'employees.phone', 'employees.email', 'employees.is_active', 'routes.name as assigned_route']);
+        $availableSalesRepresentatives = DB::table('employees')
+            ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
+            ->where('employees.employee_type', 'sales')
+            ->where('employees.is_active', true)
+            ->where(function ($query) use ($id) {
+                $query->whereNull('employees.supervisor_id')->orWhere('employees.supervisor_id', $id);
+            })
+            ->orderBy('employees.name')
+            ->get(['employees.id', 'employees.code', 'employees.name', 'employees.phone', 'employees.email', 'routes.name as assigned_route']);
+
+        return ApiResponse::success('Sales team assignment updated.', [
+            'team_members' => $teamMembers,
+            'available_sales_representatives' => $availableSalesRepresentatives,
         ]);
     }
 
@@ -433,20 +523,21 @@ class MasterDataController extends Controller
         return [$metrics, $activity];
     }
 
-    private function salesSupervisorActivity(): array
+    private function salesSupervisorActivity(object $employee): array
     {
         $salesUsers = DB::table('users')
             ->join('employees', 'users.employee_id', '=', 'employees.id')
             ->where('employees.employee_type', 'sales')
+            ->where('employees.supervisor_id', $employee->id)
             ->where('employees.is_active', true)
             ->select('users.id');
         $orders = DB::table('orders')->whereIn('created_by', $salesUsers)->whereNull('original_order_id');
-        $salesEmployeeIds = DB::table('employees')->where('employee_type', 'sales')->where('is_active', true)->select('id');
+        $salesEmployeeIds = DB::table('employees')->where('employee_type', 'sales')->where('supervisor_id', $employee->id)->where('is_active', true)->select('id');
         $metrics = [
-            ['label' => 'Sales representatives', 'value' => DB::table('employees')->where('employee_type', 'sales')->where('is_active', true)->count(), 'format' => 'number'],
-            ['label' => 'All sales orders', 'value' => (clone $orders)->count(), 'format' => 'number'],
-            ['label' => 'All sales order value', 'value' => (float) (clone $orders)->where('status', '!=', 'cancelled')->sum('total'), 'format' => 'money'],
-            ['label' => 'All sales collections', 'value' => (float) DB::table('collections')->whereIn('employee_id', $salesEmployeeIds)->where('status', 'approved')->sum('amount'), 'format' => 'money'],
+            ['label' => 'Sales representatives', 'value' => DB::table('employees')->where('employee_type', 'sales')->where('supervisor_id', $employee->id)->where('is_active', true)->count(), 'format' => 'number'],
+            ['label' => 'Team sales orders', 'value' => (clone $orders)->count(), 'format' => 'number'],
+            ['label' => 'Team order value', 'value' => (float) (clone $orders)->where('status', '!=', 'cancelled')->sum('total'), 'format' => 'money'],
+            ['label' => 'Team collections', 'value' => (float) DB::table('collections')->whereIn('employee_id', $salesEmployeeIds)->where('status', 'approved')->sum('amount'), 'format' => 'money'],
         ];
         $activity = (clone $orders)->orderByDesc('order_date')->orderByDesc('id')->limit(30)
             ->get(['id', 'code as reference', 'order_date as date', 'status', 'total as amount'])
@@ -634,6 +725,12 @@ class MasterDataController extends Controller
 
         DB::transaction(function () use ($id, $config, $password, $permissionIds, $previousRoleName, $previousEmployeeType, $resource, $validated, $hasVehicleAssignment, $assignedVehicleId, $accessRole) {
             DB::table($config['table'])->where('id', $id)->update($validated);
+            if ($resource === 'employees' && $validated['employee_type'] !== 'sales') {
+                DB::table('employees')->where('id', $id)->update(['supervisor_id' => null]);
+            }
+            if ($resource === 'employees' && $previousEmployeeType === 'sales_supervisor' && $validated['employee_type'] !== 'sales_supervisor') {
+                DB::table('employees')->where('supervisor_id', $id)->update(['supervisor_id' => null, 'updated_at' => now()]);
+            }
             if ($resource === 'roles' && $previousRoleName !== $validated['name']) {
                 User::query()->where('role', $previousRoleName)->update(['role' => $validated['name']]);
             }

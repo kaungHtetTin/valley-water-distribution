@@ -14,7 +14,7 @@ class PhaseFourAdjustmentTest extends TestCase
     public function test_office_can_create_sales_return_and_damage_entries()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $customerId = DB::table('customers')->where('code', 'CUS-0003')->value('id');
         $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
@@ -137,7 +137,7 @@ class PhaseFourAdjustmentTest extends TestCase
     public function test_cash_sale_return_posts_a_refund_transaction()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $originalOrderId = DB::table('orders')->where('code', 'ORD-202608-0005')->value('id');
         $originalItemId = DB::table('order_items')->where('order_id', $originalOrderId)->value('id');

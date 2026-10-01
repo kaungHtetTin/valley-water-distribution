@@ -6,6 +6,8 @@ Create a release candidate only when all of these checks pass:
 
 - `composer audit --locked` reports no advisories.
 - `npm audit --audit-level=high` reports no high or critical vulnerabilities.
+- `composer check:encoding` passes so translated text and UI punctuation are valid UTF-8.
+- `php vendor/bin/pint --test` passes the PHP formatting gate.
 - `php artisan test` passes the complete isolated SQLite suite.
 - `npm run build` completes without warnings or oversized entry chunks.
 - `php artisan valley:backup` creates a current backup.
@@ -19,7 +21,7 @@ Create a release candidate only when all of these checks pass:
 1. Provision PHP 8.2 or later, MySQL 8 or MariaDB, Node 22 for asset compilation, HTTPS, and a non-root deployment account.
 2. Create a dedicated MySQL database and a least privilege application user. Grant only the privileges needed by the Valley schema.
 3. Copy the application to a new release directory. Keep `.env`, user uploads, logs, and backups outside the versioned release directory.
-4. Create `.env` from `.env.example` and set:
+4. Create `.env` from `.env.production.example` and replace every blank or example value. Set:
    - `APP_ENV=production`
    - `APP_DEBUG=false`
    - the public HTTPS `APP_URL`
@@ -29,11 +31,12 @@ Create a release candidate only when all of these checks pass:
    - `SESSION_SECURE_COOKIE=true`
    - `VALLEY_DEMO_ENDPOINTS=false`
    - an absolute protected `VALLEY_BACKUP_DIRECTORY`, preferably copied off host
+   - an absolute shared `PROFILE_PHOTOS_PATH` that persists across release directories
    - a named `VALLEY_ADMIN_EMAIL`, `VALLEY_ADMIN_NAME`, and strong `VALLEY_ADMIN_PASSWORD` for the first dashboard account
    - the real SMTP settings and sender address
 5. Run `composer install --no-dev --classmap-authoritative --no-interaction`.
 6. Run `npm ci` and `npm run build` in the release directory.
-7. Run `php artisan valley:production-check`.
+7. Run `composer check:encoding` and `php artisan valley:production-check`.
 8. Put the current application into maintenance mode: `php artisan down --retry=30`.
 9. Run `php artisan valley:backup` and verify it with `php artisan valley:backup-verify <backup-path>`.
 10. Run `php artisan migrate --force`.

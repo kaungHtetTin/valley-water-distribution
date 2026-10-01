@@ -14,7 +14,7 @@ class PhaseTwoAttendanceTest extends TestCase
     public function test_office_can_manage_attendance_locations_and_rotate_public_token()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $warehouseId = DB::table('warehouses')->insertGetId([
             'area_id' => DB::table('areas')->where('code', 'AREA-TGI')->value('id'),
             'code' => 'WH-ATT',
@@ -127,7 +127,7 @@ class PhaseTwoAttendanceTest extends TestCase
     public function test_office_can_filter_attendance_records()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->getJson('/api/attendance/records?date=2026-08-17&status=accepted')
             ->assertOk()
@@ -165,7 +165,7 @@ class PhaseTwoAttendanceTest extends TestCase
     public function test_office_can_view_attendance_summary_for_payroll_preparation()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $this->getJson('/api/attendance/summary?month=2026-08&employee_type=sales&search=SAL-001')
             ->assertOk()

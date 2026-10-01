@@ -14,9 +14,7 @@ use Illuminate\Validation\Rule;
 
 class MobileOrderController extends Controller
 {
-    public function __construct(private readonly CustomerCreditService $customerCredit)
-    {
-    }
+    public function __construct(private readonly CustomerCreditService $customerCredit) {}
 
     public function meta(Request $request)
     {
@@ -257,7 +255,9 @@ class MobileOrderController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
             $order->items()->delete();
-            foreach ($items as $item) $order->items()->create($item);
+            foreach ($items as $item) {
+                $order->items()->create($item);
+            }
         });
 
         $orderPayload = $this->baseQuery()->select($this->columns())->where('orders.id', $order->id)->first();

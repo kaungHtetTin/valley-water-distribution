@@ -7,14 +7,13 @@ use App\Models\AttendanceRecord;
 use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class MobileMasterDataController extends Controller
 {
-    public function __construct(private readonly CustomerCreditService $customerCredit)
-    {
-    }
+    public function __construct(private readonly CustomerCreditService $customerCredit) {}
 
     public function profile(Request $request)
     {
@@ -30,7 +29,11 @@ class MobileMasterDataController extends Controller
                 ->select('customers.*', 'areas.name as area', 'routes.name as route', 'routes.service_day', 'price_types.name as price_type')
                 ->first();
         } else {
-            $permission = $user->role === 'Driver' ? 'driver.profile.view' : 'sales.profile.view';
+            $permission = match ($user->role) {
+                'Driver' => 'driver.profile.view',
+                'Sales Supervisor' => 'supervisor.profile.view',
+                default => 'sales.profile.view',
+            };
             $this->authorizePermission($request, $permission);
             $profile = DB::table('employees')
                 ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
@@ -213,6 +216,7 @@ class MobileMasterDataController extends Controller
 
             if ($existing) {
                 DB::table('sales_route_visits')->where('id', $existing->id)->update($values);
+
                 return (int) $existing->id;
             }
 
@@ -263,6 +267,7 @@ class MobileMasterDataController extends Controller
             ->get()
             ->map(function ($order) {
                 $order->total = (float) $order->total;
+
                 return $order;
             });
 
@@ -380,7 +385,11 @@ class MobileMasterDataController extends Controller
     public function attendanceRecords(Request $request)
     {
         $user = $request->user();
-        $permission = $user->role === 'Driver' ? 'driver.attendance.view' : 'sales.attendance.view';
+        $permission = match ($user->role) {
+            'Driver' => 'driver.attendance.view',
+            'Sales Supervisor' => 'supervisor.attendance.view',
+            default => 'sales.attendance.view',
+        };
         $this->authorizePermission($request, $permission);
 
         abort_unless($user->employee_id, 404);
@@ -399,7 +408,7 @@ class MobileMasterDataController extends Controller
             ->select('attendance_records.*', 'attendance_locations.name as location_name', 'warehouses.name as warehouse_name');
 
         if (! empty($validated['month'])) {
-            $monthStart = \Carbon\Carbon::createFromFormat('Y-m', $validated['month'])->startOfMonth();
+            $monthStart = Carbon::createFromFormat('Y-m', $validated['month'])->startOfMonth();
             $query->whereBetween('attendance_records.attendance_at', [$monthStart, $monthStart->copy()->endOfMonth()]);
         }
 
@@ -649,8 +658,13 @@ class MobileMasterDataController extends Controller
     private function authorizeMobileAttendance(Request $request): void
     {
         $role = $request->user()->role;
-        abort_unless(in_array($role, ['Driver', 'Sales Representative'], true), 403);
-        $this->authorizePermission($request, $role === 'Driver' ? 'driver.attendance.view' : 'sales.attendance.view');
+        abort_unless(in_array($role, ['Driver', 'Sales Representative', 'Sales Supervisor'], true), 403);
+        $permission = match ($role) {
+            'Driver' => 'driver.attendance.view',
+            'Sales Supervisor' => 'supervisor.attendance.view',
+            default => 'sales.attendance.view',
+        };
+        $this->authorizePermission($request, $permission);
     }
 
     private function mobileAttendanceResult(object $record, object $location, object $employee, bool $alreadyRecorded = false): array

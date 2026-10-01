@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use RuntimeException;
 
 class DemoSeeder extends Seeder
 {
@@ -16,6 +17,10 @@ class DemoSeeder extends Seeder
      */
     public function run()
     {
+        if (! app()->environment(['local', 'testing'])) {
+            throw new RuntimeException('Demo data may only be seeded in local and testing environments.');
+        }
+
         $this->call(SetupSeeder::class);
 
         $now = now();
@@ -147,6 +152,11 @@ class DemoSeeder extends Seeder
         ] as $employee) {
             DB::table('employees')->updateOrInsert(['code' => $employee['code']], $employee + ['is_active' => true, 'created_at' => $now, 'updated_at' => $now]);
         }
+
+        $salesSupervisorId = DB::table('employees')->where('code', 'SUP-001')->value('id');
+        DB::table('employees')
+            ->whereIn('code', ['SAL-001', 'SAL-002'])
+            ->update(['supervisor_id' => $salesSupervisorId, 'updated_at' => $now]);
 
         DB::table('attendance_locations')->updateOrInsert(['code' => 'ATT-OFFICE'], [
             'warehouse_id' => $mainWarehouseId,

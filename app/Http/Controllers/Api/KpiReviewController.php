@@ -441,12 +441,16 @@ class KpiReviewController extends Controller
     public function mobile(Request $request)
     {
         $user = $request->user();
-        abort_unless(in_array($user?->role, ['Sales Representative', 'Driver'], true), 403);
+        abort_unless(in_array($user?->role, ['Sales Representative', 'Sales Supervisor', 'Driver'], true), 403);
         abort_unless($user?->employee_id, 404, 'Employee profile is not linked to this account.');
 
         $this->authorizePermission(
             $request,
-            $user->role === 'Driver' ? 'driver.payroll.view' : 'sales.payroll.view'
+            match ($user->role) {
+                'Driver' => 'driver.payroll.view',
+                'Sales Supervisor' => 'supervisor.kpi.view',
+                default => 'sales.payroll.view',
+            }
         );
 
         $validated = $request->validate([
@@ -544,7 +548,7 @@ class KpiReviewController extends Controller
             ->first();
 
         $roleSummary = $applyPeriod($applyPeople($query()))
-            ->selectRaw("kpi_templates.id as template_id, kpi_templates.code as template_code, kpi_templates.name as template_name, kpi_templates.employee_type, COUNT(*) as reviews, COALESCE(AVG(kpi_results.overall_score), 0) as average_score, COALESCE(SUM(kpi_results.bonus_amount), 0) as bonus_total, SUM(CASE WHEN kpi_results.status = 'approved' THEN 1 ELSE 0 END) as approved, SUM(CASE WHEN kpi_results.payroll_adjustment_id IS NOT NULL THEN 1 ELSE 0 END) as posted")
+            ->selectRaw("kpi_templates.id as template_id, kpi_templates.code as template_code, kpi_templates.name as template_name, kpi_templates.employee_type, COUNT(*) as reviews, COUNT(DISTINCT kpi_results.employee_id) as employees, COALESCE(AVG(kpi_results.overall_score), 0) as average_score, COALESCE(SUM(kpi_results.bonus_amount), 0) as bonus_total, SUM(CASE WHEN kpi_results.status = 'approved' THEN 1 ELSE 0 END) as approved, SUM(CASE WHEN kpi_results.payroll_adjustment_id IS NOT NULL THEN 1 ELSE 0 END) as posted")
             ->groupBy('kpi_templates.id', 'kpi_templates.code', 'kpi_templates.name', 'kpi_templates.employee_type')
             ->orderBy('kpi_templates.name')
             ->get()
@@ -554,6 +558,7 @@ class KpiReviewController extends Controller
                 'template_name' => $row->template_name,
                 'employee_type' => $row->employee_type,
                 'reviews' => (int) $row->reviews,
+                'employees' => (int) $row->employees,
                 'average_score' => round((float) $row->average_score, 2),
                 'bonus_total' => (float) $row->bonus_total,
                 'approved' => (int) $row->approved,
@@ -577,9 +582,9 @@ class KpiReviewController extends Controller
 
         $yearlyTrend = $applyPeople($query())
             ->whereBetween('kpi_periods.month', [($year - 4).'-01', $year.'-12'])
-            ->selectRaw("SUBSTR(kpi_periods.month, 1, 4) as label, COUNT(*) as reviews, COALESCE(AVG(kpi_results.overall_score), 0) as average_score, COALESCE(SUM(kpi_results.bonus_amount), 0) as bonus_total")
-            ->groupByRaw("SUBSTR(kpi_periods.month, 1, 4)")
-            ->orderByRaw("SUBSTR(kpi_periods.month, 1, 4)")
+            ->selectRaw('SUBSTR(kpi_periods.month, 1, 4) as label, COUNT(*) as reviews, COALESCE(AVG(kpi_results.overall_score), 0) as average_score, COALESCE(SUM(kpi_results.bonus_amount), 0) as bonus_total')
+            ->groupByRaw('SUBSTR(kpi_periods.month, 1, 4)')
+            ->orderByRaw('SUBSTR(kpi_periods.month, 1, 4)')
             ->get()
             ->map(fn ($row) => ['label' => $row->label, 'reviews' => (int) $row->reviews, 'average_score' => round((float) $row->average_score, 2), 'bonus_total' => (float) $row->bonus_total]);
 

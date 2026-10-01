@@ -56,6 +56,11 @@ class SetupSeeder extends Seeder
             'sales.payroll' => ['view'],
             'sales.finance' => ['view'],
             'sales.expenses' => ['view', 'create'],
+            'supervisor.home' => ['view'],
+            'supervisor.team' => ['view'],
+            'supervisor.profile' => ['view'],
+            'supervisor.attendance' => ['view'],
+            'supervisor.kpi' => ['view'],
             'driver.home' => ['view'],
             'driver.profile' => ['view'],
             'driver.vehicle' => ['view'],
@@ -87,7 +92,7 @@ class SetupSeeder extends Seeder
             'Finance Manager' => ['description' => 'Financial review and approval, KPI approval, payroll approval, and profit and loss.', 'apps' => ['office']],
             'Customer' => ['description' => 'Client mobile app access.', 'apps' => ['client']],
             'Sales Representative' => ['description' => 'Sales mobile app access.', 'apps' => ['sales']],
-            'Sales Supervisor' => ['description' => 'Office access to sales dashboards, orders, and customers, without selling permissions.', 'apps' => ['office']],
+            'Sales Supervisor' => ['description' => 'Mobile team oversight for assigned sales representatives.', 'apps' => ['supervisor']],
             'Driver' => ['description' => 'Driver mobile delivery app access.', 'apps' => ['driver']],
         ];
 
@@ -142,7 +147,8 @@ class SetupSeeder extends Seeder
                 'sales.finance.view', 'sales.expenses.view', 'sales.expenses.create',
             ],
             'Sales Supervisor' => [
-                'office.dashboard.view', 'office.customers.view', 'office.orders.view',
+                'supervisor.home.view', 'supervisor.team.view', 'supervisor.profile.view',
+                'supervisor.attendance.view', 'supervisor.kpi.view',
             ],
             'Driver' => [
                 'driver.home.view', 'driver.profile.view', 'driver.vehicle.view', 'driver.load.view',
@@ -173,8 +179,8 @@ class SetupSeeder extends Seeder
             ]);
         }
 
-        $email = (string) env('VALLEY_ADMIN_EMAIL', '');
-        $password = (string) env('VALLEY_ADMIN_PASSWORD', '');
+        $email = (string) config('valley.initial_admin.email', '');
+        $password = (string) config('valley.initial_admin.password', '');
         $localDefault = app()->environment(['local', 'testing']);
 
         if ($email === '' && $localDefault) {
@@ -190,7 +196,7 @@ class SetupSeeder extends Seeder
         User::firstOrCreate(
             ['email' => $email],
             [
-                'name' => env('VALLEY_ADMIN_NAME', 'Administrator'),
+                'name' => (string) config('valley.initial_admin.name', 'Administrator'),
                 'role' => 'Owner',
                 'locale' => 'en',
                 'password' => Hash::make($password),

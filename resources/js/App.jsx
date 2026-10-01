@@ -35,6 +35,7 @@ import {
     TriangleAlert,
     Truck,
     User,
+    UserCheck,
     Users,
     WalletCards,
     X,
@@ -111,6 +112,9 @@ const KpiTargetsScreen = lazyNamed(phaseKpi, 'KpiTargetsScreen');
 const MobileKpiScreen = lazyNamed(phaseKpi, 'MobileKpiScreen');
 const KpiReportsScreen = lazyNamed(() => import('./phaseKpiReport'), 'KpiReportsScreen');
 const ProfileSettingsScreen = lazyNamed(() => import('./ProfileSettings'), 'ProfileSettingsScreen');
+const SupervisorHomeScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorHomeScreen');
+const SupervisorTeamScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorTeamScreen');
+const SupervisorRepresentativeDetailScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorRepresentativeDetailScreen');
 
 const copy = {
     en: {
@@ -118,6 +122,7 @@ const copy = {
         office: 'Office App',
         client: 'Client App',
         sales: 'Sales App',
+        supervisor: 'Supervisor App',
         salary: 'Salary',
         driver: 'Driver App',
         dashboard: 'Dashboard',
@@ -130,6 +135,7 @@ const copy = {
         officeHint: 'Compact operations console for owner, admin, and office staff.',
         clientHint: 'Customer app shell for orders with delivery tracking and account balance.',
         salesHint: 'Sales performance, customer management, and field orders.',
+        supervisorHint: 'Mobile team oversight for sales supervisors.',
         driverHint: 'Driver app shell for assigned loads, delivery route, and status updates.',
         newDemoOrder: 'New demo order',
         demoNav: 'Demo Navigation',
@@ -159,11 +165,21 @@ const copy = {
         deliveries: 'Deliveries',
         profile: 'Profile',
         menu: 'Menu',
+        accountSettings: 'Account & settings',
+        profileSettings: 'Profile & settings',
+        profileSettingsHint: 'Edit profile, photo and password',
+        appearance: 'Appearance',
+        light: 'Light',
+        dark: 'Dark',
+        lightTheme: 'Light theme',
+        darkTheme: 'Dark theme',
+        signOutDevice: 'Sign out of this device',
         moreOperations: 'More operations',
         close: 'Close',
         profileMenu: 'Profile menu',
         route: 'Route',
         customers: 'Customers',
+        team: 'Team',
         customerVisits: 'Visits',
         collections: 'Collections',
         expenses: 'Expenses',
@@ -200,60 +216,75 @@ const copy = {
     my: {
         brand: 'Valley Water',
         customerVisits: 'Visits',
-        office: 'á€›á€¯á€¶á€¸á€¡á€€á€ºá€•á€º',
-        client: 'á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€¡á€€á€ºá€•á€º',
-        sales: 'á€¡á€›á€±á€¬á€„á€ºá€¸á€¡á€€á€ºá€•á€º',
-        driver: 'á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸á€¡á€€á€ºá€•á€º',
-        dashboard: 'á€’á€€á€ºá€›á€¾á€ºá€˜á€¯á€á€º',
-        login: 'á€á€„á€ºá€›á€”á€º',
-        language: 'á€˜á€¬á€žá€¬á€…á€€á€¬á€¸',
-        theme: 'á€¡á€•á€¼á€„á€ºá€¡á€†á€„á€º',
-        overview: 'á€¡á€á€¼á€±á€á€¶á€”á€¾á€„á€ºá€· UI Shell',
-        officeHint: 'á€•á€­á€¯á€„á€ºá€›á€¾á€„á€ºáŠ á€¡á€€á€ºá€’á€™á€„á€ºá€”á€¾á€„á€ºá€· á€›á€¯á€¶á€¸á€á€”á€ºá€‘á€™á€ºá€¸á€™á€»á€¬á€¸á€¡á€á€½á€€á€º consoleá‹',
-        clientHint: 'á€¡á€±á€¬á€ºá€’á€«áŠ á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€¡á€á€¼á€±á€¡á€”á€± á€”á€¾á€„á€ºá€· á€„á€½á€±á€œá€€á€ºá€€á€»á€”á€ºá€¡á€á€½á€€á€º á€–á€±á€¬á€€á€ºá€žá€Šá€º app shellá‹',
-        salesHint: 'á€¡á€›á€±á€¬á€„á€ºá€¸á€…á€½á€™á€ºá€¸á€†á€±á€¬á€„á€ºá€›á€Šá€ºáŠ á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€…á€®á€™á€¶á€™á€¾á€¯á€”á€¾á€„á€·á€º á€¡á€±á€¬á€ºá€’á€«á€á€„á€ºá€á€¼á€„á€ºá€¸á€¡á€á€½á€€á€º á€¡á€›á€±á€¬á€„á€ºá€¸ appá‹',
-        driverHint: 'á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€±á€¬ loadáŠ route á€”á€¾á€„á€ºá€· status update á€™á€»á€¬á€¸á€¡á€á€½á€€á€º driver app shellá‹',
-        newDemoOrder: 'Demo order á€¡á€žá€…á€º',
+        office: 'ရုံးအက်ပ်',
+        client: 'ဖောက်သည်အက်ပ်',
+        sales: 'အရောင်းအက်ပ်',
+        driver: 'ယာဉ်မောင်းအက်ပ်',
+        dashboard: 'ဒက်ရှ်ဘုတ်',
+        login: 'ဝင်ရန်',
+        language: 'ဘာသာစကား',
+        theme: 'အပြင်အဆင်',
+        overview: 'အခြေခံနှင့် UI Shell',
+        officeHint: 'ပိုင်ရှင်၊ အက်ဒမင်နှင့် ရုံးဝန်ထမ်းများအတွက် console။',
+        clientHint: 'အော်ဒါ၊ ပို့ဆောင်မှုအခြေအနေ နှင့် ငွေလက်ကျန်အတွက် ဖောက်သည် app shell။',
+        salesHint: 'အရောင်းစွမ်းဆောင်ရည်၊ ဖောက်သည်စီမံမှုနှင့် အော်ဒါတင်ခြင်းအတွက် အရောင်း app။',
+        driverHint: 'သတ်မှတ်ထားသော load၊ route နှင့် status update များအတွက် driver app shell။',
+        newDemoOrder: 'Demo order အသစ်',
         demoNav: 'Demo Menu',
-        visibleStates: 'á€™á€¼á€„á€ºá€”á€­á€¯á€„á€ºá€žá€±á€¬ state á€™á€»á€¬á€¸',
-        loading: 'Route assignment á€á€„á€ºá€”á€±á€žá€Šá€º',
-        empty: 'á€’á€® demo shift á€á€½á€„á€º alert á€™á€›á€¾á€­á€•á€«',
+        visibleStates: 'မြင်နိုင်သော state များ',
+        loading: 'Route assignment တင်နေသည်',
+        empty: 'ဒီ demo shift တွင် alert မရှိပါ',
         error: 'Sample API error state',
         roleNav: 'Role-aware access',
-        signIn: 'á€á€„á€ºá€›á€”á€º',
-        email: 'Email á€žá€­á€¯á€·á€™á€Ÿá€¯á€á€º á€–á€¯á€”á€ºá€¸',
-        emailHint: 'Email á€žá€­á€¯á€·á€™á€Ÿá€¯á€á€º á€–á€¯á€”á€ºá€¸á€”á€¶á€•á€«á€á€º á€‘á€Šá€·á€ºá€•á€«',
+        signIn: 'ဝင်ရန်',
+        email: 'Email သို့မဟုတ် ဖုန်း',
+        emailHint: 'Email သို့မဟုတ် ဖုန်းနံပါတ် ထည့်ပါ',
         password: 'Password',
-        passwordHint: 'Password á€‘á€Šá€·á€ºá€•á€«',
-        status: 'á€¡á€á€¼á€±á€¡á€”á€±',
-        ready: 'á€¡á€žá€„á€ºá€·',
-        currentRoute: 'á€œá€€á€ºá€›á€¾á€­ route',
-        assignedToday: 'á€šá€”á€±á€·á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€Šá€º',
-        nextAction: 'á€”á€±á€¬á€€á€ºá€œá€¯á€•á€ºá€†á€±á€¬á€„á€ºá€›á€”á€º',
-        home: 'á€™á€°á€œ',
-        kpiReport: 'KPI á€¡á€…á€®á€›á€„á€ºá€á€¶á€…á€¬',
-        newOrder: 'á€¡á€±á€¬á€ºá€’á€«á€¡á€žá€…á€º',
-        orders: 'á€¡á€±á€¬á€ºá€’á€«á€™á€»á€¬á€¸',
-        deliveries: 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€»á€¬á€¸',
-        profile: 'á€•á€›á€­á€¯á€–á€­á€¯á€„á€º',
+        passwordHint: 'Password ထည့်ပါ',
+        status: 'အခြေအနေ',
+        ready: 'အသင့်',
+        currentRoute: 'လက်ရှိ route',
+        assignedToday: 'ယနေ့သတ်မှတ်ထားသည်',
+        nextAction: 'နောက်လုပ်ဆောင်ရန်',
+        home: 'မူလ',
+        kpiReport: 'KPI အစီရင်ခံစာ',
+        newOrder: 'အော်ဒါအသစ်',
+        orders: 'အော်ဒါများ',
+        deliveries: 'ပို့ဆောင်မှုများ',
+        profile: 'ပရိုဖိုင်',
         profileMenu: 'Profile menu',
         route: 'Route',
-        customers: 'á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€™á€»á€¬á€¸',
-        collections: 'á€„á€½á€±á€€á€±á€¬á€€á€ºá€á€¶á€™á€¾á€¯á€™á€»á€¬á€¸',
-        tasks: 'á€á€¬á€á€”á€ºá€™á€»á€¬á€¸',
-        history: 'á€™á€¾á€á€ºá€á€™á€ºá€¸',
+        customers: 'ဖောက်သည်များ',
+        collections: 'ငွေကောက်ခံမှုများ',
+        tasks: 'တာဝန်များ',
+        history: 'မှတ်တမ်း',
         load: 'Load',
-        confirm: 'á€¡á€á€Šá€ºá€•á€¼á€¯',
-        clientWelcome: 'Shwe Family Store á€¡á€á€½á€€á€º á€™á€”á€€á€ºá€•á€­á€¯á€„á€ºá€¸á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯ á€•á€¼á€„á€ºá€†á€„á€ºá€”á€±á€žá€Šá€ºá‹',
-        salesWelcome: 'á€šá€”á€±á€·á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€œá€Šá€ºá€•á€á€ºá€™á€¾á€¯á€¡á€…á€®á€¡á€…á€‰á€º á€¡á€žá€„á€ºá€·á€–á€¼á€…á€ºá€žá€Šá€ºá‹',
-        driverWelcome: 'Warehouse load WY-204 á€€á€­á€¯ á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€›á€”á€º á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€Šá€ºá‹',
-        officeApiNote: 'API response format á€žá€Šá€º app á€¡á€¬á€¸á€œá€¯á€¶á€¸á€¡á€á€½á€€á€º error á€™á€»á€¬á€¸á€€á€­á€¯ á€á€°á€Šá€®á€…á€±á€žá€Šá€ºá‹',
+        confirm: 'အတည်ပြု',
+        clientWelcome: 'Shwe Family Store အတွက် မနက်ပိုင်းပို့ဆောင်မှု ပြင်ဆင်နေသည်။',
+        salesWelcome: 'ယနေ့ဖောက်သည်လည်ပတ်မှုအစီအစဉ် အသင့်ဖြစ်သည်။',
+        driverWelcome: 'Warehouse load WY-204 ကို ပို့ဆောင်ရန် သတ်မှတ်ထားသည်။',
+        officeApiNote: 'API response format သည် app အားလုံးအတွက် error များကို တူညီစေသည်။',
     },
 };
 
-copy.my.expenses = 'á€¡á€žá€¯á€¶á€¸á€…á€›á€­á€á€º';
-copy.my.ledger = 'á€…á€¬á€›á€„á€ºá€¸';
-copy.my.vehicle = 'á€šá€¬á€‰á€º';
+copy.my.expenses = 'အသုံးစရိတ်';
+copy.my.ledger = 'စာရင်း';
+copy.my.vehicle = 'ယာဉ်';
+copy.my.supervisor = 'အရောင်းကြီးကြပ်သူအက်ပ်';
+copy.my.supervisorHint = 'အရောင်းအဖွဲ့ကို ကြီးကြပ်ရန် မိုဘိုင်းအက်ပ်။';
+copy.my.team = 'အဖွဲ့';
+copy.my.attendance = 'တက်ရောက်မှု';
+copy.my.menu = 'မီနူး';
+copy.my.accountSettings = 'အကောင့်နှင့် ဆက်တင်များ';
+copy.my.profileSettings = 'ပရိုဖိုင်နှင့် ဆက်တင်များ';
+copy.my.profileSettingsHint = 'ပရိုဖိုင်၊ ဓာတ်ပုံနှင့် စကားဝှက် ပြင်ဆင်ရန်';
+copy.my.appearance = 'အသွင်အပြင်';
+copy.my.light = 'အလင်း';
+copy.my.dark = 'အမှောင်';
+copy.my.lightTheme = 'အလင်းရောင် အပြင်အဆင်';
+copy.my.darkTheme = 'အမှောင် အပြင်အဆင်';
+copy.my.signOut = 'အကောင့်မှ ထွက်ရန်';
+copy.my.signOutDevice = 'ဤစက်မှ ထွက်ရန်';
 
 const appConfig = {
     office: {
@@ -274,6 +305,12 @@ const appConfig = {
         icon: Users,
         accent: '#2874bc',
     },
+    supervisor: {
+        id: 'supervisor',
+        path: runtimeRoute('supervisor', '/supervisor'),
+        icon: UserCheck,
+        accent: '#6d5bd0',
+    },
     driver: {
         id: 'driver',
         path: runtimeRoute('driver', '/driver'),
@@ -282,29 +319,29 @@ const appConfig = {
     },
 };
 
-const appOrder = ['office', 'client', 'sales', 'driver'];
+const appOrder = ['office', 'client', 'sales', 'supervisor', 'driver'];
 
 const officeNavItems = [
-    { id: 'uat-readiness', label: 'UAT & Security', myLabel: 'UAT á€”á€¾á€„á€·á€º á€œá€¯á€¶á€á€¼á€¯á€¶á€›á€±á€¸', icon: CheckCircle2, permission: 'office.uat.view', view: 'uat-readiness', path: '/uat' },
+    { id: 'uat-readiness', label: 'UAT & Security', myLabel: 'UAT နှင့် လုံခြုံရေး', icon: CheckCircle2, permission: 'office.uat.view', view: 'uat-readiness', path: '/uat' },
     { id: 'dashboard-kpis', label: 'KPI Dashboards', myLabel: 'KPI Dashboards', icon: CircleGauge, permission: 'office.dashboard.view', view: 'dashboard-kpis', path: '/dashboards/kpis' },
-    { id: 'dashboard', label: 'Dashboard', myLabel: 'á€’á€€á€ºá€›á€¾á€ºá€˜á€¯á€á€º', icon: LayoutDashboard, permission: 'office.dashboard.view' },
-    { id: 'business-setup', label: 'Business Setup', myLabel: 'á€œá€¯á€•á€ºá€„á€”á€ºá€¸á€¡á€á€¼á€±á€á€¶á€•á€¼á€„á€ºá€†á€„á€ºá€™á€¾á€¯', icon: Building2, permission: 'office.master-data.view', view: 'business-setup', path: '/setup' },
-    { id: 'areas', label: 'Areas', myLabel: 'á€§á€›á€­á€šá€¬á€™á€»á€¬á€¸', icon: MapPinned, permission: 'office.master-data.view', resource: 'areas' },
-    { id: 'routes', label: 'Routes', myLabel: 'Route á€™á€»á€¬á€¸', icon: MapPinned, permission: 'office.master-data.view', resource: 'routes' },
-    { id: 'warehouses', label: 'Warehouses', myLabel: 'á€‚á€­á€¯á€’á€±á€«á€„á€ºá€™á€»á€¬á€¸', icon: Package, permission: 'office.master-data.view', resource: 'warehouses' },
-    { id: 'brands', label: 'Brands', myLabel: 'Brand á€™á€»á€¬á€¸', icon: ShoppingCart, permission: 'office.master-data.view', resource: 'brands' },
-    { id: 'products', label: 'Products', myLabel: 'á€€á€¯á€”á€ºá€•á€…á€¹á€…á€Šá€ºá€¸á€™á€»á€¬á€¸', icon: Package, permission: 'office.master-data.view', resource: 'products' },
-    { id: 'price-types', label: 'Price Types', myLabel: 'á€ˆá€±á€¸á€”á€¾á€¯á€”á€ºá€¸á€¡á€™á€»á€­á€¯á€¸á€¡á€…á€¬á€¸', icon: WalletCards, permission: 'office.master-data.view', resource: 'price-types' },
-    { id: 'product-prices', label: 'Product Prices', myLabel: 'á€€á€¯á€”á€ºá€•á€…á€¹á€…á€Šá€ºá€¸á€ˆá€±á€¸á€”á€¾á€¯á€”á€ºá€¸', icon: ReceiptText, permission: 'office.master-data.view', resource: 'product-prices' },
-    { id: 'customers', label: 'Customers', myLabel: 'á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€™á€»á€¬á€¸', icon: User, permission: 'office.master-data.view', resource: 'customers' },
-    { id: 'employees', label: 'Employees', myLabel: 'á€á€”á€ºá€‘á€™á€ºá€¸á€™á€»á€¬á€¸', icon: Users, permission: 'office.master-data.view', resource: 'employees' },
-    { id: 'suppliers', label: 'Suppliers', myLabel: 'á€•á€±á€¸á€žá€½á€„á€ºá€¸á€žá€°á€™á€»á€¬á€¸', icon: ClipboardList, permission: 'office.master-data.view', resource: 'suppliers' },
-    { id: 'vehicles', label: 'Vehicles', myLabel: 'á€šá€¬á€‰á€ºá€™á€»á€¬á€¸', icon: Truck, permission: 'office.master-data.view', resource: 'vehicles' },
-    { id: 'roles', label: 'Roles', myLabel: 'Role á€”á€¾á€„á€·á€º Permission', icon: Settings, permission: 'office.master-data.view', resource: 'roles' },
-    { id: 'permissions', label: 'Permissions', myLabel: 'Permission á€™á€»á€¬á€¸', icon: CheckCircle2, permission: 'office.master-data.view', resource: 'permissions' },
-    { id: 'company-settings', label: 'Company', myLabel: 'á€€á€¯á€™á€¹á€•á€á€®á€¡á€á€»á€€á€ºá€¡á€œá€€á€º', icon: Building2, permission: 'office.master-data.view', view: 'company-settings' },
-    { id: 'orders', label: 'Orders', myLabel: 'á€¡á€±á€¬á€ºá€’á€«á€™á€»á€¬á€¸', icon: ShoppingCart, permission: 'office.orders.view', view: 'orders', path: '/orders' },
-    { id: 'invoices', label: 'Invoices', myLabel: 'Invoice á€™á€»á€¬á€¸', icon: ReceiptText, permission: 'office.invoices.view', view: 'invoices', path: '/invoices' },
+    { id: 'dashboard', label: 'Dashboard', myLabel: 'ဒက်ရှ်ဘုတ်', icon: LayoutDashboard, permission: 'office.dashboard.view' },
+    { id: 'business-setup', label: 'Business Setup', myLabel: 'လုပ်ငန်းအခြေခံပြင်ဆင်မှု', icon: Building2, permission: 'office.master-data.view', view: 'business-setup', path: '/setup' },
+    { id: 'areas', label: 'Areas', myLabel: 'ဧရိယာများ', icon: MapPinned, permission: 'office.master-data.view', resource: 'areas' },
+    { id: 'routes', label: 'Routes', myLabel: 'Route များ', icon: MapPinned, permission: 'office.master-data.view', resource: 'routes' },
+    { id: 'warehouses', label: 'Warehouses', myLabel: 'ဂိုဒေါင်များ', icon: Package, permission: 'office.master-data.view', resource: 'warehouses' },
+    { id: 'brands', label: 'Brands', myLabel: 'Brand များ', icon: ShoppingCart, permission: 'office.master-data.view', resource: 'brands' },
+    { id: 'products', label: 'Products', myLabel: 'ကုန်ပစ္စည်းများ', icon: Package, permission: 'office.master-data.view', resource: 'products' },
+    { id: 'price-types', label: 'Price Types', myLabel: 'ဈေးနှုန်းအမျိုးအစား', icon: WalletCards, permission: 'office.master-data.view', resource: 'price-types' },
+    { id: 'product-prices', label: 'Product Prices', myLabel: 'ကုန်ပစ္စည်းဈေးနှုန်း', icon: ReceiptText, permission: 'office.master-data.view', resource: 'product-prices' },
+    { id: 'customers', label: 'Customers', myLabel: 'ဖောက်သည်များ', icon: User, permission: 'office.master-data.view', resource: 'customers' },
+    { id: 'employees', label: 'Employees', myLabel: 'ဝန်ထမ်းများ', icon: Users, permission: 'office.master-data.view', resource: 'employees' },
+    { id: 'suppliers', label: 'Suppliers', myLabel: 'ပေးသွင်းသူများ', icon: ClipboardList, permission: 'office.master-data.view', resource: 'suppliers' },
+    { id: 'vehicles', label: 'Vehicles', myLabel: 'ယာဉ်များ', icon: Truck, permission: 'office.master-data.view', resource: 'vehicles' },
+    { id: 'roles', label: 'Roles', myLabel: 'Role နှင့် Permission', icon: Settings, permission: 'office.master-data.view', resource: 'roles' },
+    { id: 'permissions', label: 'Permissions', myLabel: 'Permission များ', icon: CheckCircle2, permission: 'office.master-data.view', resource: 'permissions' },
+    { id: 'company-settings', label: 'Company', myLabel: 'ကုမ္ပဏီအချက်အလက်', icon: Building2, permission: 'office.master-data.view', view: 'company-settings' },
+    { id: 'orders', label: 'Orders', myLabel: 'အော်ဒါများ', icon: ShoppingCart, permission: 'office.orders.view', view: 'orders', path: '/orders' },
+    { id: 'invoices', label: 'Invoices', myLabel: 'Invoice များ', icon: ReceiptText, permission: 'office.invoices.view', view: 'invoices', path: '/invoices' },
     { id: 'sales-returns', label: 'Sales Returns', myLabel: 'Sales Return', icon: RotateCcw, permission: 'office.orders.view', view: 'sales-returns', path: '/returns' },
     { id: 'stock-receive', label: 'Stock Receive', myLabel: 'Stock Receive', icon: PackageCheck, permission: 'office.inventory.view', view: 'stock-receive', path: '/stock/receive' },
     { id: 'stock-transfer', label: 'Stock Transfer', myLabel: 'Stock Transfer', icon: Truck, permission: 'office.inventory.view', view: 'stock-transfer', path: '/stock/transfers' },
@@ -312,8 +349,8 @@ const officeNavItems = [
     { id: 'closing-stock', label: 'Closing Stock', myLabel: 'Closing Stock', icon: ClipboardList, permission: 'office.inventory.view', view: 'closing-stock', path: '/stock/closing' },
     { id: 'stock-overview', label: 'Stock Overview', myLabel: 'Stock Overview', icon: Package, permission: 'office.inventory.view', view: 'stock-overview', path: '/stock/overview' },
     { id: 'stock-card', label: 'Stock Card', myLabel: 'Stock Card', icon: ClipboardList, permission: 'office.inventory.view', view: 'stock-card', path: '/stock/card' },
-    { id: 'delivery-planning', label: 'Trip Planning', myLabel: 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€…á€®á€…á€‰á€ºá€á€¼á€„á€ºá€¸', icon: Truck, permission: 'office.deliveries.view', view: 'delivery-planning', path: '/deliveries' },
-    { id: 'delivery-live-map', label: 'Driver Live Map', myLabel: 'á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸ á€á€­á€¯á€€á€ºá€›á€­á€¯á€€á€ºá€™á€¼á€±á€•á€¯á€¶', icon: MapPinned, permission: 'office.deliveries.view', view: 'delivery-live-map', path: '/deliveries/live-map' },
+    { id: 'delivery-planning', label: 'Trip Planning', myLabel: 'ပို့ဆောင်မှုစီစဉ်ခြင်း', icon: Truck, permission: 'office.deliveries.view', view: 'delivery-planning', path: '/deliveries' },
+    { id: 'delivery-live-map', label: 'Driver Live Map', myLabel: 'ယာဉ်မောင်း တိုက်ရိုက်မြေပုံ', icon: MapPinned, permission: 'office.deliveries.view', view: 'delivery-live-map', path: '/deliveries/live-map' },
     { id: 'attendance-locations', label: 'QR Locations', myLabel: 'QR Locations', icon: QrCode, permission: 'office.attendance.view', view: 'attendance-locations', path: '/attendance/locations' },
     { id: 'attendance-records', label: 'Attendance Records', myLabel: 'Attendance Records', icon: CalendarDays, permission: 'office.attendance.view', view: 'attendance-records', path: '/attendance/records' },
     { id: 'attendance-summary', label: 'Attendance Summary', myLabel: 'Attendance Summary', icon: ClipboardList, permission: 'office.attendance.view', view: 'attendance-summary', path: '/attendance/summary' },
@@ -323,19 +360,19 @@ const officeNavItems = [
     { id: 'kpi-targets', label: 'KPI Targets', myLabel: 'KPI Targets', icon: Target, permission: 'office.payroll.view', view: 'kpi-targets', path: '/payroll/kpi-targets' },
     { id: 'kpi-reviews', label: 'KPI Reviews', myLabel: 'KPI Reviews', icon: CircleGauge, permission: 'office.payroll.view', view: 'kpi-reviews', path: '/payroll/kpi-reviews' },
     { id: 'kpi-reports', label: 'KPI Reports', myLabel: 'KPI Reports', icon: Rows3, permission: 'office.payroll.view', view: 'kpi-reports', path: '/payroll/kpi-reports' },
-    { id: 'finance-collections', label: 'Payments', myLabel: 'á€„á€½á€±á€•á€±á€¸á€á€»á€±á€™á€¾á€¯á€™á€»á€¬á€¸', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
-    { id: 'finance-outdoor-collections', label: 'Outdoor Collections', myLabel: 'á€•á€¼á€„á€ºá€• á€„á€½á€±á€€á€±á€¬á€€á€ºá€á€¶á€™á€¾á€¯á€™á€»á€¬á€¸', icon: Users, permission: 'office.finance.view', view: 'finance-outdoor-collections', path: '/finance/outdoor-collections' },
-    { id: 'finance-receivables', label: 'Customer Credit', myLabel: 'á€–á€±á€¬á€€á€ºá€žá€Šá€º á€¡á€€á€¼á€½á€±á€¸á€…á€¬á€›á€„á€ºá€¸', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
-    { id: 'finance-suppliers', label: 'Supplier Ledger', myLabel: 'á€•á€±á€¸á€žá€½á€„á€ºá€¸á€žá€° á€…á€¬á€›á€„á€ºá€¸', icon: ClipboardList, permission: 'office.finance.view', view: 'finance-suppliers', path: '/finance/suppliers' },
-    { id: 'finance-books', label: 'Finance Books', myLabel: 'á€„á€½á€±á€…á€¬á€›á€„á€ºá€¸á€™á€»á€¬á€¸', icon: WalletCards, permission: 'office.finance.view', view: 'finance-books', path: '/finance/books' },
+    { id: 'finance-collections', label: 'Payments', myLabel: 'ငွေပေးချေမှုများ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
+    { id: 'finance-outdoor-collections', label: 'Outdoor Collections', myLabel: 'ပြင်ပ ငွေကောက်ခံမှုများ', icon: Users, permission: 'office.finance.view', view: 'finance-outdoor-collections', path: '/finance/outdoor-collections' },
+    { id: 'finance-receivables', label: 'Customer Credit', myLabel: 'ဖောက်သည် အကြွေးစာရင်း', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
+    { id: 'finance-suppliers', label: 'Supplier Ledger', myLabel: 'ပေးသွင်းသူ စာရင်း', icon: ClipboardList, permission: 'office.finance.view', view: 'finance-suppliers', path: '/finance/suppliers' },
+    { id: 'finance-books', label: 'Finance Books', myLabel: 'ငွေစာရင်းများ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-books', path: '/finance/books' },
     { id: 'finance-expenses', label: 'Expenses', myLabel: 'Expenses', icon: ReceiptText, permission: 'office.finance.view', view: 'finance-expenses', path: '/finance/expenses' },
-    { id: 'finance-profit-loss', label: 'Profit / Loss', myLabel: 'á€¡á€™á€¼á€á€º / á€¡á€›á€¾á€¯á€¶á€¸', icon: Rows3, permission: 'office.finance.view', view: 'finance-profit-loss', path: '/finance/profit-loss' },
-    { id: 'vehicle-costs', label: 'Vehicle Costs', myLabel: 'á€šá€¬á€‰á€ºá€€á€¯á€”á€ºá€€á€»á€…á€›á€­á€á€º', icon: Truck, permission: 'office.vehicle-costs.view', view: 'vehicle-costs', path: '/vehicle-costs' },
-    { id: 'vehicle-monthly-cost', label: 'Monthly Cost', myLabel: 'á€œá€…á€‰á€ºá€šá€¬á€‰á€ºá€€á€¯á€”á€ºá€€á€»á€…á€›á€­á€á€º', icon: CreditCard, permission: 'office.vehicle-costs.view', view: 'vehicle-monthly-cost', path: '/vehicle-reports/monthly-cost' },
-    { id: 'vehicle-route-history', label: 'Route History', myLabel: 'á€œá€™á€ºá€¸á€€á€¼á€±á€¬á€„á€ºá€¸á€™á€¾á€á€ºá€á€™á€ºá€¸', icon: MapPinned, permission: 'office.vehicle-costs.view', view: 'vehicle-route-history', path: '/vehicle-reports/route-history' },
-    { id: 'vehicle-cost-per-km', label: 'Cost / KM', myLabel: 'á€á€…á€ºá€€á€®á€œá€­á€¯á€™á€®á€á€¬á€€á€¯á€”á€ºá€€á€»á€…á€›á€­á€á€º', icon: WalletCards, permission: 'office.vehicle-costs.view', view: 'vehicle-cost-per-km', path: '/vehicle-reports/cost-per-km' },
-    { id: 'vehicle-performance', label: 'Performance', myLabel: 'á€šá€¬á€‰á€ºá€…á€½á€™á€ºá€¸á€†á€±á€¬á€„á€ºá€›á€Šá€º', icon: Rows3, permission: 'office.vehicle-costs.view', view: 'vehicle-performance', path: '/vehicle-reports/performance' },
-    { id: 'operations-report', label: 'Operations Report', myLabel: 'á€œá€¯á€•á€ºá€„á€”á€ºá€¸á€¡á€…á€®á€›á€„á€ºá€á€¶á€…á€¬', icon: Rows3, permission: 'office.dashboard.view', view: 'operations-report', path: '/reports/operations' },
+    { id: 'finance-profit-loss', label: 'Profit / Loss', myLabel: 'အမြတ် / အရှုံး', icon: Rows3, permission: 'office.finance.view', view: 'finance-profit-loss', path: '/finance/profit-loss' },
+    { id: 'vehicle-costs', label: 'Vehicle Costs', myLabel: 'ယာဉ်ကုန်ကျစရိတ်', icon: Truck, permission: 'office.vehicle-costs.view', view: 'vehicle-costs', path: '/vehicle-costs' },
+    { id: 'vehicle-monthly-cost', label: 'Monthly Cost', myLabel: 'လစဉ်ယာဉ်ကုန်ကျစရိတ်', icon: CreditCard, permission: 'office.vehicle-costs.view', view: 'vehicle-monthly-cost', path: '/vehicle-reports/monthly-cost' },
+    { id: 'vehicle-route-history', label: 'Route History', myLabel: 'လမ်းကြောင်းမှတ်တမ်း', icon: MapPinned, permission: 'office.vehicle-costs.view', view: 'vehicle-route-history', path: '/vehicle-reports/route-history' },
+    { id: 'vehicle-cost-per-km', label: 'Cost / KM', myLabel: 'တစ်ကီလိုမီတာကုန်ကျစရိတ်', icon: WalletCards, permission: 'office.vehicle-costs.view', view: 'vehicle-cost-per-km', path: '/vehicle-reports/cost-per-km' },
+    { id: 'vehicle-performance', label: 'Performance', myLabel: 'ယာဉ်စွမ်းဆောင်ရည်', icon: Rows3, permission: 'office.vehicle-costs.view', view: 'vehicle-performance', path: '/vehicle-reports/performance' },
+    { id: 'operations-report', label: 'Operations Report', myLabel: 'လုပ်ငန်းအစီရင်ခံစာ', icon: Rows3, permission: 'office.dashboard.view', view: 'operations-report', path: '/reports/operations' },
 ];
 
 const officeRolePermissions = {
@@ -361,25 +398,25 @@ const officeNavGroups = [
     {
         id: 'overview',
         label: 'Overview',
-        myLabel: 'á€¡á€”á€¾á€…á€ºá€á€»á€¯á€•á€º',
+        myLabel: 'အနှစ်ချုပ်',
         items: ['dashboard', 'dashboard-kpis', 'operations-report'],
     },
     {
         id: 'business-setup',
         label: 'Business Setup',
-        myLabel: 'á€œá€¯á€•á€ºá€„á€”á€ºá€¸á€¡á€á€¼á€±á€á€¶',
+        myLabel: 'လုပ်ငန်းအခြေခံ',
         items: ['business-setup'],
     },
     {
         id: 'people-assets',
         label: 'People & Assets',
-        myLabel: 'á€œá€°á€”á€¾á€„á€·á€º á€•á€­á€¯á€„á€ºá€†á€­á€¯á€„á€ºá€™á€¾á€¯',
+        myLabel: 'လူနှင့် ပိုင်ဆိုင်မှု',
         items: ['customers', 'suppliers', 'employees'],
     },
     {
         id: 'sales-ops',
         label: 'Sales Ops',
-        myLabel: 'á€¡á€›á€±á€¬á€„á€ºá€¸á€œá€¯á€•á€ºá€„á€”á€ºá€¸',
+        myLabel: 'အရောင်းလုပ်ငန်း',
         items: ['orders', 'sales-returns'],
     },
     {
@@ -391,7 +428,7 @@ const officeNavGroups = [
     {
         id: 'delivery-operations',
         label: 'Delivery Operations',
-        myLabel: 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€›á€±á€¸á€œá€¯á€•á€ºá€„á€”á€ºá€¸',
+        myLabel: 'ပို့ဆောင်ရေးလုပ်ငန်း',
         items: ['delivery-planning', 'delivery-live-map'],
     },
     {
@@ -409,19 +446,19 @@ const officeNavGroups = [
     {
         id: 'finance',
         label: 'Finance & Accounts',
-        myLabel: 'á€˜á€á€¹á€á€¬á€›á€±á€¸á€”á€¾á€„á€·á€º á€…á€¬á€›á€„á€ºá€¸á€™á€»á€¬á€¸',
+        myLabel: 'ဘဏ္ဍာရေးနှင့် စာရင်းများ',
         items: ['finance-collections', 'finance-outdoor-collections', 'finance-receivables', 'finance-suppliers', 'finance-books', 'finance-expenses', 'finance-profit-loss'],
     },
     {
         id: 'vehicle-operations',
         label: 'Vehicle Operations',
-        myLabel: 'á€šá€¬á€‰á€ºá€œá€¯á€•á€ºá€„á€”á€ºá€¸',
+        myLabel: 'ယာဉ်လုပ်ငန်း',
         items: ['vehicle-costs', 'vehicle-monthly-cost', 'vehicle-route-history', 'vehicle-cost-per-km', 'vehicle-performance'],
     },
     {
         id: 'launch-readiness',
         label: 'Launch Readiness',
-        myLabel: 'á€…á€á€„á€ºá€¡á€žá€¯á€¶á€¸á€•á€¼á€¯á€›á€”á€º á€¡á€žá€„á€·á€º',
+        myLabel: 'စတင်အသုံးပြုရန် အသင့်',
         items: ['uat-readiness'],
     },
 ];
@@ -443,6 +480,12 @@ const mobileNav = {
         { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'sales.payroll.view' },
         { labelKey: 'expenses', view: 'expenses', icon: CreditCard, permission: 'sales.expenses.view' },
     ],
+    supervisor: [
+        { labelKey: 'home', view: 'home', icon: Home, permission: 'supervisor.home.view' },
+        { labelKey: 'team', view: 'team', icon: Users, permission: 'supervisor.team.view' },
+        { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'supervisor.attendance.view' },
+        { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'supervisor.kpi.view' },
+    ],
     driver: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'driver.home.view' },
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'driver.attendance.view' },
@@ -458,8 +501,8 @@ const mobileNav = {
 };
 
 const metrics = [
-    ['Apps Online', '4', 'Office, Client, Sales, Driver'],
-    ['Demo Users', '5', 'Seeded role accounts'],
+    ['Apps Online', '5', 'Office, Client, Sales, Supervisor, Driver'],
+    ['Demo Users', '6', 'Seeded role accounts'],
     ['Locales', 'EN / MY', 'Visible label switching'],
     ['API Base', 'Ready', '/api/phase-zero'],
 ];
@@ -468,6 +511,7 @@ const rows = [
     ['Office Staff', 'Office dashboard', 'Ready', 'Dashboard shell'],
     ['Customer', 'Client home', 'Ready', 'Mobile client shell'],
     ['Sales Representative', 'Sales KPI report', 'Ready', 'Performance dashboard'],
+    ['Sales Supervisor', 'Supervisor team', 'Ready', 'Mobile team workspace'],
     ['Driver', 'Driver delivery', 'Ready', 'Delivery placeholder'],
 ];
 
@@ -1302,6 +1346,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const compactPrimaryViews = {
         client: ['home', 'orders'],
         sales: ['home', 'orders', 'new-order', 'customers'],
+        supervisor: ['home', 'team', 'attendance', 'kpi'],
         driver: ['home', 'tasks', 'gps', 'history'],
     };
     const supportsMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
@@ -1312,6 +1357,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
     const mobileOrderId = ['client', 'sales'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
     const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
+    const supervisorMemberId = app.id === 'supervisor' ? resolveSupervisorMemberId(app.path, pathname) : null;
     const orderActionParams = ['client', 'sales'].includes(app.id) && ['orders', 'new-order'].includes(activeView) ? new URLSearchParams(window.location.search) : null;
 
     return (
@@ -1361,9 +1407,12 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {app.id === 'sales' && activeView === 'visits' && <SalesVisitsScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />}
                 {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} user={user} onLogout={onLogout} locale={locale} setLocale={setLocale} theme={theme} setTheme={setTheme} />}
                 {activeView === 'account' && <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />}
-                {['sales', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
-                {['sales', 'driver'].includes(app.id) && activeView === 'kpi' && <MobileKpiScreen locale={locale} />}
+                {['sales', 'supervisor', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
+                {['sales', 'supervisor', 'driver'].includes(app.id) && activeView === 'kpi' && <MobileKpiScreen locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'salary' && <MobilePayrollHistoryScreen locale={locale} />}
+                {app.id === 'supervisor' && activeView === 'team' && (supervisorMemberId
+                    ? <SupervisorRepresentativeDetailScreen memberId={supervisorMemberId} locale={locale} onBack={() => navigate(`${app.path}/team`)} />
+                    : <SupervisorTeamScreen locale={locale} onViewMember={(memberId) => navigate(`${app.path}/team/${memberId}`)} />)}
                 {app.id === 'driver' && activeView === 'profile' && <DriverMasterScreen locale={locale} />}
                 {app.id === 'driver' && activeView === 'tasks' && <MobileDriverExecutionScreen mode="tasks" locale={locale} />}
                 {app.id === 'driver' && activeView === 'gps' && <MobileDriverGpsScreen locale={locale} />}
@@ -1372,7 +1421,8 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {app.id === 'driver' && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
                 {app.id === 'driver' && activeView === 'vehicle' && <MobileVehicleOperationsScreen locale={locale} />}
-                {activeView === 'home' && <MobileHomeDashboard
+                {app.id === 'supervisor' && activeView === 'home' && <SupervisorHomeScreen locale={locale} onViewTeam={() => navigate(`${app.path}/team`)} onViewAttendance={() => navigate(`${app.path}/attendance`)} onViewKpi={() => navigate(`${app.path}/kpi`)} />}
+                {app.id !== 'supervisor' && activeView === 'home' && <MobileHomeDashboard
                     appId={app.id}
                     locale={locale}
                     quickLinks={[]}
@@ -1384,7 +1434,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     onViewAttendance={() => navigate(`${app.path}/attendance`)}
                     onViewKpi={() => navigate(`${app.path}/kpi`)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['team', 'attendance', 'kpi'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
@@ -1413,27 +1463,29 @@ function MobileMenuScreen({ app, items, t, navigate, user, onLogout, locale, set
             <div className="mobile-master-heading">
                 <div><p className="eyebrow">{t[app.id]}</p><h1>{t.menu}</h1><span className="muted">{user?.name || t.moreOperations}</span></div>
             </div>
-            <p className="mobile-menu-section-label">Operations</p>
-            <nav className="mobile-master-section mobile-menu-list" aria-label={t.moreOperations}>
-                {items.map(({ labelKey, view, icon: Icon }) => (
-                    <a href={`${app.path}/${view}`} onClick={(event) => navigateAppPage(event, `${app.path}/${view}`, navigate)} key={labelKey}>
-                        <span><Icon size={18} /></span><strong>{t[labelKey]}</strong><ChevronRight size={17} />
-                    </a>
-                ))}
-            </nav>
-            <p className="mobile-menu-section-label">Account & settings</p>
-            <nav className="mobile-master-section mobile-menu-list mobile-settings-list" aria-label="Account and settings">
+            {items.length > 0 && <>
+                <p className="mobile-menu-section-label">Operations</p>
+                <nav className="mobile-master-section mobile-menu-list" aria-label={t.moreOperations}>
+                    {items.map(({ labelKey, view, icon: Icon }) => (
+                        <a href={`${app.path}/${view}`} onClick={(event) => navigateAppPage(event, `${app.path}/${view}`, navigate)} key={labelKey}>
+                            <span><Icon size={18} /></span><strong>{t[labelKey]}</strong><ChevronRight size={17} />
+                        </a>
+                    ))}
+                </nav>
+            </>}
+            <p className="mobile-menu-section-label">{t.accountSettings}</p>
+            <nav className="mobile-master-section mobile-menu-list mobile-settings-list" aria-label={t.accountSettings}>
                 <a href={`${app.path}/account`} onClick={(event) => navigateAppPage(event, `${app.path}/account`, navigate)}>
-                    <span><Settings size={18} /></span><strong>Profile & settings<small>Edit profile, photo and password</small></strong><ChevronRight size={17} />
+                    <span><Settings size={18} /></span><strong>{t.profileSettings}<small>{t.profileSettingsHint}</small></strong><ChevronRight size={17} />
                 </a>
                 <button type="button" onClick={() => setLocale(locale === 'en' ? 'my' : 'en')}>
-                    <span><Languages size={18} /></span><strong>Language<small>{locale === 'en' ? 'English' : 'á€™á€¼á€”á€ºá€™á€¬'}</small></strong><span className="mobile-menu-value">{locale === 'en' ? 'EN' : 'MY'}</span>
+                    <span><Languages size={18} /></span><strong>{t.language}<small>{locale === 'en' ? 'English' : 'မြန်မာ'}</small></strong><span className="mobile-menu-value">{locale === 'en' ? 'EN' : 'MY'}</span>
                 </button>
                 <button type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
-                    <span>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</span><strong>Appearance<small>{theme === 'light' ? 'Light theme' : 'Dark theme'}</small></strong><span className="mobile-menu-value">{theme === 'light' ? 'Light' : 'Dark'}</span>
+                    <span>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</span><strong>{t.appearance}<small>{theme === 'light' ? t.lightTheme : t.darkTheme}</small></strong><span className="mobile-menu-value">{theme === 'light' ? t.light : t.dark}</span>
                 </button>
                 <button className="mobile-menu-signout" type="button" onClick={onLogout}>
-                    <span><LogOut size={18} /></span><strong>{t.signOut}<small>Sign out of this device</small></strong><ChevronRight size={17} />
+                    <span><LogOut size={18} /></span><strong>{t.signOut}<small>{t.signOutDevice}</small></strong><ChevronRight size={17} />
                 </button>
             </nav>
         </div>
@@ -1460,11 +1512,18 @@ function resolveSalesCustomerId(appPath, pathname) {
     return segments[0] === 'customers' && /^\d+$/.test(segments[1] || '') ? segments[1] : null;
 }
 
+function resolveSupervisorMemberId(appPath, pathname) {
+    const currentPath = normalizePath(pathname);
+    const rootPath = normalizePath(new URL(appPath, window.location.origin).pathname);
+    const segments = currentPath.slice(rootPath.length).split('/').filter(Boolean);
+    return segments[0] === 'team' && /^\d+$/.test(segments[1] || '') ? segments[1] : null;
+}
+
 function resolveMobileView(appId, pathname = window.location.pathname) {
     const currentPath = normalizePath(pathname);
     const appPath = normalizePath(new URL(appConfig[appId].path, window.location.origin).pathname);
     let requestedView = currentPath.slice(appPath.length).split('/').filter(Boolean)[0];
-    const defaultViews = { client: 'home', sales: 'home', driver: 'home' };
+    const defaultViews = { client: 'home', sales: 'home', supervisor: 'home', driver: 'home' };
 
     if (appId === 'driver') {
         requestedView = { load: 'tasks', route: 'tasks', confirm: 'history' }[requestedView] || requestedView;
@@ -1472,7 +1531,7 @@ function resolveMobileView(appId, pathname = window.location.pathname) {
 
     if (appId === 'client' && requestedView === 'deliveries') requestedView = 'orders';
 
-    if (requestedView === 'account' || (['client', 'sales', 'driver'].includes(appId) && requestedView === 'menu')) return requestedView;
+    if (requestedView === 'account' || (['client', 'sales', 'supervisor', 'driver'].includes(appId) && requestedView === 'menu')) return requestedView;
     return mobileNav[appId].some((item) => item.view === requestedView) ? requestedView : defaultViews[appId];
 }
 
@@ -1727,7 +1786,7 @@ function ActionAlerts({ appId, user, navigate, pathname }) {
             {open && (
                 <section className="action-alert-popover" aria-label="Action notifications">
                     <header><div><span>Notifications</span><strong>Action required</strong></div>{state.total > 0 && <b>{state.total}</b>}</header>
-                    {state.loading ? <p className="action-alert-empty">Loading notificationsâ€¦</p> : state.items.length === 0 ? <p className="action-alert-empty">Youâ€™re all caught up.</p> : (
+                    {state.loading ? <p className="action-alert-empty">Loading notifications…</p> : state.items.length === 0 ? <p className="action-alert-empty">You’re all caught up.</p> : (
                         <div className="action-alert-list">
                             {state.items.map((item) => (
                                 <button type="button" key={item.id} onClick={() => openItem(item.path)}>
@@ -2053,7 +2112,7 @@ function LoginPanel({ app, t, auth, onLogin, onRegister }) {
 }
 
 createRoot(document.getElementById('root')).render(
-    <Suspense fallback={<div className="app-loading"><span className="spinner" />Loading workspaceâ€¦</div>}>
+    <Suspense fallback={<div className="app-loading"><span className="spinner" />Loading workspace…</div>}>
         <App />
     </Suspense>,
 );

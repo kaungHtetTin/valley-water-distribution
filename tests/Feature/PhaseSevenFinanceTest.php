@@ -14,7 +14,7 @@ class PhaseSevenFinanceTest extends TestCase
     public function test_office_collection_reduces_receivable_and_posts_to_cash_book()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $customerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
         $invoiceId = DB::table('invoices')->where('code', 'INV-202608-0001')->value('id');
 
@@ -54,15 +54,15 @@ class PhaseSevenFinanceTest extends TestCase
         ])->assertUnprocessable();
     }
 
-    public function test_sales_representative_cannot_access_or_create_cash_collections()
+    public function test_sales_representative_can_review_field_finance_but_cash_collection_is_driver_only()
     {
         $this->seed();
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $customerId = DB::table('customers')->where('code', 'CUS-0002')->value('id');
 
         $this->actingAs($sales);
-        $this->getJson('/api/mobile/finance')->assertForbidden();
-        $this->getJson('/api/mobile/finance/meta')->assertForbidden();
+        $this->getJson('/api/mobile/finance')->assertOk()->assertJsonPath('data.app', 'sales');
+        $this->getJson('/api/mobile/finance/meta')->assertOk()->assertJsonPath('data.app', 'sales');
         $this->postJson('/api/mobile/finance/collections', [
             'customer_id' => $customerId,
             'collection_date' => '2026-08-17',
@@ -130,7 +130,7 @@ class PhaseSevenFinanceTest extends TestCase
         $expenseId = $created->json('data.expense_id');
         $this->assertDatabaseHas('expenses', ['id' => $expenseId, 'expense_type' => 'outdoor', 'status' => 'submitted']);
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->postJson("/api/finance/expenses/{$expenseId}/review", ['status' => 'approved'])
             ->assertOk()
             ->assertJsonPath('data.expense.status', 'approved');
@@ -147,7 +147,7 @@ class PhaseSevenFinanceTest extends TestCase
     public function test_supplier_ledger_and_bank_book_are_available()
     {
         $this->seed();
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $supplierId = DB::table('suppliers')->where('code', 'SUP-001')->value('id');
 
         $this->getJson('/api/finance/suppliers')
@@ -155,10 +155,10 @@ class PhaseSevenFinanceTest extends TestCase
             ->assertJsonPath('data.summary.payable_amount', 100000);
         $this->postJson("/api/finance/suppliers/{$supplierId}/ledger", [
             'entry_date' => '2026-08-17',
-            'entry_type' => 'payment',
+            'entry_type' => 'adjustment',
             'reference_no' => 'SUP-PAY-TEST',
-            'description' => 'Additional supplier payment',
-            'amount' => 20000,
+            'description' => 'Supplier credit adjustment',
+            'amount' => -20000,
         ])->assertCreated();
         $this->getJson("/api/finance/suppliers/{$supplierId}/ledger")
             ->assertOk()
@@ -194,7 +194,7 @@ class PhaseSevenFinanceTest extends TestCase
         $this->getJson('/api/finance/collections')->assertForbidden();
         $this->postJson('/api/finance/expenses', [])->assertForbidden();
 
-        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $this->getJson('/api/mobile/finance')->assertForbidden();
     }
 }
