@@ -70,8 +70,7 @@ class VerifyDatabaseBackup extends Command
     private function inspect(string $path, string $driver): void
     {
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
-            $sql = $this->readGzip($path);
-            if (! str_contains(strtoupper($sql), 'CREATE TABLE')) {
+            if (! $this->gzipContains($path, 'CREATE TABLE')) {
                 throw new RuntimeException('The compressed backup does not contain table definitions.');
             }
 
@@ -83,7 +82,7 @@ class VerifyDatabaseBackup extends Command
 
     private function verifyMysql(string $path, string $connection): void
     {
-        $sql = $this->readGzip($path);
+        $this->assertMysqlBackupPath($path);
         $config = config("database.connections.{$connection}");
         $database = 'valley_restore_verify_'.now()->format('YmdHis').'_'.bin2hex(random_bytes(3));
         $server = new PDO(
@@ -104,8 +103,17 @@ class VerifyDatabaseBackup extends Command
                 $database,
             ];
             $environment = empty($config['password']) ? null : ['MYSQL_PWD' => $config['password']];
-            $process = new Process($command, base_path(), $environment, $sql, 300);
-            $process->run();
+            $input = gzopen($path, 'rb');
+            if ($input === false) {
+                throw new RuntimeException('The compressed backup cannot be opened.');
+            }
+
+            try {
+                $process = new Process($command, base_path(), $environment, $input, 300);
+                $process->run();
+            } finally {
+                gzclose($input);
+            }
             if (! $process->isSuccessful()) {
                 throw new RuntimeException('Backup restore failed: '.trim($process->getErrorOutput()));
             }
@@ -147,17 +155,39 @@ class VerifyDatabaseBackup extends Command
         }
     }
 
-    private function readGzip(string $path): string
+    private function gzipContains(string $path, string $needle): bool
+    {
+        $this->assertMysqlBackupPath($path);
+        $input = gzopen($path, 'rb');
+        if ($input === false) {
+            throw new RuntimeException('The compressed backup cannot be opened.');
+        }
+
+        $overlap = '';
+        try {
+            while (! gzeof($input)) {
+                $chunk = gzread($input, 1024 * 1024);
+                if ($chunk === false) {
+                    throw new RuntimeException('The compressed backup is invalid.');
+                }
+                $haystack = strtoupper($overlap.$chunk);
+                if (str_contains($haystack, $needle)) {
+                    return true;
+                }
+                $overlap = substr($haystack, -strlen($needle));
+            }
+        } finally {
+            gzclose($input);
+        }
+
+        return false;
+    }
+
+    private function assertMysqlBackupPath(string $path): void
     {
         if (! str_ends_with($path, '.sql.gz')) {
             throw new RuntimeException('MySQL verification requires a .sql.gz backup.');
         }
-        $sql = gzdecode((string) File::get($path));
-        if ($sql === false || trim($sql) === '') {
-            throw new RuntimeException('The compressed backup is empty or invalid.');
-        }
-
-        return $sql;
     }
 
     private function mysqlBinary(): string

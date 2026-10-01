@@ -11,7 +11,7 @@ Decision: **The repository is release candidate ready. Production traffic remain
 | Gate | Result |
 | --- | --- |
 | Laravel / PHP | Laravel 12 on PHP 8.2 |
-| Automated regression | **162 passed, 1,686 assertions** |
+| Automated regression | **168 passed, 1,714 assertions** |
 | Test isolation | PHPUnit forces SQLite `:memory:` and dedicated owner credentials |
 | Composer validation | Passed with strict validation |
 | Composer security | No advisories |
@@ -19,11 +19,11 @@ Decision: **The repository is release candidate ready. Production traffic remain
 | Source encoding | Passed; malformed Driver Myanmar strings were repaired and CI now checks UTF-8/mojibake |
 | PHP formatting | Laravel Pint passed across the repository and is enforced in CI |
 | Production build | Passed with Vite 8.3.1; 1,873 modules transformed |
-| Main JavaScript entry | 385.64 kB, 123.61 kB gzip |
-| Supervisor chunk | 15.17 kB, 4.18 kB gzip |
-| Routes | 195 non-vendor route-list lines; route cache generation passed |
+| Main JavaScript entry | 389.91 kB, 124.47 kB gzip |
+| Supervisor chunk | 15.17 kB, 4.17 kB gzip |
+| Routes | 199 application routes; route cache generation passed |
 | Schema | All migrations are applied, including Sales Supervisor team/mobile migrations |
-| Backup | `valley-mysql-20261001-185858.sql.gz` |
+| Backup | `valley-mysql-20261001-212626.sql.gz` |
 | Restore drill | Passed against an isolated temporary database |
 | Framework caches | Config, events, routes, and views generated successfully |
 | Runtime visual smoke | Office, Client, Sales, Driver, and Supervisor pages passed headless authenticated checks; Driver and Supervisor Myanmar mobile renders passed mojibake detection |
@@ -44,7 +44,7 @@ Decision: **The repository is release candidate ready. Production traffic remain
 | Finance | Complete | Collections, receivables, expenses, supplier payable/ledger, cash/bank books and P&L | Import and reconcile opening balances |
 | Vehicle operations | Complete | Driver assignment, costs, route history, cost/km and performance | Validate real odometer and expense entry |
 | Reports and dashboards | Complete | Consolidated operations, KPI, payroll, finance, stock, delivery and vehicle reporting with filters/exports | Reconcile totals against imported balances |
-| Backup, audit and recovery | Complete in repository | Scheduled backup, restore verifier, audit log, UAT workspace and rollback runbook | Configure off-host encrypted copy and monitoring |
+| Backup, audit and recovery | Complete in repository | Scheduled backup, restore verifier, dependency-aware health endpoint, audit log, UAT workspace and rollback runbook | Configure off-host encrypted copy and monitoring |
 
 ## Closed defects from this audit
 
@@ -57,6 +57,12 @@ Decision: **The repository is release candidate ready. Production traffic remain
 - Moved initial owner settings into cached configuration so seeding works after `config:cache`.
 - Added production checks for owner credentials, persistent writable backup/upload directories, SMTP, and sender address.
 - Added a production environment template with secure defaults and explicit shared paths.
+- Added database-backed encrypted sessions and shared database cache tables so deployments and multiple nodes preserve sessions and scheduler locks.
+- Added a dependency-aware `/health` endpoint for database, cache, and writable-storage monitoring without creating application sessions.
+- Added authenticated profile-photo delivery from shared release-independent storage.
+- Made first-deployment setup seeding idempotent, preserved customized role permissions and existing owner credentials, and documented removal of the bootstrap password.
+- Streamed MySQL backup compression and restore input so large backups do not need to be loaded into PHP memory.
+- Added explicit reverse-proxy trust configuration and reject wildcard proxy trust in the production readiness check.
 - Ended existing sessions when a linked employee/customer or assigned role is deactivated, and blocked inactive password/Google sign-ins.
 - Made the shared login contract match its UI by supporting both unique phone numbers and email addresses, while rejecting ambiguous duplicate phone matches.
 - Added throttled, non-enumerating password recovery with expiring email tokens, inactive-account blocking, bilingual responsive screens, and token/notification coverage.
@@ -66,7 +72,7 @@ Decision: **The repository is release candidate ready. Production traffic remain
 
 ## Current local production-check result
 
-The local XAMPP `.env` intentionally fails thirteen deployment-only checks: environment, debug mode, HTTPS URL, disabled demo endpoints, encrypted sessions, secure cookies, least privilege database user, database password, production logging, real owner email, strong owner password, production SMTP host, and business sender address. The repository provides [`.env.production.example`](../.env.production.example); the production host must pass `php artisan valley:production-check` with zero failures.
+The local XAMPP `.env` intentionally fails thirteen deployment-only checks: environment, debug mode, HTTPS URL, disabled demo endpoints, shared cache, persistent sessions, encrypted sessions, secure cookies, least privilege database user, database password, production logging, production SMTP host, and business sender address. The already-provisioned local owner allows the one-time bootstrap credentials to remain absent. The repository provides [`.env.production.example`](../.env.production.example); the production host must pass `php artisan valley:production-check` with zero failures.
 
 ## Blocking production requirements
 

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Database\Seeders\DemoSeeder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use PDO;
 use RuntimeException;
@@ -10,6 +11,35 @@ use Tests\TestCase;
 
 class ProductionOperationsTest extends TestCase
 {
+    public function test_health_endpoint_checks_runtime_dependencies_without_caching_the_response(): void
+    {
+        $this->getJson('/health')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertCookieMissing(config('session.cookie'))
+            ->assertExactJson([
+                'status' => 'ok',
+                'checks' => [
+                    'database' => true,
+                    'cache' => true,
+                    'storage' => true,
+                ],
+            ]);
+    }
+
+    public function test_health_endpoint_returns_service_unavailable_when_a_dependency_fails(): void
+    {
+        Cache::shouldReceive('put')->once()->andThrow(new RuntimeException('Cache unavailable'));
+        Cache::shouldReceive('forget')->once()->andThrow(new RuntimeException('Cache unavailable'));
+
+        $this->getJson('/health')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('status', 'unavailable')
+            ->assertJsonPath('checks.database', true)
+            ->assertJsonPath('checks.cache', false)
+            ->assertJsonPath('checks.storage', true);
+    }
+
     public function test_demo_seeder_refuses_to_run_in_production(): void
     {
         $originalEnvironment = app()->environment();
@@ -53,6 +83,25 @@ class ProductionOperationsTest extends TestCase
         }
     }
 
+    public function test_compressed_mysql_backup_can_be_inspected_without_restoring(): void
+    {
+        $directory = storage_path('framework/testing/backup-inspect-'.uniqid());
+        $path = $directory.DIRECTORY_SEPARATOR.'valley-test.sql.gz';
+        File::ensureDirectoryExists($directory);
+        File::put($path, gzencode('CREATE TABLE `users` (`id` bigint);'));
+        config([
+            'database.default' => 'backup_inspect',
+            'database.connections.backup_inspect' => ['driver' => 'mysql'],
+            'valley.backup_directory' => $directory,
+        ]);
+
+        try {
+            $this->artisan('valley:backup-verify', ['path' => $path, '--dry-run' => true])->assertExitCode(0);
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
     public function test_production_readiness_command_accepts_a_hardened_configuration(): void
     {
         config([
@@ -66,6 +115,8 @@ class ProductionOperationsTest extends TestCase
             'valley.initial_admin.password' => 'production-test-secret',
             'valley.backup_directory' => storage_path('app/backups'),
             'uploads.profile_photos_path' => storage_path('app/backups'),
+            'cache.default' => 'database',
+            'session.driver' => 'database',
             'session.encrypt' => true,
             'session.secure' => true,
             'database.default' => 'production_check',
@@ -95,6 +146,8 @@ class ProductionOperationsTest extends TestCase
             'valley.initial_admin.password' => 'password',
             'valley.backup_directory' => storage_path('app/backups'),
             'uploads.profile_photos_path' => storage_path('app/backups'),
+            'cache.default' => 'database',
+            'session.driver' => 'database',
             'session.encrypt' => true,
             'session.secure' => true,
             'database.default' => 'production_check',

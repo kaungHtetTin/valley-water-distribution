@@ -161,9 +161,12 @@ class SetupSeeder extends Seeder
 
         foreach ($rolePermissions as $roleName => $names) {
             $roleId = DB::table('roles')->where('name', $roleName)->value('id');
+            if (DB::table('permission_role')->where('role_id', $roleId)->exists()) {
+                continue;
+            }
+
             $permissionIds = DB::table('permissions')->whereIn('name', $names)->pluck('id');
 
-            DB::table('permission_role')->where('role_id', $roleId)->delete();
             foreach ($permissionIds as $permissionId) {
                 DB::table('permission_role')->insert(['role_id' => $roleId, 'permission_id' => $permissionId]);
             }
@@ -179,7 +182,11 @@ class SetupSeeder extends Seeder
             ]);
         }
 
-        $email = (string) config('valley.initial_admin.email', '');
+        if (User::query()->where('role', 'Owner')->exists()) {
+            return;
+        }
+
+        $email = trim((string) config('valley.initial_admin.email', ''));
         $password = (string) config('valley.initial_admin.password', '');
         $localDefault = app()->environment(['local', 'testing']);
 
@@ -193,14 +200,16 @@ class SetupSeeder extends Seeder
             throw new RuntimeException('Set VALLEY_ADMIN_EMAIL and VALLEY_ADMIN_PASSWORD before seeding the initial administrator.');
         }
 
-        User::firstOrCreate(
-            ['email' => $email],
-            [
-                'name' => (string) config('valley.initial_admin.name', 'Administrator'),
-                'role' => 'Owner',
-                'locale' => 'en',
-                'password' => Hash::make($password),
-            ]
-        );
+        if (User::query()->where('email', $email)->exists()) {
+            throw new RuntimeException('VALLEY_ADMIN_EMAIL already belongs to a non-owner account. Choose a different initial administrator email.');
+        }
+
+        User::create([
+            'email' => $email,
+            'name' => (string) config('valley.initial_admin.name', 'Administrator'),
+            'role' => 'Owner',
+            'locale' => 'en',
+            'password' => Hash::make($password),
+        ]);
     }
 }

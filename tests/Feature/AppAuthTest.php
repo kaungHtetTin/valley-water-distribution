@@ -365,6 +365,35 @@ class AppAuthTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('profile_photo');
     }
 
+    public function test_shared_profile_photo_is_served_only_to_its_authenticated_owner(): void
+    {
+        $this->seed();
+        $directory = storage_path('framework/testing/shared-profile-photos');
+        $filename = 'test-profile.png';
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        File::ensureDirectoryExists($directory);
+        File::put($directory.DIRECTORY_SEPARATOR.$filename, $png);
+        config(['uploads.profile_photos_path' => $directory]);
+
+        try {
+            $user = User::where('email', 'driver@valley.test')->firstOrFail();
+            $user->update(['profile_photo_path' => 'uploads/profile-photos/'.$filename]);
+
+            $response = $this->actingAs($user)
+                ->get('/uploads/profile-photos/'.$filename)
+                ->assertOk()
+                ->assertHeader('Content-Type', 'image/png');
+            $this->assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
+            $this->assertStringContainsString('immutable', (string) $response->headers->get('Cache-Control'));
+
+            $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail())
+                ->get('/uploads/profile-photos/'.$filename)
+                ->assertNotFound();
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
     public function test_user_can_change_password_with_current_password()
     {
         $user = User::factory()->create(['password' => Hash::make('old-password')]);

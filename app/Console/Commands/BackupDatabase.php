@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use RuntimeException;
 use Symfony\Component\Process\Process;
+use Throwable;
 
 class BackupDatabase extends Command
 {
@@ -54,13 +55,40 @@ class BackupDatabase extends Command
         $command = [$binary, '--single-transaction', '--routines', '--triggers', '--skip-comments', '--host='.$config['host'], '--port='.(string) $config['port'], '--user='.$config['username']];
         $command[] = $config['database'];
         $environment = empty($config['password']) ? null : ['MYSQL_PWD' => $config['password']];
-        $process = new Process($command, base_path(), $environment, null, 300);
-        $process->run();
-        if (! $process->isSuccessful()) {
-            throw new RuntimeException('mysqldump failed: '.trim($process->getErrorOutput()));
-        }
         $path = $directory.DIRECTORY_SEPARATOR.$filename.'.sql.gz';
-        File::put($path, gzencode($process->getOutput(), 9));
+        $gzip = gzopen($path, 'wb9');
+        if ($gzip === false) {
+            throw new RuntimeException("Unable to open backup for writing: {$path}");
+        }
+
+        $process = new Process($command, base_path(), $environment, null, 300);
+        $errorOutput = '';
+        $writeFailure = null;
+        try {
+            $process->disableOutput();
+            $process->run(function (string $type, string $buffer) use ($gzip, &$errorOutput, &$writeFailure): void {
+                if ($type === Process::OUT) {
+                    if ($writeFailure === null && gzwrite($gzip, $buffer) === false) {
+                        $writeFailure = new RuntimeException('Unable to write the compressed database backup.');
+                    }
+
+                    return;
+                }
+
+                $errorOutput = substr($errorOutput.$buffer, -8192);
+            });
+        } finally {
+            gzclose($gzip);
+        }
+
+        if ($writeFailure instanceof Throwable) {
+            File::delete($path);
+            throw $writeFailure;
+        }
+        if (! $process->isSuccessful()) {
+            File::delete($path);
+            throw new RuntimeException('mysqldump failed: '.trim($errorOutput));
+        }
 
         return $path;
     }

@@ -22,7 +22,14 @@ use App\Http\Controllers\Api\SupervisorMobileController;
 use App\Http\Controllers\Api\UatController;
 use App\Http\Controllers\Api\VehicleCostController;
 use App\Http\Controllers\Auth\AppAuthController;
+use App\Http\Controllers\HealthController;
+use App\Http\Controllers\ProfilePhotoController;
+use App\Http\Middleware\EnsureActiveAccount;
+use App\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 /*
 |--------------------------------------------------------------------------
@@ -36,6 +43,19 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::redirect('/', url('/office'));
+Route::get('/health', HealthController::class)
+    ->withoutMiddleware([
+        AddQueuedCookiesToResponse::class,
+        StartSession::class,
+        EnsureActiveAccount::class,
+        ShareErrorsFromSession::class,
+        VerifyCsrfToken::class,
+    ])
+    ->name('health');
+Route::get('/uploads/profile-photos/{filename}', ProfilePhotoController::class)
+    ->middleware('auth')
+    ->where('filename', '[A-Za-z0-9-]+\.(?:jpg|jpeg|png|webp)')
+    ->name('profile-photo');
 
 Route::prefix('api/auth')->group(function () {
     Route::get('/user', [AppAuthController::class, 'user']);

@@ -25,14 +25,17 @@ Create a release candidate only when all of these checks pass:
    - `APP_ENV=production`
    - `APP_DEBUG=false`
    - the public HTTPS `APP_URL`
+   - `TRUSTED_PROXIES` as a comma-separated list of proxy IP addresses or CIDR ranges only when HTTPS terminates at a reverse proxy; leave it blank for direct HTTPS and never use `*`
    - a unique `APP_KEY`
    - `APP_TIMEZONE=Asia/Yangon`
    - the dedicated database credentials
+   - `CACHE_DRIVER=database` so scheduler locks and application caches are shared across releases and nodes
+   - `SESSION_DRIVER=database` so authenticated sessions survive release switches
    - `SESSION_ENCRYPT=true`
    - `SESSION_SECURE_COOKIE=true`
    - `VALLEY_DEMO_ENDPOINTS=false`
    - an absolute protected `VALLEY_BACKUP_DIRECTORY`, preferably copied off host
-   - an absolute shared `PROFILE_PHOTOS_PATH` that persists across release directories
+   - an absolute shared `PROFILE_PHOTOS_PATH` that persists across release directories; the authenticated application route serves these files, so no public symlink or web-server alias is required
    - a named `VALLEY_ADMIN_EMAIL`, `VALLEY_ADMIN_NAME`, and strong `VALLEY_ADMIN_PASSWORD` for the first dashboard account
    - the real SMTP settings and sender address
 5. Run `composer install --no-dev --classmap-authoritative --no-interaction`.
@@ -41,18 +44,21 @@ Create a release candidate only when all of these checks pass:
 8. Put the current application into maintenance mode: `php artisan down --retry=30`.
 9. Run `php artisan valley:backup` and verify it with `php artisan valley:backup-verify <backup-path>`.
 10. Run `php artisan migrate --force`.
-11. Run `php artisan storage:link` if the shared storage link is not present.
-12. Run `php artisan optimize`.
-13. Point the web server document root to the release `public` directory and reload PHP/web services.
-14. Run `php artisan up`.
-15. Verify login and one read-only screen for each app. Request a password reset into a controlled mailbox and complete it. Then verify Office reports, a test attendance scan, and a controlled order-to-cash transaction.
+11. On the first deployment only, run `php artisan db:seed --force`. This creates the system roles, default permissions, company, initial owner, and KPI defaults without demo transactions. Do not add `db:seed` to routine upgrades; existing role customizations are preserved, and later permission changes are delivered by migrations.
+12. Sign in as the owner, replace the bootstrap password, remove `VALLEY_ADMIN_PASSWORD` from `.env`, and run `php artisan config:clear`. The readiness check accepts the provisioned owner after the bootstrap secret is removed.
+13. Run `php artisan storage:link` if the shared storage link is not present.
+14. Run `php artisan optimize`.
+15. Point the web server document root to the release `public` directory and reload PHP/web services.
+16. Run `php artisan up`.
+17. Configure the load balancer or uptime monitor to require an HTTP 200 response from `/health`. It returns 503 if the database, cache, or writable storage is unavailable.
+18. Verify login and one read-only screen for each app. Request a password reset into a controlled mailbox and complete it. Then verify Office reports, a test attendance scan, and a controlled order-to-cash transaction.
 
 ## Required scheduled jobs
 
 - Run `php artisan schedule:run` every minute under the deployment account.
 - The scheduler creates the database backup daily at 02:00.
 - Copy backups to an encrypted off-host location and monitor the copy job.
-- Run `php artisan valley:backup-verify` against the newest copied backup on a regular restore-drill schedule.
+- Run `php artisan valley:backup-verify` against the newest copied backup on a regular restore-drill schedule. The verification account needs permission to create and drop only databases matching `valley_restore_verify_%`; use an isolated restore host or temporary restore credentials rather than granting these privileges to the web application account.
 
 ## Upgrade deployment
 
