@@ -22,6 +22,9 @@ class DashboardController extends Controller
     {
         abort_unless(in_array($dashboard, self::DASHBOARDS, true), 404);
         $this->authorizePermission($request, 'office.dashboard.view');
+        if (in_array($dashboard, ['owner', 'finance'], true)) {
+            $this->authorizePermission($request, 'office.finance.profit-loss.view');
+        }
         $this->validatePeriod($request);
         $data = $this->cached($request, "summary:{$dashboard}", fn () => match ($dashboard) {
             'owner' => $this->owner($request),
@@ -38,6 +41,9 @@ class DashboardController extends Controller
     {
         abort_unless(in_array($dashboard, self::DASHBOARDS, true), 404);
         $this->authorizePermission($request, 'office.dashboard.view');
+        if (in_array($dashboard, ['owner', 'finance'], true)) {
+            $this->authorizePermission($request, 'office.finance.profit-loss.view');
+        }
         $this->validatePeriod($request);
         $data = $this->cached($request, "charts:{$dashboard}", fn () => $this->chartData($request, $dashboard));
 
@@ -225,7 +231,13 @@ class DashboardController extends Controller
             $query->selectRaw('1')->from('order_items')->whereColumn('order_items.order_id', 'orders.id')->whereIn('order_items.item_type', ['sale', 'foc']);
         })->orderByDesc('order_date')->orderByDesc('id')->limit(4)->get(['id', 'code', 'order_date', 'status', 'total'])->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'date' => $item->order_date, 'status' => $item->status, 'amount' => (float) $item->total]);
 
-        return ['summary' => ['current_order_status' => data_get($orders->first(), 'status'), 'current_order_code' => data_get($orders->first(), 'code'), 'outstanding_balance' => $this->customerOutstanding($user->customer_id), 'recent_orders_count' => $orders->count()], 'recent_orders' => $orders];
+        $pendingCollections = DB::table('collections')->where('customer_id', $user->customer_id)->where('status', 'submitted');
+        $pendingAmount = (float) (clone $pendingCollections)->sum('amount');
+        $displayOutstanding = max($this->customerOutstanding($user->customer_id) - $pendingAmount, 0);
+
+        $contactChannels = json_decode((string) DB::table('companies')->oldest('id')->value('contact_channels'), true) ?: [];
+
+        return ['summary' => ['current_order_status' => data_get($orders->first(), 'status'), 'current_order_code' => data_get($orders->first(), 'code'), 'outstanding_balance' => $displayOutstanding, 'pending_collection_amount' => $pendingAmount, 'pending_collection_count' => (clone $pendingCollections)->count(), 'recent_orders_count' => $orders->count()], 'recent_orders' => $orders, 'contact_channels' => $contactChannels];
     }
 
     private function salesMobile(User $user, Request $request): array

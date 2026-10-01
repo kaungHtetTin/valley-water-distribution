@@ -305,6 +305,6 @@ class OperationsReportController extends Controller
 
     private function authorizePermission(Request $request): void
     {
-        abort_unless(in_array('office.dashboard.view', AppAccess::permissionsForRole($request->user()?->role), true), 403);
+        abort_unless(in_array('office.reports.operations.view', AppAccess::permissionsForRole($request->user()?->role), true), 403);
     }
 }

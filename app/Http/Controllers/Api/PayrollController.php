@@ -137,11 +137,11 @@ class PayrollController extends Controller
 
     public function generate(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.drafts.prepare', 'office.payroll.manage']);
 
         $validated = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -206,10 +206,13 @@ class PayrollController extends Controller
 
     public function approve(Request $request, Payroll $payroll)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.drafts.approve', 'office.payroll.manage']);
 
         abort_unless($payroll->status === 'draft', 409, 'Only draft payrolls can be approved.');
         abort_unless($payroll->items()->exists(), 409, 'Payroll must have at least one item before approval.');
+        if ($request->user()?->role === 'Finance Manager') {
+            abort_if($payroll->generated_by === $request->user()->id, 409, 'The payroll preparer cannot approve their own draft.');
+        }
 
         $payroll->update([
             'status' => 'approved',
@@ -224,9 +227,12 @@ class PayrollController extends Controller
 
     public function markPaid(Request $request, Payroll $payroll)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.drafts.pay', 'office.payroll.manage']);
 
         abort_unless($payroll->status === 'approved', 409, 'Only approved payrolls can be marked paid.');
+        if ($request->user()?->role === 'Accountant') {
+            abort_if($payroll->approved_by === $request->user()->id, 409, 'The payroll approver cannot mark the same payroll as paid.');
+        }
 
         $validated = $request->validate([
             'payment_reference' => ['nullable', 'string', 'max:150'],
@@ -246,7 +252,7 @@ class PayrollController extends Controller
 
     public function destroy(Request $request, Payroll $payroll)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.drafts.prepare', 'office.payroll.manage']);
 
         abort_unless($payroll->status === 'draft', 409, 'Only draft payrolls can be deleted.');
 
@@ -404,14 +410,15 @@ class PayrollController extends Controller
         return match ($employeeType) {
             'office' => 450000,
             'sales' => 380000,
+            'sales_supervisor' => 450000,
             'driver' => 360000,
             'warehouse' => 330000,
             default => 300000,
         };
     }
 
-    private function authorizePermission(Request $request, string $permission): void
+    private function authorizePermission(Request $request, string|array $permission): void
     {
-        abort_unless(in_array($permission, AppAccess::permissionsForRole($request->user()?->role), true), 403);
+        abort_unless(array_intersect((array) $permission, AppAccess::permissionsForRole($request->user()?->role)), 403);
     }
 }

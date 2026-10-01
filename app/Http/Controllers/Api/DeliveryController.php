@@ -388,6 +388,49 @@ class DeliveryController extends Controller
         ], 201);
     }
 
+    public function updateCustomerLocation(Request $request, Delivery $delivery)
+    {
+        $this->authorizeDriverDelivery($request, $delivery, 'driver.route.update');
+        abort_unless($delivery->customer_id, 422, 'This stop is not linked to a customer account.');
+
+        $validated = $request->validate([
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'accuracy_m' => ['nullable', 'numeric', 'between:0,10000'],
+        ]);
+
+        $customer = DB::transaction(function () use ($delivery, $validated) {
+            $lockedDelivery = Delivery::query()->lockForUpdate()->findOrFail($delivery->id);
+            $active = $lockedDelivery->trip_id
+                ? DeliveryTrip::whereKey($lockedDelivery->trip_id)->where('status', 'on_route')->exists()
+                : $lockedDelivery->status === 'on_route';
+            abort_unless($active, 409, 'Customer GPS can only be updated during an active route.');
+            abort_unless($lockedDelivery->customer_id, 422, 'This stop is not linked to a customer account.');
+
+            $customer = DB::table('customers')->where('id', $lockedDelivery->customer_id)->lockForUpdate()->first();
+            abort_unless($customer, 404, 'Customer account not found.');
+
+            DB::table('customers')->where('id', $customer->id)->update([
+                'latitude' => $validated['latitude'],
+                'longitude' => $validated['longitude'],
+                'gps_accuracy_m' => $validated['accuracy_m'] ?? null,
+                'gps_captured_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return DB::table('customers')->where('id', $customer->id)->first();
+        });
+
+        return ApiResponse::success('Customer GPS position updated.', [
+            'customer_location' => [
+                'latitude' => (float) $customer->latitude,
+                'longitude' => (float) $customer->longitude,
+                'accuracy_m' => $customer->gps_accuracy_m !== null ? (float) $customer->gps_accuracy_m : null,
+                'captured_at' => $customer->gps_captured_at ? Carbon::parse($customer->gps_captured_at)->toDateTimeString() : null,
+            ],
+        ]);
+    }
+
     public function liveMap(Request $request)
     {
         $this->authorizePermission($request, self::VIEW_PERMISSION);
@@ -1254,12 +1297,12 @@ class DeliveryController extends Controller
 
     private function columns(): array
     {
-        return ['deliveries.*', 'delivery_trips.code as trip_code', 'delivery_trips.status as trip_status', 'delivery_trips.orders_count as trip_orders_count', 'delivery_trips.total_quantity as trip_total_quantity', 'orders.code as order_code', 'orders.payment_type as order_payment_type', 'orders.credit_due_date', 'invoices.code as invoice_code', 'invoices.total as invoice_total', 'customers.code as customer_code', 'customers.credit_limit as customer_credit_limit', DB::raw('COALESCE(deliveries.recipient_name, customers.shop_name) as recipient_name_display'), 'warehouses.code as warehouse_code', 'warehouses.name as warehouse_name', 'routes.code as route_code', 'routes.name as route_name', 'employees.code as driver_code', 'employees.name as driver_name', 'vehicles.code as vehicle_code', 'vehicles.plate_no'];
+        return ['deliveries.*', 'delivery_trips.code as trip_code', 'delivery_trips.status as trip_status', 'delivery_trips.orders_count as trip_orders_count', 'delivery_trips.total_quantity as trip_total_quantity', 'orders.code as order_code', 'orders.payment_type as order_payment_type', 'orders.credit_due_date', 'invoices.code as invoice_code', 'invoices.total as invoice_total', 'customers.code as customer_code', 'customers.credit_limit as customer_credit_limit', 'customers.latitude as customer_latitude', 'customers.longitude as customer_longitude', 'customers.gps_accuracy_m as customer_gps_accuracy_m', 'customers.gps_captured_at as customer_gps_captured_at', DB::raw('COALESCE(deliveries.recipient_name, customers.shop_name) as recipient_name_display'), 'warehouses.code as warehouse_code', 'warehouses.name as warehouse_name', 'routes.code as route_code', 'routes.name as route_name', 'employees.code as driver_code', 'employees.name as driver_name', 'vehicles.code as vehicle_code', 'vehicles.plate_no'];
     }
 
     private function payload($d): array
     {
-        return ['id' => $d->id, 'code' => $d->code, 'trip_id' => $d->trip_id, 'trip_code' => $d->trip_code, 'trip_status' => $d->trip_status ?? null, 'stop_sequence' => (int) ($d->stop_sequence ?? 1), 'trip_orders_count' => (int) ($d->trip_orders_count ?? 1), 'trip_total_quantity' => (float) ($d->trip_total_quantity ?? $d->total_quantity), 'invoice_id' => $d->invoice_id, 'invoice_code' => $d->invoice_code, 'invoice_total' => (float) $d->invoice_total, 'customer_id' => $d->customer_id, 'customer_code' => $d->customer_code, 'customer_credit_limit' => $d->customer_credit_limit !== null ? (float) $d->customer_credit_limit : null, 'shop_name' => $d->recipient_name_display, 'recipient_name' => $d->recipient_name_display, 'recipient_phone' => $d->recipient_phone, 'area_id' => $d->area_id, 'warehouse_id' => $d->warehouse_id, 'warehouse_code' => $d->warehouse_code, 'warehouse_name' => $d->warehouse_name, 'route_id' => $d->route_id, 'route_code' => $d->route_code, 'route_name' => $d->route_name, 'driver_id' => $d->driver_id, 'driver_code' => $d->driver_code, 'driver_name' => $d->driver_name, 'vehicle_id' => $d->vehicle_id, 'vehicle_code' => $d->vehicle_code, 'plate_no' => $d->plate_no, 'planned_date' => Carbon::parse($d->planned_date)->toDateString(), 'status' => $d->status, 'order_payment_type' => $d->order_payment_type, 'credit_due_date' => $d->credit_due_date, 'settlement_method' => $d->settlement_method, 'settlement_amount' => (float) $d->settlement_amount, 'total_quantity' => (float) $d->total_quantity, 'loaded_quantity' => (float) $d->loaded_quantity, 'delivered_quantity' => (float) $d->delivered_quantity, 'returned_quantity' => (float) $d->returned_quantity, 'damaged_quantity' => (float) $d->damaged_quantity, 'loaded_at' => $d->loaded_at ? Carbon::parse($d->loaded_at)->toDateTimeString() : null, 'departed_at' => $d->departed_at ? Carbon::parse($d->departed_at)->toDateTimeString() : null, 'completed_at' => $d->completed_at ? Carbon::parse($d->completed_at)->toDateTimeString() : null, 'delivery_address' => $d->delivery_address, 'notes' => $d->notes];
+        return ['id' => $d->id, 'code' => $d->code, 'trip_id' => $d->trip_id, 'trip_code' => $d->trip_code, 'trip_status' => $d->trip_status ?? null, 'stop_sequence' => (int) ($d->stop_sequence ?? 1), 'trip_orders_count' => (int) ($d->trip_orders_count ?? 1), 'trip_total_quantity' => (float) ($d->trip_total_quantity ?? $d->total_quantity), 'invoice_id' => $d->invoice_id, 'invoice_code' => $d->invoice_code, 'invoice_total' => (float) $d->invoice_total, 'customer_id' => $d->customer_id, 'customer_code' => $d->customer_code, 'customer_credit_limit' => $d->customer_credit_limit !== null ? (float) $d->customer_credit_limit : null, 'customer_latitude' => $d->customer_latitude !== null ? (float) $d->customer_latitude : null, 'customer_longitude' => $d->customer_longitude !== null ? (float) $d->customer_longitude : null, 'customer_gps_accuracy_m' => $d->customer_gps_accuracy_m !== null ? (float) $d->customer_gps_accuracy_m : null, 'customer_gps_captured_at' => $d->customer_gps_captured_at ? Carbon::parse($d->customer_gps_captured_at)->toDateTimeString() : null, 'shop_name' => $d->recipient_name_display, 'recipient_name' => $d->recipient_name_display, 'recipient_phone' => $d->recipient_phone, 'area_id' => $d->area_id, 'warehouse_id' => $d->warehouse_id, 'warehouse_code' => $d->warehouse_code, 'warehouse_name' => $d->warehouse_name, 'route_id' => $d->route_id, 'route_code' => $d->route_code, 'route_name' => $d->route_name, 'driver_id' => $d->driver_id, 'driver_code' => $d->driver_code, 'driver_name' => $d->driver_name, 'vehicle_id' => $d->vehicle_id, 'vehicle_code' => $d->vehicle_code, 'plate_no' => $d->plate_no, 'planned_date' => Carbon::parse($d->planned_date)->toDateString(), 'status' => $d->status, 'order_payment_type' => $d->order_payment_type, 'credit_due_date' => $d->credit_due_date, 'settlement_method' => $d->settlement_method, 'settlement_amount' => (float) $d->settlement_amount, 'total_quantity' => (float) $d->total_quantity, 'loaded_quantity' => (float) $d->loaded_quantity, 'delivered_quantity' => (float) $d->delivered_quantity, 'returned_quantity' => (float) $d->returned_quantity, 'damaged_quantity' => (float) $d->damaged_quantity, 'loaded_at' => $d->loaded_at ? Carbon::parse($d->loaded_at)->toDateTimeString() : null, 'departed_at' => $d->departed_at ? Carbon::parse($d->departed_at)->toDateTimeString() : null, 'completed_at' => $d->completed_at ? Carbon::parse($d->completed_at)->toDateTimeString() : null, 'delivery_address' => $d->delivery_address, 'notes' => $d->notes];
     }
 
     private function tripCards($records, string $search = '')

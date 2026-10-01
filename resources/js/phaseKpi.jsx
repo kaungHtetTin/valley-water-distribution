@@ -1,5 +1,7 @@
-import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Clock3, RefreshCw, Save, Search, Send, Sparkles, Target, TrendingUp, Users, WalletCards, X } from 'lucide-react';
+import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Clock3, RefreshCw, Save, Search, Send, Target, TrendingUp, Users, WalletCards, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ShellPageActions } from './components/ShellPageActions';
+import { MonthSelect } from './components/MonthSelect';
 
 const currentMonth = () => {
     const date = new Date();
@@ -52,16 +54,16 @@ export function MobileKpiScreen() {
                     <h1>My KPI</h1>
                     <p>Your monthly score and supporting figures.</p>
                 </div>
-                <button className="icon-button" type="button" aria-label="Refresh KPI" title="Refresh KPI" disabled={loading} onClick={() => setRefreshKey((key) => key + 1)}>
+                <ShellPageActions><button className="icon-button" type="button" aria-label="Refresh KPI" title="Refresh KPI" disabled={loading} onClick={() => setRefreshKey((key) => key + 1)}>
                     <RefreshCw className={loading ? 'spin' : ''} size={17} />
-                </button>
+                </button></ShellPageActions>
             </div>
 
             <section className="mobile-master-section mobile-kpi-period">
                 <label>
                     <CalendarDays size={16} />
                     <span>Review month</span>
-                    <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+                    <MonthSelect value={month} aria-label="KPI report month" onChange={(event) => setMonth(event.target.value)} />
                 </label>
             </section>
 
@@ -133,7 +135,7 @@ export function MobileKpiScreen() {
     );
 }
 
-export function KpiTargetsScreen({ canManage = false }) {
+export function KpiTargetsScreen({ canManage = false, embedded = false }) {
     const [filters, setFilters] = useState({ employee_type: '', search: '' });
     const [state, setState] = useState({ loading: true, items: [], templates: [], summary: {}, error: '', success: '' });
     const [editing, setEditing] = useState(null);
@@ -177,9 +179,15 @@ export function KpiTargetsScreen({ canManage = false }) {
             });
             const staff = Number(data.data?.staff_count || 0);
             const drafts = Number(data.data?.updated_drafts || 0);
+            const targetValues = form.targets;
+            const updatedRole = {
+                ...editing,
+                target_bonus: Number(form.target_bonus || 0),
+                metrics: editing.metrics.map((metric) => metric.calculation_type === 'manual' ? metric : { ...metric, default_target: targetValues[metric.id] === '' ? null : Number(targetValues[metric.id]) }),
+            };
+            updatedRole.configured_targets = updatedRole.metrics.filter((metric) => metric.calculation_type !== 'manual' && metric.default_target !== null).length;
             setEditing(null);
-            setState((current) => ({ ...current, success: `Role target saved for ${staff} staff member(s)${drafts ? ` and ${drafts} draft review(s)` : ''}.`, error: '' }));
-            setRefreshKey((key) => key + 1);
+            setState((current) => ({ ...current, items: current.items.map((role) => role.id === updatedRole.id ? updatedRole : role), success: `Role target saved for ${staff} staff member(s)${drafts ? ` and ${drafts} draft review(s)` : ''}.`, error: '' }));
         } catch (error) {
             setState((current) => ({ ...current, error: errorMessage(error, 'Unable to save staff KPI targets.') }));
         } finally {
@@ -187,10 +195,8 @@ export function KpiTargetsScreen({ canManage = false }) {
         }
     };
 
-    const summary = state.summary || {};
-
     return (
-        <section className="master-workspace kpi-target-workspace">
+        <section className={`master-workspace kpi-target-workspace ${embedded ? 'is-embedded' : ''}`}>
             <div className="master-heading">
                 <div>
                     <p className="eyebrow">Performance setup</p>
@@ -199,19 +205,13 @@ export function KpiTargetsScreen({ canManage = false }) {
                 </div>
             </div>
 
-            <div className="metrics kpi-target-metrics">
-                <div className="metric"><span>KPI roles</span><strong>{summary.roles || 0}</strong><small>Shared target definitions</small></div>
-                <div className="metric"><span>Assigned staff</span><strong>{summary.configured || 0}</strong><small>Using a KPI role</small></div>
-                <div className="metric"><span>Not assigned</span><strong>{summary.unassigned || 0}</strong><small>Set from employee detail</small></div>
-                <div className="metric"><span>Active staff</span><strong>{summary.staff || 0}</strong><small>Available for KPI reviews</small></div>
-            </div>
-
             <div className="master-panel">
                 <div className="master-toolbar kpi-target-toolbar">
                     <label className="master-search"><Search size={15} /><input value={filters.search} placeholder="Search KPI role or code" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select aria-label="Staff group" value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">All staff groups</option>
                         <option value="sales">Sales</option>
+                        <option value="sales_supervisor">Sales Supervisor</option>
                         <option value="driver">Driver</option>
                         <option value="warehouse">Warehouse</option>
                         <option value="office">Office</option>
@@ -222,14 +222,13 @@ export function KpiTargetsScreen({ canManage = false }) {
                 {state.success && <div className="inline-success"><BadgeCheck size={15} /> {state.success}</div>}
                 {state.error && !editing && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <KpiState icon={RefreshCw} title="Loading role targets" loading /> : state.items.length === 0 ? <KpiState icon={Target} title="No KPI roles found" message="Change the filters to find a KPI role." /> : (
-                    <div className="master-table-wrap">
+                    <div className="master-table-wrap kpi-target-table-wrap">
                         <table className="master-table kpi-target-table">
-                            <thead><tr><th>KPI role</th><th>Staff group</th><th>Assigned staff</th><th>Monthly bonus</th><th>Targets</th>{canManage && <th className="table-actions-header">Actions</th>}</tr></thead>
+                            <thead><tr><th>KPI role</th><th>Staff group</th><th>Monthly bonus</th><th>Targets</th>{canManage && <th className="table-actions-header">Actions</th>}</tr></thead>
                             <tbody>{state.items.map((role) => (
                                 <tr key={role.id} className={canManage ? 'clickable-row' : ''} onClick={() => canManage && openTarget(role)}>
                                     <td><strong>{role.name}</strong><span className="muted">{role.code}</span></td>
                                     <td>{titleCase(role.employee_type)}</td>
-                                    <td><strong>{role.staff_count}</strong><span className="muted">{role.staff_count ? role.staff.slice(0, 2).map((staff) => staff.name).join(', ') : 'No staff assigned'}</span></td>
                                     <td>{money(role.target_bonus)}</td>
                                     <td><strong>{role.configured_targets} / {role.total_targets}</strong></td>
                                     {canManage && <td className="table-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions"><button type="button" aria-label={`Edit ${role.name} targets`} title="Edit role targets" onClick={() => openTarget(role)}><Target size={15} /></button></div></td>}
@@ -275,12 +274,11 @@ export function KpiTargetsScreen({ canManage = false }) {
     );
 }
 
-export function KpiReviewsScreen({ canManage = false }) {
+export function KpiReviewsScreen({ canManage = false, canApprove = canManage }) {
     const [filters, setFilters] = useState({ month: currentMonth(), template_id: '', status: '', search: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, error: '' });
     const [templates, setTemplates] = useState([]);
     const [refreshKey, setRefreshKey] = useState(0);
-    const [generating, setGenerating] = useState(false);
     const [selected, setSelected] = useState(null);
     const [form, setForm] = useState({ notes: '', items: [] });
     const [processing, setProcessing] = useState(false);
@@ -290,9 +288,7 @@ export function KpiReviewsScreen({ canManage = false }) {
         window.axios.get(`${apiBase()}/meta`).then(({ data }) => {
             if (!mounted) return;
             const available = data.data.templates || [];
-            const initial = available.find((template) => template.code === 'SALES-REP-V1') || available[0];
             setTemplates(available);
-            if (initial) setFilters((current) => current.template_id ? current : { ...current, template_id: String(initial.id) });
         }).catch(() => {});
         return () => { mounted = false; };
     }, []);
@@ -305,20 +301,6 @@ export function KpiReviewsScreen({ canManage = false }) {
             .catch((error) => mounted && setState({ loading: false, items: [], summary: {}, error: errorMessage(error, 'Unable to load KPI reviews.') }));
         return () => { mounted = false; };
     }, [filters, refreshKey]);
-
-    const generate = async () => {
-        if (!canManage || generating) return;
-        setGenerating(true);
-        setState((current) => ({ ...current, error: '' }));
-        try {
-            await window.axios.post(`${apiBase()}/generate`, { month: filters.month, template_id: filters.template_id });
-            setRefreshKey((key) => key + 1);
-        } catch (error) {
-            setState((current) => ({ ...current, error: errorMessage(error, 'Unable to create KPI reviews.') }));
-        } finally {
-            setGenerating(false);
-        }
-    };
 
     const openReview = async (id) => {
         setProcessing(true);
@@ -354,12 +336,25 @@ export function KpiReviewsScreen({ canManage = false }) {
         });
         setSelected(data.data);
         setForm({ notes: data.data.result.notes || '', items: data.data.items.map((item) => ({ ...item })) });
-        setRefreshKey((key) => key + 1);
+        updateReviewRow(data.data.result);
         return data.data;
     };
 
+    const updateReviewRow = (result) => {
+        setState((current) => {
+            const previous = current.items.find((item) => item.id === result.id);
+            const items = current.items.map((item) => item.id === result.id ? { ...item, ...result } : item);
+            const summary = { ...current.summary };
+            if (previous && previous.status !== result.status) {
+                summary[previous.status] = Math.max(0, Number(summary[previous.status] || 0) - 1);
+                summary[result.status] = Number(summary[result.status] || 0) + 1;
+            }
+            return { ...current, items, summary };
+        });
+    };
+
     const perform = async (action) => {
-        if (!canManage || processing) return;
+        if (!(action === 'approve' || action === 'post-bonus' ? canApprove : canManage) || processing) return;
         setProcessing(true);
         setState((current) => ({ ...current, error: '' }));
         try {
@@ -370,20 +365,15 @@ export function KpiReviewsScreen({ canManage = false }) {
                 const { data } = await window.axios.post(`${apiBase()}/${saved.result.id}/submit`);
                 setSelected(data.data);
                 setForm({ notes: data.data.result.notes || '', items: data.data.items.map((item) => ({ ...item })) });
-                setRefreshKey((key) => key + 1);
+                updateReviewRow(data.data.result);
             } else if (action === 'approve') {
                 const { data } = await window.axios.post(`${apiBase()}/${selected.result.id}/approve`);
                 setSelected(data.data);
-                setRefreshKey((key) => key + 1);
-            } else if (action === 'refresh') {
-                const { data } = await window.axios.post(`${apiBase()}/${selected.result.id}/refresh`);
-                setSelected(data.data);
-                setForm({ notes: data.data.result.notes || '', items: data.data.items.map((item) => ({ ...item })) });
-                setRefreshKey((key) => key + 1);
+                updateReviewRow(data.data.result);
             } else if (action === 'post-bonus') {
                 const { data } = await window.axios.post(`${apiBase()}/${selected.result.id}/post-bonus`);
                 setSelected(data.data);
-                setRefreshKey((key) => key + 1);
+                updateReviewRow(data.data.result);
             }
         } catch (error) {
             setState((current) => ({ ...current, error: errorMessage(error, 'Unable to update KPI review.') }));
@@ -393,17 +383,18 @@ export function KpiReviewsScreen({ canManage = false }) {
     };
 
     const summary = state.summary || {};
-    const selectedRole = templates.find((template) => String(template.id) === String(filters.template_id));
-
     return (
         <section className="master-workspace kpi-review-workspace">
             <div className="master-heading">
                 <div>
                     <p className="eyebrow">Performance</p>
                     <h1>Monthly KPI reviews</h1>
-                    <span className="muted">Create a review, enter the month&apos;s results, then submit and approve.</span>
+                    <span className="muted">Monthly reviews are created automatically. Check manager-scored metrics, then submit and approve.</span>
                 </div>
-                {canManage && <button className="button primary" type="button" disabled={generating || !filters.template_id} onClick={generate}><Sparkles size={16} /> {generating ? 'Loading…' : `Create / refresh ${selectedRole?.name || 'KPI role'}`}</button>}
+                <label className="kpi-review-month-selector">
+                    <span><CalendarDays size={14} /> Review month</span>
+                    <MonthSelect value={filters.month} aria-label="KPI review month" onChange={(event) => { setSelected(null); setFilters((current) => ({ ...current, month: event.target.value })); }} />
+                </label>
             </div>
 
             <div className="metrics kpi-review-metrics">
@@ -415,8 +406,8 @@ export function KpiReviewsScreen({ canManage = false }) {
 
             <div className="master-panel">
                 <div className="master-toolbar kpi-review-toolbar">
-                    <label className="date-filter" title="Month"><CalendarDays size={15} /><input type="month" value={filters.month} onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))} /></label>
                     <select aria-label="KPI role" value={filters.template_id} onChange={(event) => setFilters((current) => ({ ...current, template_id: event.target.value }))}>
+                        <option value="">All KPI roles</option>
                         {templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}
                     </select>
                     <select aria-label="Status" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
@@ -430,7 +421,7 @@ export function KpiReviewsScreen({ canManage = false }) {
                 </div>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
-                {state.loading ? <KpiState icon={RefreshCw} title="Loading KPI reviews" loading /> : state.items.length === 0 ? <KpiState icon={CircleGauge} title="No reviews for this month" message="Set staff targets, choose a KPI role, then create the monthly reviews." /> : (
+                {state.loading ? <KpiState icon={RefreshCw} title="Loading KPI reviews" loading /> : state.items.length === 0 ? <KpiState icon={CircleGauge} title="No reviews for this month" message="Assign an active KPI role and targets to staff to include them automatically." /> : (
                     <div className="master-table-wrap">
                         <table className="master-table kpi-review-table">
                             <thead><tr><th>Employee</th><th>Role</th><th>Score</th><th>Bonus</th><th>Status</th><th>Updated</th></tr></thead>
@@ -449,12 +440,12 @@ export function KpiReviewsScreen({ canManage = false }) {
                 )}
             </div>
 
-            {selected && <ReviewDialog detail={selected} form={form} canManage={canManage} processing={processing} error={state.error} onClose={() => setSelected(null)} onChangeNotes={(notes) => setForm((current) => ({ ...current, notes }))} onChangeItem={updateItem} onAction={perform} />}
+            {selected && <ReviewDialog detail={selected} form={form} canManage={canManage} canApprove={canApprove} processing={processing} error={state.error} onClose={() => setSelected(null)} onChangeNotes={(notes) => setForm((current) => ({ ...current, notes }))} onChangeItem={updateItem} onAction={perform} />}
         </section>
     );
 }
 
-function ReviewDialog({ detail, form, canManage, processing, error, onClose, onChangeNotes, onChangeItem, onAction }) {
+function ReviewDialog({ detail, form, canManage, canApprove, processing, error, onClose, onChangeNotes, onChangeItem, onAction }) {
     const { result } = detail;
     const editable = canManage && result.status === 'draft';
     return (
@@ -494,7 +485,7 @@ function ReviewDialog({ detail, form, canManage, processing, error, onClose, onC
                                         <td><strong>{item.name}</strong><span className={item.is_automatic ? 'kpi-source-note' : 'muted'}>{item.is_automatic ? item.source_note || 'Ready to refresh' : manual ? 'Manager score' : item.unit}</span></td>
                                         <td>{number(item.weight)}%</td>
                                         <td>{manual ? <span className="muted">100</span> : <input className="kpi-cell-input" type="number" min="0" step="0.01" disabled={!editable} value={item.target_value ?? ''} aria-label={`${item.name} target`} onChange={(event) => onChangeItem(item.id, 'target_value', event.target.value)} />}</td>
-                                        <td><input className={`kpi-cell-input ${item.is_automatic ? 'is-synced' : ''}`} type="number" min="0" max={manual ? 100 : undefined} step="0.01" disabled={manual ? !editable : actualLocked} value={(manual ? item.manual_score : item.actual_value) ?? ''} aria-label={`${item.name} ${manual ? 'score' : 'actual'}`} onChange={(event) => onChangeItem(item.id, manual ? 'manual_score' : 'actual_value', event.target.value)} /></td>
+                                        <td><input className={`kpi-cell-input ${item.is_automatic ? 'is-synced' : ''}`} type="number" min="0" max={manual ? 100 : undefined} step={manual ? 1 : 0.01} inputMode={manual ? 'numeric' : 'decimal'} disabled={manual ? !editable : actualLocked} value={(manual ? item.manual_score : item.actual_value) ?? ''} aria-label={`${item.name} ${manual ? 'score' : 'actual'}`} onChange={(event) => onChangeItem(item.id, manual ? 'manual_score' : 'actual_value', event.target.value)} /></td>
                                         <td>{item.achievement_percent === null ? <span className="kpi-pending-value">Pending</span> : `${number(item.achievement_percent)}%`}</td>
                                         <td><strong>{item.weighted_score === null ? '—' : number(item.weighted_score)}</strong></td>
                                     </tr>
@@ -507,11 +498,10 @@ function ReviewDialog({ detail, form, canManage, processing, error, onClose, onC
 
                 <footer>
                     <button className="button" type="button" onClick={onClose}>Close</button>
-                    {editable && ['SALES-REP-V1', 'DRIVER-V1'].includes(result.template_code) && <button className="button" type="button" disabled={processing} onClick={() => onAction('refresh')}><RefreshCw size={15} /> Refresh figures</button>}
                     {editable && <button className="button" type="button" disabled={processing} onClick={() => onAction('save')}><Save size={15} /> Save draft</button>}
                     {editable && <button className="button primary" type="button" disabled={processing} onClick={() => onAction('submit')}><Send size={15} /> Submit</button>}
-                    {canManage && result.status === 'submitted' && <button className="button primary" type="button" disabled={processing} onClick={() => onAction('approve')}><BadgeCheck size={15} /> Approve</button>}
-                    {canManage && result.status === 'approved' && !result.payroll_adjustment_id && <button className="button primary" type="button" disabled={processing} onClick={() => onAction('post-bonus')}><WalletCards size={15} /> Post {money(result.bonus_amount)}</button>}
+                    {canApprove && result.status === 'submitted' && <button className="button primary" type="button" disabled={processing} onClick={() => onAction('approve')}><BadgeCheck size={15} /> Approve</button>}
+                    {canApprove && result.status === 'approved' && !result.payroll_adjustment_id && <button className="button primary" type="button" disabled={processing} onClick={() => onAction('post-bonus')}><WalletCards size={15} /> Post {money(result.bonus_amount)}</button>}
                 </footer>
             </section>
         </div>

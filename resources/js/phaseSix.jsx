@@ -1,7 +1,10 @@
-import { ArrowDown, ArrowUp, Ban, CalendarDays, CheckCircle2, ChevronRight, MapPin, Navigation, Package, Pencil, Plus, Printer, RefreshCw, Save, Search, TriangleAlert, Truck, X } from 'lucide-react';
+﻿import { ArrowDown, ArrowUp, Ban, CalendarDays, Check, CheckCircle2, ChevronRight, MapPin, Navigation, Package, Pencil, Plus, Printer, RefreshCw, Save, Search, TriangleAlert, Truck, X } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
 import { ShellBackButton } from './components/ShellBackButton';
+import { ShellPageActions } from './components/ShellPageActions';
 
 const statuses = ['planned', 'assigned', 'loading', 'on_route', 'delivered', 'partially_delivered', 'failed', 'cancelled'];
 const blank = { invoice_ids: [], warehouse_id: '', route_id: '', driver_id: '', vehicle_id: '', planned_date: new Date().toISOString().slice(0, 10), delivery_address: '', notes: '' };
@@ -9,6 +12,7 @@ const api = () => window.ValleyRuntime?.api?.deliveries || '/api/deliveries';
 const errorMessage = (error) => error.response?.data?.message || 'The delivery request could not be completed.';
 const number = (value) => Number(value || 0).toLocaleString();
 const money = (value) => `${number(value)} MMK`;
+const hasGpsCoordinate = (value) => value !== null && value !== '' && Number.isFinite(Number(value));
 const date = (value) => {
     if (!value) return '-';
     const source = String(value);
@@ -73,7 +77,7 @@ const buildFinalSaleRows = (stop, availableProducts = []) => {
     return Array.from(rows.values());
 };
 
-export function DeliveryPlanningScreen({ canManage = false, historyOnly = false, locale = 'en', navigate, detailId = null }) {
+export function DeliveryPlanningScreen({ canManage = false, locale = 'en', navigate, detailId = null }) {
     const localized = locale === 'my';
     const [meta, setMeta] = useState({ loading: true, invoices: [], warehouses: [], routes: [], drivers: [], vehicles: [], error: '' });
     const [filters, setFilters] = useState({ search: '', status: '', driver_id: '', date: '' });
@@ -91,9 +95,9 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
     useEffect(() => {
         let mounted = true;
         setState((current) => ({ ...current, loading: true, error: '' }));
-        const timer = window.setTimeout(() => window.axios.get(api(), { params: { ...filters, history: historyOnly ? 1 : undefined, page, per_page: 20 } }).then(({ data }) => mounted && setState({ loading: false, items: data.data.items, summary: data.data.summary, meta: data.data.meta, error: '' })).catch((error) => mounted && setState({ loading: false, items: [], summary: {}, meta: {}, error: errorMessage(error) })), 220);
+        const timer = window.setTimeout(() => window.axios.get(api(), { params: { ...filters, page, per_page: 20 } }).then(({ data }) => mounted && setState({ loading: false, items: data.data.items, summary: data.data.summary, meta: data.data.meta, error: '' })).catch((error) => mounted && setState({ loading: false, items: [], summary: {}, meta: {}, error: errorMessage(error) })), 220);
         return () => { mounted = false; window.clearTimeout(timer); };
-    }, [filters, historyOnly, page, refresh]);
+    }, [filters, page, refresh]);
     useEffect(() => { setPage(1); }, [filters]);
 
     const openForm = () => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries/new`);
@@ -105,7 +109,7 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
             setSelectedStopId(stops[0]?.id || null);
         }).catch((error) => setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], items: [], error: errorMessage(error) }));
     };
-    const show = (id) => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries${historyOnly ? '/history' : ''}/${id}`);
+    const show = (id) => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries/${id}`);
 
     useEffect(() => {
         setSelectedStopId(null);
@@ -113,7 +117,7 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
         else setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], items: [], error: '' });
     }, [detailId]);
 
-    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/deliveries${historyOnly ? '/history' : ''}`;
+    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/deliveries`;
     const selectedStop = detail.stops.find((stop) => stop.id === selectedStopId) || detail.stops[0] || null;
     const tripStatus = detail.trip?.status || detail.delivery?.status;
     const canChangePlan = canManage && ['planned', 'assigned'].includes(tripStatus) && detail.stops.every((stop) => Number(stop.loaded_quantity || 0) === 0);
@@ -123,6 +127,22 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
         window.axios.post(`${api()}/${detail.delivery.id}/cancel`).then(({ data }) => {
             const stops = data.data.stops || [];
             setDetail({ loading: false, delivery: data.data.delivery, trip: data.data.trip, stops, stock: data.data.stock || [], items: data.data.items || [], error: '' });
+            setState((current) => {
+                const matchesTrip = (item) => item.id === data.data.delivery.id || (data.data.delivery.trip_id && item.trip_id === data.data.delivery.trip_id);
+                const previous = current.items.find(matchesTrip);
+                const items = current.items.map((item) => matchesTrip(item)
+                    ? { ...item, ...data.data.delivery, id: item.id, code: data.data.trip?.code || item.code, status: data.data.trip?.status || data.data.delivery.status }
+                    : item);
+                const wasPending = ['planned', 'assigned'].includes(previous?.status);
+                return {
+                    ...current,
+                    items,
+                    summary: {
+                        ...current.summary,
+                        pending_count: wasPending ? Math.max(0, Number(current.summary.pending_count || 0) - 1) : current.summary.pending_count,
+                    },
+                };
+            });
             setCancelOpen(false);
         }).catch((error) => setActionError(errorMessage(error))).finally(() => setProcessing(false));
     };
@@ -131,7 +151,7 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
         <DetailPage
             eyebrow="Delivery operations"
             title={detail.trip?.code || detail.delivery?.trip_code || detail.delivery?.code || 'Loading'}
-            subtitle={detail.delivery ? `${detail.trip?.orders_count || detail.stops.length} delivery stops · ${detail.delivery.route_name}` : 'Trip detail'}
+            subtitle={detail.delivery ? `${detail.trip?.orders_count || detail.stops.length} delivery stops Â· ${detail.delivery.route_name}` : 'Trip detail'}
             onBack={() => navigate(listPath)}
             aside={detail.delivery && <DetailPanel eyebrow="Trip summary"><div className="delivery-trip-summary"><span><small>Stops</small><strong>{number(detail.trip?.orders_count || detail.stops.length)}</strong></span><span><small>Required units</small><strong>{number(detail.trip?.total_quantity || 0)}</strong></span><span className="delivery-trip-summary-status"><small>Current status</small><strong><span className={`status ${statusFamily(detail.trip?.status || detail.delivery.status)}`}>{statusLabel(detail.trip?.status || detail.delivery.status)}</span></strong></span></div></DetailPanel>}
             actions={detail.delivery && canManage ? <>{actionError && <p className="form-alert">{actionError}</p>}{canChangePlan ? <><button className="button primary" type="button" onClick={() => navigate(`${window.ValleyRuntime?.routes?.office || '/office'}/deliveries/${detail.delivery.id}/edit`)}><Pencil size={15} />Edit trip plan</button><button className="button danger" type="button" onClick={() => setCancelOpen(true)}><Ban size={15} />Cancel trip</button></> : <p className="muted delivery-plan-locked">Planning is locked after loading starts.</p>}</> : null}
@@ -149,20 +169,20 @@ export function DeliveryPlanningScreen({ canManage = false, historyOnly = false,
                     </DetailPanel>
                 </div>
                 <DetailPanel eyebrow="Stock plan" title={`${detail.stock.length} products required`} className="delivery-trip-stock-panel">
-                    <div className="master-table-wrap"><table className="master-table delivery-trip-stock-table"><colgroup><col /><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th>Product</th><th>SKU / unit</th><th className="numeric">Required</th><th className="numeric">Loaded</th><th className="numeric">Delivered</th><th className="numeric">Trip buffer / pending return</th><th className="numeric">Damaged</th></tr></thead><tbody>{detail.stock.map((item) => <tr key={item.product_id}><td><strong>{item.product_name}</strong></td><td>{item.product_sku} · {item.unit}</td><td className="numeric"><strong>{number(item.planned_quantity)}</strong></td><td className="numeric">{number(item.loaded_quantity)}</td><td className="numeric">{number(item.delivered_quantity)}</td><td className="numeric">{number(item.returned_quantity)}</td><td className="numeric">{number(item.damaged_quantity)}</td></tr>)}</tbody><tfoot><tr><th colSpan="2">Total units</th><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.planned_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.loaded_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.delivered_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.returned_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.damaged_quantity || 0), 0))}</strong></td></tr></tfoot></table></div>
+                    <div className="master-table-wrap"><table className="master-table delivery-trip-stock-table"><colgroup><col /><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th>Product</th><th>SKU / unit</th><th className="numeric">Required</th><th className="numeric">Loaded</th><th className="numeric">Delivered</th><th className="numeric">Trip buffer / pending return</th><th className="numeric">Damaged</th></tr></thead><tbody>{detail.stock.map((item) => <tr key={item.product_id}><td><strong>{item.product_name}</strong></td><td>{item.product_sku} Â· {item.unit}</td><td className="numeric"><strong>{number(item.planned_quantity)}</strong></td><td className="numeric">{number(item.loaded_quantity)}</td><td className="numeric">{number(item.delivered_quantity)}</td><td className="numeric">{number(item.returned_quantity)}</td><td className="numeric">{number(item.damaged_quantity)}</td></tr>)}</tbody><tfoot><tr><th colSpan="2">Total units</th><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.planned_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.loaded_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.delivered_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.returned_quantity || 0), 0))}</strong></td><td className="numeric"><strong>{number(detail.stock.reduce((sum, item) => sum + Number(item.damaged_quantity || 0), 0))}</strong></td></tr></tfoot></table></div>
                 </DetailPanel>
             </div>}
         >
-            {detail.loading ? <State title="Loading delivery trip" loading /> : detail.error ? <State title={detail.error} /> : detail.delivery && <DetailPanel eyebrow="Details" title="Trip information"><dl className="record-page-facts"><Info label="Planned date" value={date(detail.trip?.planned_date || detail.delivery.planned_date)} /><Info label="Warehouse" value={`${detail.delivery.warehouse_code} · ${detail.delivery.warehouse_name}`} /><Info label="Route" value={`${detail.delivery.route_code} · ${detail.delivery.route_name}`} /><Info label="Driver" value={`${detail.delivery.driver_code} · ${detail.delivery.driver_name}`} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} · ${detail.delivery.plate_no}`} /><Info label="Status" value={statusLabel(detail.trip?.status || detail.delivery.status)} /></dl></DetailPanel>}
+            {detail.loading ? <State title="Loading delivery trip" loading /> : detail.error ? <State title={detail.error} /> : detail.delivery && <DetailPanel eyebrow="Details" title="Trip information"><dl className="record-page-facts"><Info label="Planned date" value={date(detail.trip?.planned_date || detail.delivery.planned_date)} /><Info label="Warehouse" value={`${detail.delivery.warehouse_code} Â· ${detail.delivery.warehouse_name}`} /><Info label="Route" value={`${detail.delivery.route_code} Â· ${detail.delivery.route_name}`} /><Info label="Driver" value={`${detail.delivery.driver_code} Â· ${detail.delivery.driver_name}`} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} Â· ${detail.delivery.plate_no}`} /><Info label="Status" value={statusLabel(detail.trip?.status || detail.delivery.status)} /></dl></DetailPanel>}
         </DetailPage>
         {cancelOpen && <TripCancelConfirmation code={detail.trip?.code || detail.delivery?.trip_code || detail.delivery?.code} processing={processing} onConfirm={cancelTrip} onDismiss={() => setCancelOpen(false)} />}
     </>);
 
     return <section className="page delivery-workspace">
-        <div className="master-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်ရေးလုပ်ငန်း' : 'Delivery operations'}</p><h1>{historyOnly ? (localized ? 'ပို့ဆောင်မှုမှတ်တမ်း' : 'Delivery history') : (localized ? 'ပို့ဆောင်မှုစီစဉ်ခြင်း' : 'Trip planning')}</h1><span className="muted">{historyOnly ? (localized ? 'ပြီးဆုံး၊ တစ်စိတ်တစ်ပိုင်းနှင့် မအောင်မြင်သော ပို့ဆောင်မှုများကို ပြန်လည်ကြည့်ရှုပါ။' : 'Review completed, partial, failed, and cancelled deliveries.') : 'Select ready orders, assign one vehicle and driver, and review the combined stock requirement.'}</span></div>{canManage && !historyOnly && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || !meta.invoices.length}><Plus size={16} />New trip</button>}</div>
+        <div className="master-heading"><div><p className="eyebrow">{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€›á€±á€¸á€œá€¯á€•á€ºá€„á€”á€ºá€¸' : 'Delivery operations'}</p><h1>{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€…á€®á€…á€‰á€ºá€á€¼á€„á€ºá€¸' : 'Trip planning'}</h1><span className="muted">Plan new trips and review active, completed, failed, or cancelled delivery records in one place.</span></div><ShellPageActions>{canManage && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || !meta.invoices.length}><Plus size={16} />New trip</button>}</ShellPageActions></div>
         <div className="metrics delivery-metrics"><Metric label="Trips" value={number(state.summary.deliveries_count)} hint="All statuses" icon={Truck} /><Metric label="Planned quantity" value={number(state.summary.total_quantity)} hint="Units" icon={Package} /><Metric label="Pending" value={number(state.summary.pending_count)} hint="Planned or assigned" icon={CalendarDays} /><Metric label="Delivered" value={number(state.summary.delivered_count)} hint="Completed trips" icon={Truck} /></div>
-        <section className="master-panel"><div className="master-panel-heading"><div><p className="eyebrow">{historyOnly ? (localized ? 'မှတ်တမ်း' : 'History') : (localized ? 'အစီအစဉ်' : 'Schedule')}</p><h2>{historyOnly ? (localized ? 'ပြီးဆုံးသော ပို့ဆောင်မှုများ' : 'Completed delivery records') : (localized ? 'ပို့ဆောင်မှုတာဝန်များ' : 'Delivery assignments')}</h2></div></div><div className="master-toolbar delivery-toolbar"><label className="master-search"><Search size={14} /><input placeholder="Search delivery, invoice, shop, driver" value={filters.search} onChange={(e) => setFilters((v) => ({ ...v, search: e.target.value }))} /></label><select value={filters.status} onChange={(e) => setFilters((v) => ({ ...v, status: e.target.value }))}><option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select><select value={filters.driver_id} onChange={(e) => setFilters((v) => ({ ...v, driver_id: e.target.value }))}><option value="">All drivers</option>{meta.drivers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(e) => setFilters((v) => ({ ...v, date: e.target.value }))} /></label><button className="button" type="button" onClick={() => setRefresh((v) => v + 1)}><RefreshCw size={15} />Refresh</button></div>
-            {state.loading ? <State title="Loading delivery trips" loading /> : state.error || meta.error ? <State title={state.error || meta.error} /> : !state.items.length ? <State title="No trips match this view." /> : <><div className="master-table-wrap"><table className="master-table delivery-table"><thead><tr><th>Trip</th><th>Stops / orders</th><th>Plan</th><th>Driver / vehicle</th><th>Route / warehouse</th><th>Quantity</th><th>Status</th></tr></thead><tbody>{state.items.map((item) => <tr key={item.id} onClick={() => show(item.id)} tabIndex="0" onKeyDown={(e) => e.key === 'Enter' && show(item.id)}><td><strong>{item.code}</strong><span className="muted">{date(item.planned_date)}</span></td><td><strong>{item.customer_summary}</strong><span className="muted">{number(item.stops_count)} stops · {number(item.orders_count)} orders</span></td><td>{date(item.planned_date)}</td><td><strong>{item.driver_name}</strong><span className="muted">{item.vehicle_code} · {item.plate_no}</span></td><td><strong>{item.route_name}</strong><span className="muted">{item.warehouse_code}</span></td><td className="numeric">{number(item.total_quantity)}</td><td><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span></td></tr>)}</tbody></table></div><Pagination meta={state.meta} page={page} setPage={setPage} /></>}
+        <section className="master-panel"><div className="master-panel-heading"><div><p className="eyebrow">{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€»á€¬á€¸' : 'Trips'}</p><h2>{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€¾á€á€ºá€á€™á€ºá€¸á€¡á€¬á€¸á€œá€¯á€¶á€¸' : 'All delivery records'}</h2></div></div><div className="master-toolbar delivery-toolbar"><label className="master-search"><Search size={14} /><input placeholder="Search delivery, invoice, shop, driver" value={filters.search} onChange={(e) => setFilters((v) => ({ ...v, search: e.target.value }))} /></label><select value={filters.status} onChange={(e) => setFilters((v) => ({ ...v, status: e.target.value }))}><option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select><select value={filters.driver_id} onChange={(e) => setFilters((v) => ({ ...v, driver_id: e.target.value }))}><option value="">All drivers</option>{meta.drivers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(e) => setFilters((v) => ({ ...v, date: e.target.value }))} /></label><button className="button" type="button" onClick={() => setRefresh((v) => v + 1)}><RefreshCw size={15} />Refresh</button></div>
+            {state.loading ? <State title="Loading delivery trips" loading /> : state.error || meta.error ? <State title={state.error || meta.error} /> : !state.items.length ? <State title="No trips match this view." /> : <><div className="master-table-wrap"><table className="master-table delivery-table"><thead><tr><th>Trip</th><th>Stops / orders</th><th>Plan</th><th>Driver / vehicle</th><th>Route / warehouse</th><th>Quantity</th><th>Status</th></tr></thead><tbody>{state.items.map((item) => <tr key={item.id} onClick={() => show(item.id)} tabIndex="0" onKeyDown={(e) => e.key === 'Enter' && show(item.id)}><td><strong>{item.code}</strong><span className="muted">{date(item.planned_date)}</span></td><td><strong>{item.customer_summary}</strong><span className="muted">{number(item.stops_count)} stops Â· {number(item.orders_count)} orders</span></td><td>{date(item.planned_date)}</td><td><strong>{item.driver_name}</strong><span className="muted">{item.vehicle_code} Â· {item.plate_no}</span></td><td><strong>{item.route_name}</strong><span className="muted">{item.warehouse_code}</span></td><td className="numeric">{number(item.total_quantity)}</td><td><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span></td></tr>)}</tbody></table></div><Pagination meta={state.meta} page={page} setPage={setPage} /></>}
         </section>
     </section>;
 }
@@ -209,7 +229,7 @@ export function TripEditPage({ deliveryId, locale = 'en', navigate }) {
 
     return <section className="page trip-wizard-page trip-edit-page">
         <ShellBackButton onClick={() => navigate(`${listPath}/${deliveryId}`)} label="Back to trip" />
-        <div className="master-heading trip-wizard-heading"><div><p className="eyebrow">Delivery operations</p><h1>Edit trip plan</h1><span className="muted">{state.trip?.code || state.delivery.trip_code || state.delivery.code} · Change the schedule and assignment before loading starts.</span></div></div>
+        <div className="master-heading trip-wizard-heading"><div><p className="eyebrow">Delivery operations</p><h1>Edit trip plan</h1><span className="muted">{state.trip?.code || state.delivery.trip_code || state.delivery.code} Â· Change the schedule and assignment before loading starts.</span></div></div>
         {state.error && <p className="form-alert" role="alert">{state.error}</p>}
         <form className="master-panel trip-edit-form" onSubmit={save}>
             <div className="master-panel-heading"><div><p className="eyebrow">Trip plan</p><h2>Schedule and assignment</h2></div><span className={`status ${statusFamily(state.trip?.status || state.delivery.status)}`}>{statusLabel(state.trip?.status || state.delivery.status)}</span></div>
@@ -221,7 +241,7 @@ export function TripEditPage({ deliveryId, locale = 'en', navigate }) {
                 <Select label="Vehicle" name="vehicle_id" items={state.meta.vehicles} form={form} setForm={setForm} />
                 <Field label="Trip notes" wide><textarea rows="4" maxLength="500" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
             </div>
-            <footer className="trip-edit-actions"><button className="button" type="button" disabled={saving} onClick={() => navigate(`${listPath}/${deliveryId}`)}>Cancel</button><button className="button primary" disabled={saving}><Save size={15} />{saving ? 'Saving…' : 'Save trip plan'}</button></footer>
+            <footer className="trip-edit-actions"><button className="button" type="button" disabled={saving} onClick={() => navigate(`${listPath}/${deliveryId}`)}>Cancel</button><button className="button primary" disabled={saving}><Save size={15} />{saving ? 'Savingâ€¦' : 'Save trip plan'}</button></footer>
         </form>
     </section>;
 }
@@ -238,7 +258,7 @@ function TripCancelConfirmation({ code, processing, onConfirm, onDismiss }) {
         <section className="master-dialog order-cancel-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
             <header><div><p className="eyebrow">Trip planning</p><h2 id={titleId}>Cancel trip</h2></div><button className="icon-button" type="button" disabled={processing} aria-label="Keep trip" onClick={onDismiss}><X size={17} /></button></header>
             <div className="order-cancel-dialog-body"><span className="order-cancel-dialog-icon"><TriangleAlert size={22} /></span><div><strong>Cancel {code}?</strong><p>The assigned orders will return to the ready-to-plan list. This cancelled trip remains in delivery history.</p></div></div>
-            <footer><button className="button" type="button" disabled={processing} onClick={onDismiss}>Keep trip</button><button className="button danger" type="button" disabled={processing} onClick={onConfirm}><Ban size={15} />{processing ? 'Cancelling…' : 'Confirm cancellation'}</button></footer>
+            <footer><button className="button" type="button" disabled={processing} onClick={onDismiss}>Keep trip</button><button className="button danger" type="button" disabled={processing} onClick={onConfirm}><Ban size={15} />{processing ? 'Cancellingâ€¦' : 'Confirm cancellation'}</button></footer>
         </section>
     </div>;
 }
@@ -352,28 +372,25 @@ export function TripWizardPage({ locale = 'en', navigate }) {
         { number: 2, label: 'Order selection', hint: 'Choose ready orders' },
         { number: 3, label: 'Trip review', hint: 'Verify and submit' },
     ];
+    const stepIndicator = <div className="trip-plan-stepper-wrap">
+        <ol className="trip-wizard-steps stock-receive-steps trip-plan-steps" aria-label="Trip creation progress">
+            {steps.map((item) => <li className={`${step === item.number ? 'is-current' : ''} ${step > item.number ? 'is-complete' : ''}`} key={item.number}><button type="button" disabled={item.number > step} onClick={() => item.number < step && setStep(item.number)} aria-current={step === item.number ? 'step' : undefined}><span>{step > item.number ? <Check size={13} /> : item.number}</span><strong>{item.label}</strong><small>{item.hint}</small></button></li>)}
+        </ol>
+    </div>;
 
     return <section className="page trip-wizard-page">
         <ShellBackButton onClick={step > 1 ? back : () => navigate(listPath)} label={step > 1 ? 'Previous step' : 'Back to trips'} />
-        <div className="master-heading trip-wizard-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်ရေးလုပ်ငန်း' : 'Delivery operations'}</p><h1>Create delivery trip</h1><span className="muted">Build one clear load plan from ready customer orders.</span></div></div>
-
-        <ol className="trip-wizard-steps" aria-label="Trip creation progress">
-            {steps.map((item) => <li className={`${step === item.number ? 'is-current' : ''} ${step > item.number ? 'is-complete' : ''}`} aria-current={step === item.number ? 'step' : undefined} key={item.number}><button type="button" disabled={item.number > step} onClick={() => item.number < step && setStep(item.number)}><span>{step > item.number ? <CheckCircle2 size={15} /> : item.number}</span><strong>{item.label}</strong><small>{item.hint}</small></button></li>)}
-        </ol>
+        <div className="master-heading trip-wizard-heading"><div><p className="eyebrow">{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€›á€±á€¸á€œá€¯á€•á€ºá€„á€”á€ºá€¸' : 'Delivery operations'}</p><h1>Create delivery trip</h1><span className="muted">Build one clear load plan from ready customer orders.</span></div></div>
 
         {error && <p className="form-alert trip-wizard-error" role="alert">{error}</p>}
 
         <section className="master-panel trip-wizard-panel">
-            {step === 1 && <><div className="master-panel-heading"><div><p className="eyebrow">Step 1 of 3</p><h2>Basic trip information</h2><span className="muted">Set when, where, and who will operate this trip.</span></div></div><div className="trip-wizard-form master-form-grid"><Field label="Planned date"><input required type="date" value={form.planned_date} onChange={(event) => setForm((current) => ({ ...current, planned_date: event.target.value }))} /></Field><Select label="Warehouse" name="warehouse_id" items={meta.warehouses} form={form} setForm={setForm} /><Select label="Route" name="route_id" items={meta.routes} form={form} setForm={setForm} /><Select label="Driver" name="driver_id" items={meta.drivers} form={form} setForm={setForm} /><Select label="Vehicle" name="vehicle_id" items={meta.vehicles} form={form} setForm={setForm} /><Field label="Trip notes" wide><textarea rows="4" placeholder="Loading or route instructions" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></Field></div></>}
+            {step === 1 && <><div className="master-panel-heading trip-wizard-panel-heading"><div><p className="eyebrow">Step 1 of 3</p><h2>Basic trip information</h2><span className="muted">Set when, where, and who will operate this trip.</span></div>{stepIndicator}</div><div className="trip-wizard-form master-form-grid"><Field label="Planned date"><input required type="date" value={form.planned_date} onChange={(event) => setForm((current) => ({ ...current, planned_date: event.target.value }))} /></Field><Select label="Warehouse" name="warehouse_id" items={meta.warehouses} form={form} setForm={setForm} /><Select label="Route" name="route_id" items={meta.routes} form={form} setForm={setForm} /><Select label="Driver" name="driver_id" items={meta.drivers} form={form} setForm={setForm} /><Select label="Vehicle" name="vehicle_id" items={meta.vehicles} form={form} setForm={setForm} /><Field label="Trip notes" wide><textarea rows="4" placeholder="Loading or route instructions" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></Field></div></>}
 
-            {step === 2 && <div className="trip-order-scope"><span className="muted">Showing {showAllOrders ? 'all ready orders. Selecting another route starts a new route selection.' : 'orders for the selected route.'}</span><button className="button" type="button" onClick={() => setShowAllOrders((value) => !value)}>{showAllOrders ? 'Show route orders' : 'Show all orders'}</button></div>}
-            {step === 2 && <><div className="master-panel-heading"><div><p className="eyebrow">Step 2 of 3</p><h2>Select ready orders</h2><span className="muted">Only issued orders that are not assigned to another trip are available.</span></div><strong>{selectedOrders.length} selected</strong></div><div className="trip-order-toolbar"><label className="master-search"><Search size={14} /><input placeholder="Search order, invoice, or customer" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} /></label>{!showAllOrders && <button className="button" type="button" disabled={!visibleOrders.length} onClick={toggleVisible}>{visibleOrders.length > 0 && visibleOrders.every((item) => form.invoice_ids.includes(item.id)) ? 'Clear visible' : 'Select visible'}</button>}</div>{!visibleOrders.length ? <State title="No ready orders match this search." /> : <div className="master-table-wrap"><table className="master-table trip-order-table"><colgroup><col className="trip-select-col" /><col className="trip-order-col" /><col className="trip-customer-col" /><col className="trip-invoice-col" /><col className="trip-items-col" /><col className="trip-quantity-col" /><col className="trip-value-col" /></colgroup><thead><tr><th aria-label="Select order"></th><th>Order</th><th>Customer</th><th>Invoice</th><th className="numeric">Items</th><th className="numeric">Quantity</th><th className="numeric">Value</th></tr></thead><tbody>{visibleOrders.map((invoice) => { const quantity = (invoice.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0); return <tr className={form.invoice_ids.includes(invoice.id) ? 'is-selected' : ''} key={invoice.id} onClick={() => toggleOrder(invoice.id)}><td><input aria-label={`Select ${invoice.order_code || invoice.code}`} type="checkbox" checked={form.invoice_ids.includes(invoice.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleOrder(invoice.id)} /></td><td><strong>{invoice.order_code || '-'}</strong></td><td title={invoice.shop_name}>{invoice.shop_name}</td><td>{invoice.code}</td><td className="numeric">{invoice.items?.length || 0}</td><td className="numeric">{number(quantity)}</td><td className="numeric"><strong>{money(invoice.total)}</strong></td></tr>; })}</tbody></table></div>}</>}
+            {step === 2 && <><div className="master-panel-heading trip-wizard-panel-heading"><div><p className="eyebrow">Step 2 of 3</p><h2>Select ready orders</h2><span className="muted">Only issued orders that are not assigned to another trip are available.</span><strong className="trip-step-meta">{selectedOrders.length} selected</strong></div>{stepIndicator}</div><div className="trip-order-scope"><span className="muted">{showAllOrders ? 'All ready orders are shown. Selecting another route starts a new route selection.' : 'Only orders on the selected route are shown.'}</span><div className="trip-order-scope-toggle" role="group" aria-label="Order route scope"><button className={!showAllOrders ? 'is-active' : ''} type="button" aria-pressed={!showAllOrders} onClick={() => setShowAllOrders(false)}>On route</button><button className={showAllOrders ? 'is-active' : ''} type="button" aria-pressed={showAllOrders} onClick={() => setShowAllOrders(true)}>Show all</button></div></div><div className="trip-order-toolbar"><label className="master-search"><Search size={14} /><input placeholder="Search order, invoice, or customer" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} /></label>{!showAllOrders && <button className="button" type="button" disabled={!visibleOrders.length} onClick={toggleVisible}>{visibleOrders.length > 0 && visibleOrders.every((item) => form.invoice_ids.includes(item.id)) ? 'Clear visible' : 'Select visible'}</button>}</div>{!visibleOrders.length ? <State title="No ready orders match this search." /> : <div className="master-table-wrap"><table className="master-table trip-order-table"><colgroup><col className="trip-select-col" /><col className="trip-order-col" /><col className="trip-customer-col" /><col className="trip-invoice-col" /><col className="trip-items-col" /><col className="trip-quantity-col" /><col className="trip-value-col" /></colgroup><thead><tr><th aria-label="Select order"></th><th>Order</th><th>Customer</th><th>Invoice</th><th className="numeric">Items</th><th className="numeric">Quantity</th><th className="numeric">Value</th></tr></thead><tbody>{visibleOrders.map((invoice) => { const quantity = (invoice.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0); return <tr className={form.invoice_ids.includes(invoice.id) ? 'is-selected' : ''} key={invoice.id} onClick={() => toggleOrder(invoice.id)}><td><input aria-label={`Select ${invoice.order_code || invoice.code}`} type="checkbox" checked={form.invoice_ids.includes(invoice.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleOrder(invoice.id)} /></td><td><strong>{invoice.order_code || '-'}</strong></td><td title={invoice.shop_name}>{invoice.shop_name}</td><td>{invoice.code}</td><td className="numeric">{invoice.items?.length || 0}</td><td className="numeric">{number(quantity)}</td><td className="numeric"><strong>{money(invoice.total)}</strong></td></tr>; })}</tbody></table></div>}</>}
 
             {step === 3 && <>
-                <div className="master-panel-heading">
-                    <div><p className="eyebrow">Step 3 of 3</p><h2>Review trip</h2><span className="muted">Confirm the assignment, delivery stops, and planned warehouse issue.</span></div>
-                    <span className="status neutral">Ready to submit</span>
-                </div>
+                <div className="master-panel-heading trip-wizard-panel-heading"><div><p className="eyebrow">Step 3 of 3</p><h2>Review trip</h2><span className="muted">Confirm the assignment, delivery stops, and planned warehouse issue.</span><span className="status neutral trip-step-meta">Ready to submit</span></div>{stepIndicator}</div>
                 <div className="trip-review-grid">
                     <section><h3>Trip information</h3><dl className="trip-review-facts"><Info label="Planned date" value={date(form.planned_date)} /><Info label="Warehouse" value={lookup(meta.warehouses, form.warehouse_id)?.label} /><Info label="Route" value={lookup(meta.routes, form.route_id)?.label} /><Info label="Driver" value={lookup(meta.drivers, form.driver_id)?.label} /><Info label="Vehicle" value={lookup(meta.vehicles, form.vehicle_id)?.label} /><Info label="Notes" value={form.notes || 'No trip notes'} /></dl></section>
                     <aside><h3>Trip totals</h3><div className="trip-review-totals"><span><small>Orders</small><strong>{selectedOrders.length}</strong></span><span><small>Products</small><strong>{plannedStock.length}</strong></span><span><small>Units</small><strong>{number(selectedQuantity)}</strong></span><span><small>Order value</small><strong>{money(selectedValue)}</strong></span></div></aside>
@@ -396,8 +413,107 @@ export function TripWizardPage({ locale = 'en', navigate }) {
             </>}
         </section>
 
-        <footer className="trip-wizard-actions"><span>Step {step} of 3</span><div>{step < 3 ? <button className="button primary" type="button" onClick={next}>Continue<ChevronRight size={15} /></button> : <button className="button primary" type="button" disabled={saving} onClick={submit}><Save size={15} />{saving ? 'Creating trip…' : 'Create trip'}</button>}</div></footer>
+        <footer className="trip-wizard-actions"><span>Step {step} of 3</span><div>{step < 3 ? <button className="button primary" type="button" onClick={next}>Continue<ChevronRight size={15} /></button> : <button className="button primary" type="button" disabled={saving} onClick={submit}><Save size={15} />{saving ? 'Creating tripâ€¦' : 'Create trip'}</button>}</div></footer>
     </section>;
+}
+
+function DriverLiveMap({ items, selectedId, onSelect }) {
+    const containerRef = useRef(null);
+    const mapRef = useRef(null);
+    const markerLayerRef = useRef(null);
+    const hasFitRef = useRef(false);
+
+    useEffect(() => {
+        if (!containerRef.current || mapRef.current) return undefined;
+
+        const map = L.map(containerRef.current, {
+            center: [20.15, 96.5],
+            zoom: 6,
+            minZoom: 4,
+            maxZoom: 19,
+            zoomControl: true,
+        });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+        }).addTo(map);
+        markerLayerRef.current = L.layerGroup().addTo(map);
+        mapRef.current = map;
+        const resizeFrame = window.requestAnimationFrame(() => map.invalidateSize());
+
+        return () => {
+            window.cancelAnimationFrame(resizeFrame);
+            map.remove();
+            mapRef.current = null;
+            markerLayerRef.current = null;
+            hasFitRef.current = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        const markerLayer = markerLayerRef.current;
+        if (!map || !markerLayer) return;
+
+        markerLayer.clearLayers();
+        const positions = items.filter((item) => Number.isFinite(Number(item.location?.latitude)) && Number.isFinite(Number(item.location?.longitude)));
+        const bounds = L.latLngBounds([]);
+
+        positions.forEach((item) => {
+            const latitude = Number(item.location.latitude);
+            const longitude = Number(item.location.longitude);
+            const isSelected = item.id === selectedId;
+            const color = item.tracking_state === 'live' ? '#168255' : item.tracking_state === 'stale' ? '#b77700' : '#64748b';
+            const marker = L.circleMarker([latitude, longitude], {
+                radius: isSelected ? 10 : 8,
+                color: isSelected ? '#0787a8' : '#ffffff',
+                weight: isSelected ? 4 : 2,
+                fillColor: color,
+                fillOpacity: 1,
+                className: `delivery-driver-map-marker ${item.tracking_state}${isSelected ? ' is-selected' : ''}`,
+            });
+            const label = document.createElement('span');
+            label.textContent = item.driver_code || item.driver_name;
+            marker.bindTooltip(label, {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -8],
+                className: `delivery-driver-map-label ${item.tracking_state}${isSelected ? ' is-selected' : ''}`,
+            });
+            marker.on('click', () => onSelect(item.id));
+            marker.addTo(markerLayer);
+
+            if (isSelected && Number(item.location.accuracy_m) > 0) {
+                L.circle([latitude, longitude], {
+                    radius: Number(item.location.accuracy_m),
+                    color: '#0787a8',
+                    weight: 1,
+                    fillColor: '#0787a8',
+                    fillOpacity: 0.08,
+                    interactive: false,
+                }).addTo(markerLayer);
+            }
+            bounds.extend([latitude, longitude]);
+        });
+
+        if (!positions.length || !bounds.isValid()) return;
+        const visibleBounds = map.getBounds();
+        const everyDriverVisible = positions.every((item) => visibleBounds.contains([Number(item.location.latitude), Number(item.location.longitude)]));
+        if (!hasFitRef.current || !everyDriverVisible) {
+            map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15 });
+            hasFitRef.current = true;
+        } else {
+            const selected = positions.find((item) => item.id === selectedId);
+            if (selected) map.panInside([Number(selected.location.latitude), Number(selected.location.longitude)], { padding: [60, 60] });
+        }
+    }, [items, selectedId, onSelect]);
+
+    return (
+        <div className="delivery-leaflet-map-wrap">
+            <div ref={containerRef} className="delivery-leaflet-map" aria-label="OpenStreetMap showing current driver locations" />
+            {!items.length && <div className="delivery-map-empty"><MapPin size={24} /><strong>Waiting for a GPS update</strong><span>Active drivers appear here after location permission is granted.</span></div>}
+        </div>
+    );
 }
 
 export function DeliveryLiveMapScreen({ locale = 'en' }) {
@@ -432,23 +548,15 @@ export function DeliveryLiveMapScreen({ locale = 'en' }) {
     }, [selectedId, state.refreshed_at]);
 
     const tracked = state.items.filter((item) => item.location);
-    const latitudes = tracked.map((item) => item.location.latitude);
-    const longitudes = tracked.map((item) => item.location.longitude);
-    const minLat = Math.min(...latitudes); const maxLat = Math.max(...latitudes);
-    const minLng = Math.min(...longitudes); const maxLng = Math.max(...longitudes);
-    const position = (location) => ({
-        left: `${tracked.length < 2 || maxLng === minLng ? 50 : 10 + ((location.longitude - minLng) / (maxLng - minLng)) * 80}%`,
-        top: `${tracked.length < 2 || maxLat === minLat ? 50 : 90 - ((location.latitude - minLat) / (maxLat - minLat)) * 80}%`,
-    });
     const selected = state.items.find((item) => item.id === selectedId) || null;
     const stateClass = (value) => value === 'live' ? 'success' : value === 'stale' ? 'warning' : 'neutral';
     const time = (value) => value ? new Date(value.replace(' ', 'T')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
 
-    return <section className="page delivery-map-workspace"><div className="master-heading"><div><p className="eyebrow">{localized ? 'တိုက်ရိုက်လုပ်ငန်း' : 'Live operations'}</p><h1>{localized ? 'ယာဉ်မောင်း တိုက်ရိုက်မြေပုံ' : 'Driver live map'}</h1><span className="muted">{localized ? 'လမ်းပေါ်ရှိ ပို့ဆောင်မှုတိုင်း၏ နောက်ဆုံး GPS တည်နေရာ။' : 'Latest GPS position for every delivery currently on route.'}</span></div><button className="button" type="button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={15} />{localized ? 'ပြန်လည်စစ်ဆေး' : 'Refresh'}</button></div>
+    return <section className="page delivery-map-workspace"><div className="master-heading"><div><p className="eyebrow">{localized ? 'á€á€­á€¯á€€á€ºá€›á€­á€¯á€€á€ºá€œá€¯á€•á€ºá€„á€”á€ºá€¸' : 'Live operations'}</p><h1>{localized ? 'á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸ á€á€­á€¯á€€á€ºá€›á€­á€¯á€€á€ºá€™á€¼á€±á€•á€¯á€¶' : 'Driver live map'}</h1><span className="muted">{localized ? 'á€œá€™á€ºá€¸á€•á€±á€«á€ºá€›á€¾á€­ á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€á€­á€¯á€„á€ºá€¸á á€”á€±á€¬á€€á€ºá€†á€¯á€¶á€¸ GPS á€á€Šá€ºá€”á€±á€›á€¬á‹' : 'Latest GPS position for every delivery currently on route.'}</span></div><ShellPageActions><button className="button" type="button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={15} />{localized ? 'á€•á€¼á€”á€ºá€œá€Šá€ºá€…á€…á€ºá€†á€±á€¸' : 'Refresh'}</button></ShellPageActions></div>
         <div className="metrics delivery-metrics"><Metric label="On route" value={number(state.summary.active_count)} hint="Active trips" icon={Truck} /><Metric label="Live signal" value={number(state.summary.live_count)} hint="Updated within 5 min" icon={Navigation} /><Metric label="Stale signal" value={number(state.summary.stale_count)} hint="Update overdue" icon={MapPin} /><Metric label="Not reported" value={number(state.summary.unreported_count)} hint="Waiting for GPS" icon={MapPin} /></div>
-        {state.loading && !state.items.length ? <State title="Loading live trip map" loading /> : state.error ? <State title={state.error} /> : !state.items.length ? <State title="No trips are currently on route." /> : <div className="delivery-live-layout"><section className="delivery-map-panel" aria-label="Live driver positions"><div className="delivery-map-grid"><span className="map-axis north">N</span>{tracked.length ? tracked.map((item) => <button className={`delivery-map-marker ${selectedId === item.id ? 'is-selected' : ''} ${item.tracking_state}`} style={position(item.location)} type="button" key={item.id} onClick={() => setSelectedId(item.id)} aria-label={`Select ${item.driver_name}`}><Truck size={15} /><span>{item.driver_code}</span></button>) : <div className="delivery-map-empty"><MapPin size={24} /><strong>Waiting for a GPS update</strong><span>Active drivers appear here after location permission is granted.</span></div>}</div><footer><span>Operational coordinate view</span><span>Auto-refresh: 15 seconds · {time(state.refreshed_at)}</span></footer></section>
-            <aside className="delivery-live-sidebar"><div className="master-panel-heading"><div><p className="eyebrow">Active fleet</p><h2>{state.items.length} on route</h2></div></div><div className="delivery-driver-list">{state.items.map((item) => <button className={selectedId === item.id ? 'is-selected' : ''} type="button" key={item.id} onClick={() => setSelectedId(item.id)}><span className="mobile-order-icon"><Navigation size={15} /></span><span><strong>{item.driver_name}</strong><small>{item.code} · {item.plate_no}</small><small>{item.shop_name}</small></span><span className={`status ${stateClass(item.tracking_state)}`}>{item.tracking_state}</span></button>)}</div></aside>
-            {selected && <section className="delivery-location-detail"><div className="master-panel-heading"><div><p className="eyebrow">Selected trip</p><h2>{selected.driver_name} · {selected.code}</h2></div><span className={`status ${stateClass(selected.tracking_state)}`}>{selected.tracking_state}</span></div><dl><Info label="Stops" value={`${selected.stops_count} · ${selected.shop_name}`} /><Info label="Vehicle" value={`${selected.vehicle_code} · ${selected.plate_no}`} /><Info label="Route" value={selected.route_name} /><Info label="Destinations" value={selected.delivery_address} /><Info label="Latitude" value={selected.location?.latitude?.toFixed(7)} /><Info label="Longitude" value={selected.location?.longitude?.toFixed(7)} /><Info label="Accuracy" value={selected.location?.accuracy_m !== null && selected.location ? `${number(selected.location.accuracy_m)} m` : '-'} /><Info label="Last update" value={time(selected.location?.recorded_at)} /></dl><h3>Recent GPS fixes</h3>{history.loading ? <State title="Loading location history" loading /> : history.error ? <p className="form-alert">{history.error}</p> : !history.locations.length ? <p className="muted delivery-history-empty">No location history reported.</p> : <div className="delivery-location-history">{history.locations.slice(0, 8).map((location) => <article key={location.id}><MapPin size={14} /><span><strong>{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</strong><small>{time(location.recorded_at)} · {location.accuracy_m ? `${number(location.accuracy_m)} m accuracy` : 'Accuracy unavailable'}</small></span></article>)}</div>}</section>}
+        {state.loading && !state.items.length ? <State title="Loading live trip map" loading /> : state.error ? <State title={state.error} /> : !state.items.length ? <State title="No trips are currently on route." /> : <div className="delivery-live-layout"><section className="delivery-map-panel" aria-label="Live driver positions"><DriverLiveMap items={tracked} selectedId={selectedId} onSelect={setSelectedId} /><footer><span>OpenStreetMap live view Â· {tracked.length} driver{tracked.length === 1 ? '' : 's'} reporting</span><span>Auto-refresh: 15 seconds Â· {time(state.refreshed_at)}</span></footer></section>
+            <aside className="delivery-live-sidebar"><div className="master-panel-heading"><div><p className="eyebrow">Active fleet</p><h2>{state.items.length} on route</h2></div></div><div className="delivery-driver-list">{state.items.map((item) => <button className={selectedId === item.id ? 'is-selected' : ''} type="button" key={item.id} onClick={() => setSelectedId(item.id)}><span className="mobile-order-icon"><Navigation size={15} /></span><span><strong>{item.driver_name}</strong><small>{item.code} Â· {item.plate_no}</small><small>{item.shop_name}</small></span><span className={`status ${stateClass(item.tracking_state)}`}>{item.tracking_state}</span></button>)}</div></aside>
+            {selected && <section className="delivery-location-detail"><div className="master-panel-heading"><div><p className="eyebrow">Selected trip</p><h2>{selected.driver_name} Â· {selected.code}</h2></div><span className={`status ${stateClass(selected.tracking_state)}`}>{selected.tracking_state}</span></div><dl><Info label="Stops" value={`${selected.stops_count} Â· ${selected.shop_name}`} /><Info label="Vehicle" value={`${selected.vehicle_code} Â· ${selected.plate_no}`} /><Info label="Route" value={selected.route_name} /><Info label="Destinations" value={selected.delivery_address} /><Info label="Latitude" value={selected.location?.latitude?.toFixed(7)} /><Info label="Longitude" value={selected.location?.longitude?.toFixed(7)} /><Info label="Accuracy" value={selected.location?.accuracy_m !== null && selected.location ? `${number(selected.location.accuracy_m)} m` : '-'} /><Info label="Last update" value={time(selected.location?.recorded_at)} /></dl><h3>Recent GPS fixes</h3>{history.loading ? <State title="Loading location history" loading /> : history.error ? <p className="form-alert">{history.error}</p> : !history.locations.length ? <p className="muted delivery-history-empty">No location history reported.</p> : <div className="delivery-location-history">{history.locations.slice(0, 8).map((location) => <article key={location.id}><MapPin size={14} /><span><strong>{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</strong><small>{time(location.recorded_at)} Â· {location.accuracy_m ? `${number(location.accuracy_m)} m accuracy` : 'Accuracy unavailable'}</small></span></article>)}</div>}</section>}
         </div>}
     </section>;
 }
@@ -472,6 +580,27 @@ export function MobileDriverDeliveriesScreen({ locale = 'en' }) {
         return () => { mounted = false; };
     }, [refresh]);
 
+    const updateTripCard = (delivery, trip) => {
+        const nextStatus = trip?.status || delivery?.status;
+        setState((current) => {
+            const matchesTrip = (item) => item.id === delivery?.id || (delivery?.trip_id && item.trip_id === delivery.trip_id);
+            const previous = current.items.find(matchesTrip);
+            if (!previous) return current;
+            const previousStatus = previous.status;
+            const items = current.items.map((item) => matchesTrip(item)
+                ? { ...item, ...delivery, id: item.id, code: trip?.code || item.code, status: nextStatus, total_quantity: trip?.total_quantity ?? item.total_quantity }
+                : item);
+            const summary = { ...current.summary };
+            if (previousStatus !== nextStatus) {
+                if (previousStatus === 'assigned') summary.assigned_count = Math.max(0, Number(summary.assigned_count || 0) - 1);
+                if (previousStatus === 'loading') summary.loading_count = Math.max(0, Number(summary.loading_count || 0) - 1);
+                if (nextStatus === 'assigned') summary.assigned_count = Number(summary.assigned_count || 0) + 1;
+                if (nextStatus === 'loading') summary.loading_count = Number(summary.loading_count || 0) + 1;
+            }
+            return { ...current, items, summary };
+        });
+    };
+
     const openDelivery = (id) => {
         setDetail({ loading: true, delivery: null, trip: null, stops: [], stock: [], error: '' }); setMessage('');
         window.axios.get(`${mobileApi()}/${id}`).then(({ data }) => {
@@ -486,7 +615,7 @@ export function MobileDriverDeliveriesScreen({ locale = 'en' }) {
         setSaving(true); setMessage('');
         const items = detail.stops.flatMap((stop) => (stop.items || []).map((item) => ({ id: item.id, loaded_quantity: quantities[item.id] ?? 0 })));
         window.axios.post(`${mobileApi()}/${detail.delivery.id}/confirm-loading`, { items, notes })
-            .then(({ data }) => { setSaving(false); setMessage('Trip loading confirmed.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops: data.data.stops, stock: data.data.stock })); setRefresh((value) => value + 1); })
+            .then(({ data }) => { setSaving(false); setMessage('Trip loading confirmed.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops: data.data.stops, stock: data.data.stock })); updateTripCard(data.data.delivery, data.data.trip); })
             .catch((error) => { setSaving(false); setMessage(errorMessage(error)); });
     };
 
@@ -497,13 +626,13 @@ export function MobileDriverDeliveriesScreen({ locale = 'en' }) {
         const canLoad = ['assigned', 'loading'].includes(tripStatus);
         const loadedTotal = detail.stops.flatMap((stop) => stop.items || []).reduce((sum, item) => sum + Number(quantities[item.id] || 0), 0);
         return <div className="driver-delivery-detail"><ShellBackButton label="Back to trips" onClick={() => setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], error: '' })} /><header className="mobile-section-heading"><div><p className="eyebrow">Assigned trip</p><h2>{detail.trip?.code || detail.delivery.trip_code || detail.delivery.code}</h2></div><span className={`status ${statusFamily(tripStatus)}`}>{statusLabel(tripStatus)}</span></header>
-            <section className="driver-delivery-hero"><div><Truck size={22} /><span><strong>{detail.delivery.route_name}</strong><small>{detail.stops.length} stops · {number(detail.trip?.total_quantity)} units</small></span></div><dl><Info label="Planned" value={date(detail.trip?.planned_date)} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} · ${detail.delivery.plate_no}`} /><Info label="Driver" value={detail.delivery.driver_name} /><Info label="Warehouse" value={detail.delivery.warehouse_name} /></dl></section>
-            <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Combined stock</p><h2>{detail.stock.length} products</h2></div><strong>{number(loadedTotal)} / {number(detail.trip?.total_quantity)}</strong></div><div className="driver-load-summary">{detail.stock.map((item) => <span key={item.product_id}><strong>{item.product_name}</strong><small>{item.product_sku} · {number(item.planned_quantity)} {item.unit}</small></span>)}</div></section>
-            <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Stop allocation</p><h2>Confirm quantities by order</h2></div></div><div className="driver-trip-stops">{detail.stops.map((stop, index) => <article key={stop.id}><header><span className="delivery-stop-index">{index + 1}</span><span><strong>{stop.shop_name}</strong><small>{stop.order_code} · {stop.invoice_code}</small></span></header><div className="driver-load-items">{(stop.items || []).map((item) => <label key={item.id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · Planned {number(item.planned_quantity)} {item.unit}</small></span><input aria-label={`Loaded quantity for ${stop.order_code} ${item.product_name}`} type="number" min="0" max={item.planned_quantity} step="0.01" disabled={!canLoad} value={quantities[item.id] ?? 0} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} /></label>)}</div></article>)}</div><label className="driver-load-notes">Loading note<textarea disabled={!canLoad} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>{message && <p className={message === 'Trip loading confirmed.' ? 'mobile-success-message' : 'form-alert'}>{message}</p>}{canLoad && <button className="button primary driver-load-action" type="button" disabled={saving} onClick={confirmLoad}><Package size={17} />{saving ? 'Saving…' : 'Confirm trip loading'}</button>}</section>
+            <section className="driver-delivery-hero"><div><Truck size={22} /><span><strong>{detail.delivery.route_name}</strong><small>{detail.stops.length} stops Â· {number(detail.trip?.total_quantity)} units</small></span></div><dl><Info label="Planned" value={date(detail.trip?.planned_date)} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} Â· ${detail.delivery.plate_no}`} /><Info label="Driver" value={detail.delivery.driver_name} /><Info label="Warehouse" value={detail.delivery.warehouse_name} /></dl></section>
+            <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Combined stock</p><h2>{detail.stock.length} products</h2></div><strong>{number(loadedTotal)} / {number(detail.trip?.total_quantity)}</strong></div><div className="driver-load-summary">{detail.stock.map((item) => <span key={item.product_id}><strong>{item.product_name}</strong><small>{item.product_sku} Â· {number(item.planned_quantity)} {item.unit}</small></span>)}</div></section>
+            <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Stop allocation</p><h2>Confirm quantities by order</h2></div></div><div className="driver-trip-stops">{detail.stops.map((stop, index) => <article key={stop.id}><header><span className="delivery-stop-index">{index + 1}</span><span><strong>{stop.shop_name}</strong><small>{stop.order_code} Â· {stop.invoice_code}</small></span></header><div className="driver-load-items">{(stop.items || []).map((item) => <label key={item.id}><span><strong>{item.product_name}</strong><small>{item.product_sku} Â· Planned {number(item.planned_quantity)} {item.unit}</small></span><input aria-label={`Loaded quantity for ${stop.order_code} ${item.product_name}`} type="number" inputMode="numeric" min="0" max={item.planned_quantity} step="1" disabled={!canLoad} value={quantities[item.id] ?? 0} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} /></label>)}</div></article>)}</div><label className="driver-load-notes">Loading note<textarea disabled={!canLoad} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>{message && <p className={message === 'Trip loading confirmed.' ? 'mobile-success-message' : 'form-alert'}>{message}</p>}{canLoad && <button className="button primary driver-load-action" type="button" disabled={saving} onClick={confirmLoad}><Package size={17} />{saving ? 'Savingâ€¦' : 'Confirm trip loading'}</button>}</section>
         </div>;
     }
 
-    return <div className="driver-delivery-list"><header className="mobile-master-heading"><div><p className="eyebrow">{localized ? 'ယာဉ်မောင်း' : 'Driver'}</p><h1>{localized ? 'တာဝန်ပေးထားသော ခရီးစဉ်များ' : 'Assigned trips'}</h1><span className="muted">Review each route and confirm its complete warehouse load.</span></div><button className="icon-button" type="button" aria-label="Refresh trips" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></header><div className="mobile-credit-card"><span>Planned load</span><strong>{number(state.summary.total_quantity)}</strong><small>{number(state.summary.assigned_count)} awaiting load · {number(state.summary.loading_count)} loaded</small></div>{state.loading ? <MobileState title="Loading assigned trips" loading /> : state.error ? <MobileState title={state.error} action={() => setRefresh((value) => value + 1)} /> : !state.items.length ? <MobileState title="No trips are assigned." /> : <section className="mobile-master-section"><div className="mobile-section-heading"><div><p className="eyebrow">Schedule</p><h2>{number(state.summary.deliveries_count)} trips</h2></div></div><div className="mobile-delivery-cards">{state.items.map((item) => <button type="button" key={item.id} onClick={() => openDelivery(item.id)}><span className="mobile-order-icon"><Truck size={17} /></span><span><strong>{item.code}</strong><small>{item.route_name} · {date(item.planned_date)}</small><small>{item.stops_count} stops · {number(item.total_quantity)} units</small></span><span><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span><ChevronRight size={16} /></span></button>)}</div></section>}</div>;
+    return <div className="driver-delivery-list"><header className="mobile-master-heading"><div><p className="eyebrow">{localized ? 'á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸' : 'Driver'}</p><h1>{localized ? 'á€á€¬á€á€”á€ºá€•á€±á€¸á€‘á€¬á€¸á€žá€±á€¬ á€á€›á€®á€¸á€…á€‰á€ºá€™á€»á€¬á€¸' : 'Assigned trips'}</h1><span className="muted">Review each route and confirm its complete warehouse load.</span></div><ShellPageActions><button className="icon-button" type="button" aria-label="Refresh trips" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></ShellPageActions></header><div className="mobile-credit-card"><span>Planned load</span><strong>{number(state.summary.total_quantity)}</strong><small>{number(state.summary.assigned_count)} awaiting load Â· {number(state.summary.loading_count)} loaded</small></div>{state.loading ? <MobileState title="Loading assigned trips" loading /> : state.error ? <MobileState title={state.error} action={() => setRefresh((value) => value + 1)} /> : !state.items.length ? <MobileState title="No trips are assigned." /> : <section className="mobile-master-section"><div className="mobile-section-heading"><div><p className="eyebrow">Schedule</p><h2>{number(state.summary.deliveries_count)} trips</h2></div></div><div className="mobile-delivery-cards">{state.items.map((item) => <button type="button" key={item.id} onClick={() => openDelivery(item.id)}><span className="mobile-order-icon"><Truck size={17} /></span><span><strong>{item.code}</strong><small>{item.route_name} Â· {date(item.planned_date)}</small><small>{item.stops_count} stops Â· {number(item.total_quantity)} units</small></span><span><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span><ChevronRight size={16} /></span></button>)}</div></section>}</div>;
 }
 
 export function MobileDeliveryStatusScreen({ appId, locale = 'en' }) {
@@ -545,30 +674,142 @@ export function MobileDeliveryStatusScreen({ appId, locale = 'en' }) {
 
     const isSales = appId === 'sales';
     const pageTitle = appId === 'client'
-        ? (localized ? 'ကျွန်ုပ်၏ ပို့ဆောင်မှုများ' : 'My deliveries')
-        : (localized ? 'ဖောက်သည် ပို့ဆောင်မှုများ' : 'Customer deliveries');
+        ? (localized ? 'á€€á€»á€½á€”á€ºá€¯á€•á€ºá á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€»á€¬á€¸' : 'My deliveries')
+        : (localized ? 'á€–á€±á€¬á€€á€ºá€žá€Šá€º á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€»á€¬á€¸' : 'Customer deliveries');
     const pageHint = isSales
-        ? (localized ? 'သတ်မှတ်ထားသော ယာဉ်မောင်းများက သီးခြားကိုင်တွယ်သည့် ဖောက်သည်ပို့ဆောင်မှုများကို စောင့်ကြည့်ပါ။' : 'Monitor customer deliveries handled independently by assigned drivers.')
-        : (localized ? 'တင်ဆောင်မှု၊ လမ်းကြောင်းအခြေအနေနှင့် ပြီးဆုံးပမာဏကို ကြည့်ရှုပါ။' : 'Track loading, route progress, and completed quantities.');
+        ? (localized ? 'á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€±á€¬ á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸á€™á€»á€¬á€¸á€€ á€žá€®á€¸á€á€¼á€¬á€¸á€€á€­á€¯á€„á€ºá€á€½á€šá€ºá€žá€Šá€·á€º á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€»á€¬á€¸á€€á€­á€¯ á€…á€±á€¬á€„á€·á€ºá€€á€¼á€Šá€·á€ºá€•á€«á‹' : 'Monitor customer deliveries handled independently by assigned drivers.')
+        : (localized ? 'á€á€„á€ºá€†á€±á€¬á€„á€ºá€™á€¾á€¯áŠ á€œá€™á€ºá€¸á€€á€¼á€±á€¬á€„á€ºá€¸á€¡á€á€¼á€±á€¡á€”á€±á€”á€¾á€„á€·á€º á€•á€¼á€®á€¸á€†á€¯á€¶á€¸á€•á€™á€¬á€á€€á€­á€¯ á€€á€¼á€Šá€·á€ºá€›á€¾á€¯á€•á€«á‹' : 'Track loading, route progress, and completed quantities.');
 
-    return <div className="driver-delivery-list"><header className="mobile-master-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်မှု အခြေအနေ' : 'Delivery status'}</p><h1>{pageTitle}</h1><span className="muted">{pageHint}</span></div><button className="icon-button" type="button" aria-label="Refresh delivery status" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></header><div className="mobile-credit-card"><span>{localized ? 'လက်ရှိ ပို့ဆောင်မှုများ' : 'Active deliveries'}</span><strong>{number(state.summary.active_count)}</strong><small>{number(state.summary.completed_count)} {localized ? 'ပြီးဆုံး ·' : 'completed ·'} {number(state.summary.total_quantity)} {localized ? 'စုစုပေါင်းယူနစ်' : 'total units'}</small></div>{state.loading ? <MobileState title={localized ? 'ပို့ဆောင်မှုအခြေအနေ တင်နေသည်' : 'Loading delivery status'} loading /> : state.error ? <MobileState title={state.error} action={() => setRefresh((value) => value + 1)} /> : !state.items.length ? <MobileState title={localized ? 'ပို့ဆောင်မှု မရှိသေးပါ။' : 'No deliveries are available yet.'} /> : <section className="mobile-master-section"><div className="mobile-section-heading"><div><p className="eyebrow">{localized ? 'ပို့ဆောင်မှုမှတ်တမ်း' : 'Delivery history'}</p><h2>{number(state.summary.deliveries_count)} {localized ? 'ပို့ဆောင်မှု' : 'deliveries'}</h2></div></div><div className="mobile-delivery-cards">{state.items.map((item) => <button type="button" key={item.id} onClick={() => openDelivery(item.id)}><span className="mobile-order-icon"><Truck size={17} /></span><span><strong>{appId === 'client' ? item.code : item.shop_name}</strong><small>{appId === 'client' ? item.invoice_code : item.code} / {date(item.planned_date)}</small><small>{item.route_name} / {number(item.total_quantity)} {localized ? 'ယူနစ်' : 'units'}</small></span><span><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span><ChevronRight size={16} /></span></button>)}</div></section>}</div>;
+    return <div className="driver-delivery-list"><header className="mobile-master-heading"><div><p className="eyebrow">{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯ á€¡á€á€¼á€±á€¡á€”á€±' : 'Delivery status'}</p><h1>{pageTitle}</h1><span className="muted">{pageHint}</span></div><ShellPageActions><button className="icon-button" type="button" aria-label="Refresh delivery status" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></ShellPageActions></header><div className="mobile-delivery-stats" aria-label={localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯ á€¡á€”á€¾á€…á€ºá€á€»á€¯á€•á€º' : 'Delivery summary'}>
+            <article className="is-active">
+                <span className="mobile-delivery-stat-icon"><Truck size={16} /></span>
+                <small>{localized ? 'á€œá€€á€ºá€›á€¾á€­' : 'Active'}</small>
+                <strong>{number(state.summary.active_count)}</strong>
+            </article>
+            <article className="is-complete">
+                <span className="mobile-delivery-stat-icon"><CheckCircle2 size={16} /></span>
+                <small>{localized ? 'á€•á€¼á€®á€¸á€†á€¯á€¶á€¸' : 'Completed'}</small>
+                <strong>{number(state.summary.completed_count)}</strong>
+            </article>
+            <article className="is-units">
+                <span className="mobile-delivery-stat-icon"><Package size={16} /></span>
+                <small>{localized ? 'á€…á€¯á€…á€¯á€•á€±á€«á€„á€ºá€¸á€šá€°á€”á€…á€º' : 'Total units'}</small>
+                <strong>{number(state.summary.total_quantity)}</strong>
+            </article>
+        </div>{state.loading ? <MobileState title={localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€¡á€á€¼á€±á€¡á€”á€± á€á€„á€ºá€”á€±á€žá€Šá€º' : 'Loading delivery status'} loading /> : state.error ? <MobileState title={state.error} action={() => setRefresh((value) => value + 1)} /> : !state.items.length ? <MobileState title={localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯ á€™á€›á€¾á€­á€žá€±á€¸á€•á€«á‹' : 'No deliveries are available yet.'} /> : <section className="mobile-master-section"><div className="mobile-section-heading"><div><p className="eyebrow">{localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€¾á€á€ºá€á€™á€ºá€¸' : 'Delivery history'}</p><h2>{number(state.summary.deliveries_count)} {localized ? 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯' : 'deliveries'}</h2></div></div><div className="mobile-delivery-cards">{state.items.map((item) => <button type="button" key={item.id} onClick={() => openDelivery(item.id)}><span className="mobile-order-icon"><Truck size={17} /></span><span><strong>{appId === 'client' ? item.code : item.shop_name}</strong><small>{appId === 'client' ? item.invoice_code : item.code} / {date(item.planned_date)}</small><small>{item.route_name} / {number(item.total_quantity)} {localized ? 'á€šá€°á€”á€…á€º' : 'units'}</small></span><span><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span><ChevronRight size={16} /></span></button>)}</div></section>}</div>;
+}
+
+function DriverRouteStopsMap({ stops = [], position = null }) {
+    const containerRef = useRef(null);
+    const mapRef = useRef(null);
+    const layerRef = useRef(null);
+    const fittedStopsRef = useRef('');
+
+    useEffect(() => {
+        if (!containerRef.current || mapRef.current) return undefined;
+
+        const map = L.map(containerRef.current, { center: [20.15, 96.5], zoom: 6, minZoom: 4, maxZoom: 19, zoomControl: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+        }).addTo(map);
+        layerRef.current = L.layerGroup().addTo(map);
+        mapRef.current = map;
+        const resizeFrame = window.requestAnimationFrame(() => map.invalidateSize());
+
+        return () => {
+            window.cancelAnimationFrame(resizeFrame);
+            map.remove();
+            mapRef.current = null;
+            layerRef.current = null;
+            fittedStopsRef.current = '';
+        };
+    }, []);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        const layer = layerRef.current;
+        if (!map || !layer) return;
+
+        layer.clearLayers();
+        const validStops = stops.filter((stop) => hasGpsCoordinate(stop.customer_latitude) && hasGpsCoordinate(stop.customer_longitude));
+        const groupedStops = new Map();
+        validStops.forEach((stop) => {
+            const latitude = Number(stop.customer_latitude);
+            const longitude = Number(stop.customer_longitude);
+            const key = `${latitude.toFixed(7)},${longitude.toFixed(7)}`;
+            if (!groupedStops.has(key)) groupedStops.set(key, { latitude, longitude, stops: [] });
+            groupedStops.get(key).stops.push(stop);
+        });
+        const bounds = L.latLngBounds([]);
+
+        groupedStops.forEach((group) => {
+            const sequenceLabel = group.stops.map((stop) => Number(stop.stop_sequence || 1)).join(',');
+            const marker = L.marker([group.latitude, group.longitude], {
+                icon: L.divIcon({ className: 'driver-route-stop-marker', html: `<span><b>${sequenceLabel}</b></span>`, iconSize: [30, 36], iconAnchor: [15, 34], popupAnchor: [0, -32] }),
+                title: group.stops.map((stop) => stop.shop_name).join(', '),
+            });
+            const popup = document.createElement('div');
+            popup.className = 'driver-route-stop-popup';
+            group.stops.forEach((stop) => {
+                const row = document.createElement('div');
+                const heading = document.createElement('strong');
+                const detail = document.createElement('span');
+                heading.textContent = `${stop.stop_sequence}. ${stop.shop_name}`;
+                detail.textContent = `${stop.order_code || stop.code} / ${stop.delivery_address || 'No delivery address'}`;
+                row.append(heading, detail);
+                popup.append(row);
+            });
+            marker.bindPopup(popup, { maxWidth: 260 }).addTo(layer);
+            bounds.extend([group.latitude, group.longitude]);
+        });
+
+        const hasDriverPosition = hasGpsCoordinate(position?.latitude) && hasGpsCoordinate(position?.longitude);
+        if (hasDriverPosition) {
+            const latitude = Number(position.latitude);
+            const longitude = Number(position.longitude);
+            L.circleMarker([latitude, longitude], { radius: 8, color: '#ffffff', weight: 3, fillColor: '#168255', fillOpacity: 1 })
+                .bindTooltip('You', { permanent: true, direction: 'top', offset: [0, -7], className: 'driver-route-current-label' })
+                .addTo(layer);
+            if (Number(position.accuracy_m) > 0) L.circle([latitude, longitude], { radius: Number(position.accuracy_m), color: '#168255', weight: 1, fillColor: '#168255', fillOpacity: 0.08, interactive: false }).addTo(layer);
+            bounds.extend([latitude, longitude]);
+        }
+
+        const stopsSignature = validStops.map((stop) => `${stop.id}:${stop.customer_latitude}:${stop.customer_longitude}`).join('|');
+        const fitSignature = `${stopsSignature || 'no-stops'}|driver:${hasDriverPosition ? 'yes' : 'no'}`;
+        if (bounds.isValid() && fittedStopsRef.current !== fitSignature) {
+            map.fitBounds(bounds, { padding: [34, 34], maxZoom: 16 });
+            fittedStopsRef.current = fitSignature;
+        }
+    }, [stops, position]);
+
+    const hasLocation = stops.some((stop) => hasGpsCoordinate(stop.customer_latitude) && hasGpsCoordinate(stop.customer_longitude))
+        || (hasGpsCoordinate(position?.latitude) && hasGpsCoordinate(position?.longitude));
+
+    return <div className="driver-route-map-wrap"><div ref={containerRef} className="driver-route-leaflet-map" aria-label="OpenStreetMap showing the driver and GPS supported order stops" />{!hasLocation && <div className="driver-gps-map-empty"><MapPin size={28} /><strong>No GPS positions available</strong><span>Customer stops appear here after their GPS position is saved.</span></div>}</div>;
 }
 
 export function MobileDriverGpsScreen() {
     const mobileApi = () => window.ValleyRuntime?.api?.mobileDeliveries || '/api/mobile/deliveries';
-    const [tripState, setTripState] = useState({ loading: true, trip: null, error: '' });
+    const [tripState, setTripState] = useState({ loading: true, trip: null, stops: [], error: '' });
     const [gps, setGps] = useState({ state: 'waiting', position: null, uploadedAt: null, error: '' });
     const lastUpload = useRef(0);
 
     useEffect(() => {
         let mounted = true;
         window.axios.get(mobileApi(), { params: { scope: 'tasks' } })
-            .then(({ data }) => {
+            .then(async ({ data }) => {
                 if (!mounted) return;
                 const trip = (data.data.items || []).find((item) => item.status === 'on_route') || null;
-                setTripState({ loading: false, trip, error: '' });
+                if (!trip) {
+                    setTripState({ loading: false, trip: null, stops: [], error: '' });
+                    return;
+                }
+                const detailResponse = await window.axios.get(`${mobileApi()}/${trip.id}`);
+                if (!mounted) return;
+                setTripState({ loading: false, trip: { ...trip, ...(detailResponse.data.data.trip || {}) }, stops: detailResponse.data.data.stops || [], error: '' });
             })
-            .catch((error) => mounted && setTripState({ loading: false, trip: null, error: errorMessage(error) }));
+            .catch((error) => mounted && setTripState({ loading: false, trip: null, stops: [], error: errorMessage(error) }));
         return () => { mounted = false; };
     }, []);
 
@@ -611,34 +852,36 @@ export function MobileDriverGpsScreen() {
     }, [tripState.trip?.id]);
 
     const point = gps.position;
-    const mapCenter = point ? { latitude: Number(point.latitude.toFixed(3)), longitude: Number(point.longitude.toFixed(3)) } : null;
-    const mapBounds = mapCenter ? `${mapCenter.longitude - 0.012},${mapCenter.latitude - 0.008},${mapCenter.longitude + 0.012},${mapCenter.latitude + 0.008}` : null;
-    const mapUrl = mapCenter ? `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(mapBounds)}&layer=mapnik&marker=${mapCenter.latitude},${mapCenter.longitude}` : null;
-    const statusLabel = gps.state === 'live' ? 'Live · sharing' : gps.state === 'sharing' ? 'GPS ready · sharing' : gps.state === 'ready' ? 'GPS ready' : gps.state === 'error' ? 'GPS unavailable' : 'Finding GPS…';
+    const remainingStops = tripState.stops.filter((stop) => !['delivered', 'partially_delivered', 'failed'].includes(stop.status));
+    const mappedStops = remainingStops.filter((stop) => hasGpsCoordinate(stop.customer_latitude) && hasGpsCoordinate(stop.customer_longitude));
+    const statusLabel = gps.state === 'live' ? 'Live Â· sharing' : gps.state === 'sharing' ? 'GPS ready Â· sharing' : gps.state === 'ready' ? 'GPS ready' : gps.state === 'error' ? 'GPS unavailable' : 'Finding GPSâ€¦';
     const timeLabel = (value) => value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Waiting for first fix';
 
     return <div className="driver-gps-page">
         <header className="mobile-master-heading"><div><p className="eyebrow">Driver location</p><h1>Live GPS</h1><span className="muted">Your current position and route sharing status.</span></div><span className={`status ${gps.state === 'live' || gps.state === 'ready' ? 'success' : gps.state === 'error' ? 'danger' : 'info'}`}>{statusLabel}</span></header>
-        {tripState.trip ? <section className="driver-gps-trip"><Navigation size={18} /><span><strong>{tripState.trip.code}</strong><small>{tripState.trip.route_name} · {tripState.trip.vehicle_code} {tripState.trip.plate_no}</small></span><span className="status info">On route</span></section> : <section className="driver-gps-trip is-idle"><MapPin size={18} /><span><strong>{tripState.loading ? 'Checking active trip…' : 'No active trip'}</strong><small>{tripState.error || 'Your current GPS position is still shown below.'}</small></span></section>}
+        {tripState.trip ? <section className="driver-gps-trip"><Navigation size={18} /><span><strong>{tripState.trip.code}</strong><small>{tripState.trip.route_name} Â· {tripState.trip.vehicle_code} {tripState.trip.plate_no}</small></span><span className="status info">On route</span></section> : <section className="driver-gps-trip is-idle"><MapPin size={18} /><span><strong>{tripState.loading ? 'Checking active tripâ€¦' : 'No active trip'}</strong><small>{tripState.error || 'Your current GPS position is still shown below.'}</small></span></section>}
         {gps.error && <p className="form-alert" role="status">{gps.error}</p>}
-        <section className="driver-gps-map-panel" aria-label="Current live GPS map">
-            {mapUrl ? <iframe key={`${mapCenter.latitude}-${mapCenter.longitude}`} src={mapUrl} title="Current live GPS position on map" loading="lazy" referrerPolicy="no-referrer" /> : <div className="driver-gps-map-empty"><MapPin size={28} /><strong>Waiting for GPS location</strong><span>Allow location access to show your current position on the map.</span></div>}
+        <section className="driver-gps-map-panel" aria-label="Current route map">
+            <header className="driver-gps-map-heading"><span><strong>Route map</strong><small>Tap a numbered marker to view a remaining order stop.</small></span><strong>{mappedStops.length} / {remainingStops.length} stops mapped</strong></header>
+            <DriverRouteStopsMap stops={remainingStops} position={point} />
         </section>
         <section className="driver-gps-facts">
-            <article><span>Latitude</span><strong>{point ? point.latitude.toFixed(6) : '—'}</strong></article>
-            <article><span>Longitude</span><strong>{point ? point.longitude.toFixed(6) : '—'}</strong></article>
-            <article><span>Accuracy</span><strong>{point ? `${Math.round(point.accuracy_m)} m` : '—'}</strong></article>
+            <article><span>Latitude</span><strong>{point ? point.latitude.toFixed(6) : 'â€”'}</strong></article>
+            <article><span>Longitude</span><strong>{point ? point.longitude.toFixed(6) : 'â€”'}</strong></article>
+            <article><span>Accuracy</span><strong>{point ? `${Math.round(point.accuracy_m)} m` : 'â€”'}</strong></article>
             <article><span>Last GPS fix</span><strong>{timeLabel(point?.recorded_at)}</strong></article>
         </section>
         {tripState.trip && <p className="driver-gps-share-note">Location is sent to the office every 15 seconds while this GPS view is open. Last sent: {timeLabel(gps.uploadedAt)}.</p>}
-        {point && <a className="button driver-gps-open-map" href={`https://www.google.com/maps?q=${point.latitude},${point.longitude}`} target="_blank" rel="noreferrer"><MapPin size={16} />Open in Maps</a>}
+        {point && <a className="button driver-gps-open-map" href={`https://www.openstreetmap.org/?mlat=${point.latitude}&mlon=${point.longitude}#map=16/${point.latitude}/${point.longitude}`} target="_blank" rel="noreferrer"><MapPin size={16} />Open current position in OpenStreetMap</a>}
     </div>;
 }
 
 export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
     const historyMode = mode === 'history';
     const mobileApi = () => window.ValleyRuntime?.api?.mobileDeliveries || '/api/mobile/deliveries';
+    const emptyHistoryFilters = () => ({ search: '', status: '', date_from: '', date_to: '', route_id: '', vehicle_id: '' });
     const [state, setState] = useState({ loading: true, items: [], error: '' });
+    const [historyFilters, setHistoryFilters] = useState(emptyHistoryFilters);
     const [detail, setDetail] = useState({ loading: false, delivery: null, trip: null, stops: [], stock: [], availableProducts: [], retryId: null, error: '' });
     const [selectedStopId, setSelectedStopId] = useState(null);
     const [tripCloseoutPage, setTripCloseoutPage] = useState(false);
@@ -654,6 +897,19 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
     const [sharing, setSharing] = useState({ state: 'idle', message: '' });
     const [refresh, setRefresh] = useState(0);
     const lastLocationShare = useRef(0);
+    const historyRoutes = Array.from(new Map(state.items.filter((item) => item.route_id).map((item) => [String(item.route_id), { id: item.route_id, label: `${item.route_code || ''}${item.route_code ? ' / ' : ''}${item.route_name || '-'}` }])).values()).sort((a, b) => a.label.localeCompare(b.label));
+    const historyVehicles = Array.from(new Map(state.items.filter((item) => item.vehicle_id).map((item) => [String(item.vehicle_id), { id: item.vehicle_id, label: `${item.vehicle_code || ''}${item.vehicle_code ? ' / ' : ''}${item.plate_no || '-'}` }])).values()).sort((a, b) => a.label.localeCompare(b.label));
+    const normalizedHistorySearch = historyFilters.search.trim().toLowerCase();
+    const visibleItems = historyMode ? state.items.filter((item) => {
+        const searchable = [item.code, item.trip_code, item.customer_summary, item.route_code, item.route_name, item.vehicle_code, item.plate_no].filter(Boolean).join(' ').toLowerCase();
+        if (normalizedHistorySearch && !searchable.includes(normalizedHistorySearch)) return false;
+        if (historyFilters.status && item.status !== historyFilters.status) return false;
+        if (historyFilters.date_from && item.planned_date < historyFilters.date_from) return false;
+        if (historyFilters.date_to && item.planned_date > historyFilters.date_to) return false;
+        if (historyFilters.route_id && String(item.route_id) !== historyFilters.route_id) return false;
+        if (historyFilters.vehicle_id && String(item.vehicle_id) !== historyFilters.vehicle_id) return false;
+        return true;
+    }) : state.items;
 
     useEffect(() => {
         driverTrace('screen:mounted', { traceVersion: '2026-09-15.1', mode, path: window.location.pathname });
@@ -683,6 +939,33 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
         return () => { mounted = false; };
     }, [refresh, historyMode]);
 
+    const updateTaskCard = (delivery, trip) => {
+        if (!delivery) return;
+        setState((current) => ({
+            ...current,
+            items: current.items.map((item) => item.id === delivery.id || (delivery.trip_id && item.trip_id === delivery.trip_id)
+                ? { ...item, ...delivery, id: item.id, code: trip?.code || item.code, status: trip?.status || delivery.status, total_quantity: trip?.total_quantity ?? item.total_quantity }
+                : item),
+        }));
+    };
+
+    const removeTaskCard = (delivery) => {
+        setState((current) => ({ ...current, items: current.items.filter((item) => item.id !== delivery.id && (!delivery.trip_id || item.trip_id !== delivery.trip_id)) }));
+    };
+
+    const updateStopCustomerLocation = (customerId, location) => {
+        setDetail((current) => ({
+            ...current,
+            stops: current.stops.map((stop) => Number(stop.customer_id) === Number(customerId) ? {
+                ...stop,
+                customer_latitude: location.latitude,
+                customer_longitude: location.longitude,
+                customer_gps_accuracy_m: location.accuracy_m,
+                customer_gps_captured_at: location.captured_at,
+            } : stop),
+        }));
+    };
+
     useEffect(() => {
         if (historyMode || (detail.trip?.status || detail.delivery?.status) !== 'on_route') {
             setSharing({ state: 'idle', message: '' });
@@ -693,7 +976,7 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
             return undefined;
         }
 
-        setSharing({ state: 'waiting', message: 'Waiting for GPS permission…' });
+        setSharing({ state: 'waiting', message: 'Waiting for GPS permissionâ€¦' });
         lastLocationShare.current = 0;
         const controller = new AbortController();
         let active = true;
@@ -703,7 +986,7 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
             if (!active || uploadInFlight || now - lastLocationShare.current < 15000) return;
             lastLocationShare.current = now;
             uploadInFlight = true;
-            setSharing({ state: 'sharing', message: 'Sharing current location…' });
+            setSharing({ state: 'sharing', message: 'Sharing current locationâ€¦' });
             window.axios.post(`${mobileApi()}/${detail.delivery.id}/location`, {
                 latitude: position.coords.latitude,
                 longitude: position.coords.longitude,
@@ -785,13 +1068,13 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
 
     const startRoute = () => {
         setSaving(true); setMessage('');
-        window.axios.post(`${mobileApi()}/${detail.delivery.id}/start-route`).then(({ data }) => { setSaving(false); setMessage('Trip started.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops: data.data.stops })); setRefresh((value) => value + 1); }).catch((error) => { setSaving(false); setMessage(errorMessage(error)); });
+        window.axios.post(`${mobileApi()}/${detail.delivery.id}/start-route`).then(({ data }) => { setSaving(false); setMessage('Trip started.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops: data.data.stops })); updateTaskCard(data.data.delivery, data.data.trip); }).catch((error) => { setSaving(false); setMessage(errorMessage(error)); });
     };
 
     const confirmLoad = () => {
         setSaving(true); setMessage('');
         window.axios.post(`${mobileApi()}/${detail.delivery.id}/confirm-loading`, { notes }).then(({ data }) => {
-            setSaving(false); setMessage('Load received.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops: data.data.stops })); setRefresh((value) => value + 1);
+            setSaving(false); setMessage('Load received.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops: data.data.stops })); updateTaskCard(data.data.delivery, data.data.trip);
         }).catch((error) => { setSaving(false); setMessage(errorMessage(error)); });
     };
 
@@ -814,20 +1097,20 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
         const appliedOrderDiscount = resultStatus === 'failed' ? 0 : Math.min(Math.max(Number(orderDiscount || 0), 0), saleSubtotal);
         window.axios.post(`${mobileApi()}/${stop.id}/complete`, { final_sale: true, status: resultStatus, items, order_discount: appliedOrderDiscount, notes, modification_note: modificationNote || null, settlement_method: resultStatus === 'failed' ? null : settlement.method, payment_reference: settlement.reference || null }).then(({ data }) => {
             const stops = data.data.stops || [];
-            if (!data.data.trip && ['delivered', 'partially_delivered', 'failed'].includes(data.data.delivery.status)) {
-                setSaving(false); setDetail({ loading: false, delivery: null, trip: null, stops: [], availableProducts: [], error: '' }); setRefresh((value) => value + 1);
+            if (!data.data.delivery.trip_id && ['delivered', 'partially_delivered', 'failed'].includes(data.data.delivery.status)) {
+                setSaving(false); removeTaskCard(data.data.delivery); setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], availableProducts: [], error: '' });
                 return;
             }
             setSaving(false); setMessage('Stop result saved.'); setDetail((current) => ({ ...current, delivery: data.data.delivery, trip: data.data.trip, stops, stock: data.data.stock || current.stock || [], availableProducts: data.data.available_products || current.availableProducts }));
             setSelectedStopId(null);
-            setRefresh((value) => value + 1);
+            updateTaskCard(data.data.delivery, data.data.trip);
         }).catch((error) => { setSaving(false); setMessage(errorMessage(error)); });
     };
 
     const completeTrip = () => {
         setSaving(true); setMessage('');
-        window.axios.post(`${mobileApi()}/${detail.delivery.id}/complete-trip`).then(() => {
-            setSaving(false); setDetail({ loading: false, delivery: null, trip: null, stops: [], availableProducts: [], error: '' }); setRefresh((value) => value + 1);
+        window.axios.post(`${mobileApi()}/${detail.delivery.id}/complete-trip`).then(({ data }) => {
+            setSaving(false); removeTaskCard(data.data.delivery); setDetail({ loading: false, delivery: null, trip: null, stops: [], stock: [], availableProducts: [], error: '' });
         }).catch((error) => { setSaving(false); setMessage(errorMessage(error)); });
     };
 
@@ -851,7 +1134,7 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
             return products;
         }, new Map()).values());
         if (selectedStop) {
-            return <DriverStopPage stop={selectedStop} delivery={detail.delivery} trip={detail.trip} availableProducts={detail.availableProducts} historyMode={historyMode} active={active} resultStatus={resultStatus} setResultStatus={setResultStatus} results={results} setResults={setResults} finalLines={finalLines} setFinalLines={setFinalLines} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} notes={notes} setNotes={setNotes} modificationNote={modificationNote} setModificationNote={setModificationNote} settlement={settlement} setSettlement={setSettlement} message={message} saving={saving} onSave={complete} onBack={() => !saving && setSelectedStopId(null)} />;
+            return <DriverStopPage stop={selectedStop} delivery={detail.delivery} trip={detail.trip} availableProducts={detail.availableProducts} historyMode={historyMode} active={active} resultStatus={resultStatus} setResultStatus={setResultStatus} results={results} setResults={setResults} finalLines={finalLines} setFinalLines={setFinalLines} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} notes={notes} setNotes={setNotes} modificationNote={modificationNote} setModificationNote={setModificationNote} settlement={settlement} setSettlement={setSettlement} message={message} saving={saving} onSave={complete} onCustomerLocationUpdated={(location) => updateStopCustomerLocation(selectedStop.customer_id, location)} onBack={() => !saving && setSelectedStopId(null)} />;
         }
         if (tripCloseoutPage && !historyMode) {
             const cashCollections = detail.trip?.cash_hold_collections || [];
@@ -861,19 +1144,19 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
                 <section className="driver-delivery-hero driver-closeout-summary"><div><CheckCircle2 size={22} /><span><strong>All route stops are complete</strong><small>Review the cash and stock held for this trip before returning to the office.</small></span></div><dl><Info label="Stops completed" value={`${detail.stops.length} / ${detail.stops.length}`} /><Info label="Planned date" value={date(detail.trip?.planned_date || detail.delivery.planned_date)} /></dl></section>
                 <section className="driver-load-panel driver-trip-cash-hold">
                     <div className="mobile-section-heading"><div><p className="eyebrow">Cash handover</p><h2>Cash held for this trip</h2><small>Submitted cash collections awaiting office review.</small></div><strong>{money(detail.trip?.cash_hold_amount || 0)}</strong></div>
-                    {cashCollections.length ? <div className="driver-load-summary">{cashCollections.map((item) => <span key={item.id}><span><strong>{item.customer_name}</strong><small>{item.code} · {item.delivery_code}</small></span><strong>{money(item.amount)}</strong></span>)}</div> : <p className="driver-trip-no-return">No cash is currently held for this trip.</p>}
+                    {cashCollections.length ? <div className="driver-load-summary">{cashCollections.map((item) => <span key={item.id}><span><strong>{item.customer_name}</strong><small>{item.code} Â· {item.delivery_code}</small></span><strong>{money(item.amount)}</strong></span>)}</div> : <p className="driver-trip-no-return">No cash is currently held for this trip.</p>}
                 </section>
                 <section className="driver-load-panel driver-trip-return-confirmation">
                     <div className="mobile-section-heading"><div><p className="eyebrow">Trip buffer stock</p><h2>Return stock to office</h2><small>Confirming adds these remaining quantities back to warehouse stock.</small></div><strong>{number(tripReturnStock.reduce((sum, item) => sum + Number(item.returned_quantity || 0), 0))} units</strong></div>
-                    {tripReturnStock.length ? <div className="driver-load-summary">{tripReturnStock.map((item) => <span key={item.product_id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></span><strong>{number(item.returned_quantity)}</strong></span>)}</div> : <p className="driver-trip-no-return">No stock remains to return.</p>}
+                    {tripReturnStock.length ? <div className="driver-load-summary">{tripReturnStock.map((item) => <span key={item.product_id}><span><strong>{item.product_name}</strong><small>{item.product_sku} Â· {item.unit}</small></span><strong>{number(item.returned_quantity)}</strong></span>)}</div> : <p className="driver-trip-no-return">No stock remains to return.</p>}
                 </section>
                 {message && <p className={message === 'Trip completed.' ? 'mobile-success-message' : 'form-alert'}>{message}</p>}
-                <div className="driver-trip-closeout-actions"><button className="button primary driver-load-action" type="button" disabled={saving} onClick={completeTrip}><CheckCircle2 size={17} />{saving ? 'Confirming return…' : 'Confirm return stock & end trip'}</button></div>
+                <div className="driver-trip-closeout-actions"><button className="button primary driver-load-action" type="button" disabled={saving} onClick={completeTrip}><CheckCircle2 size={17} />{saving ? 'Confirming returnâ€¦' : 'Confirm return stock & end trip'}</button></div>
             </div>;
         }
-        return <div className="driver-delivery-detail"><ShellBackButton label="Back" onClick={() => setDetail({ loading: false, delivery: null, trip: null, stops: [], error: '' })} /><header className="mobile-section-heading"><div><p className="eyebrow">{historyMode ? 'Task history' : 'Driver task'}</p><h2>{detail.trip?.code || detail.delivery.trip_code || detail.delivery.code}</h2></div><span className={`status ${statusFamily(tripStatus)}`}>{statusLabel(tripStatus)}</span></header>{tripStatus !== 'assigned' && <section className="driver-delivery-hero"><div><Navigation size={22} /><span><strong>{detail.delivery.route_name}</strong><small>{detail.stops.length} stops · {detail.delivery.plate_no}</small></span></div><dl><Info label="Planned" value={date(detail.trip?.planned_date || detail.delivery.planned_date)} /><Info label="Warehouse" value={detail.delivery.warehouse_name} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} · ${detail.delivery.plate_no}`} /><Info label="Quantity" value={number(historyMode ? loadedTotal : plannedTotal)} /></dl></section>}
-            {tripStatus === 'assigned' && <><section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Load list</p><h2>Products to load</h2></div><strong>{number(plannedTotal)} units</strong></div><div className="driver-load-summary driver-assigned-product-list">{productsToLoad.map((item) => <span key={item.product_id}><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></span><strong>{number(item.planned_quantity)}</strong></span>)}</div></section><section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Route</p><h2>Stop list</h2></div><strong>{detail.stops.length} stops</strong></div><div className="driver-trip-stops driver-assigned-stop-list">{detail.stops.map((stop, index) => <article key={stop.id}><header><span className="delivery-stop-index">{index + 1}</span><span><strong>{stop.shop_name}</strong><small>{stop.order_code} · {stop.delivery_address || 'No address'}</small></span><strong>{number(stop.total_quantity)}</strong></header></article>)}</div>{message && <p className={message === 'Load received.' ? 'mobile-success-message' : 'form-alert'}>{message}</p>}<button className="button primary driver-load-action" type="button" disabled={saving} onClick={confirmLoad}><Package size={17} />{saving ? 'Confirming…' : 'Confirm load received'}</button></section></>}
-            {tripStatus === 'loading' && <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Ready</p><h2>Load received</h2><small>Your next action is to start this trip.</small></div><strong>{number(loadedTotal)} units</strong></div><div className="driver-route-summary"><Info label="Warehouse" value={detail.delivery.warehouse_name} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} · ${detail.delivery.plate_no}`} /><Info label="Route" value={detail.delivery.route_name} /><Info label="Stops" value={detail.stops.length} /></div>{message && <p className={['Load received.', 'Trip started.'].includes(message) ? 'mobile-success-message' : 'form-alert'}>{message}</p>}<button className="button primary driver-load-action" type="button" disabled={saving} onClick={startRoute}><Navigation size={17} />{saving ? 'Starting…' : 'Start trip'}</button></section>}
+        return <div className="driver-delivery-detail"><ShellBackButton label="Back" onClick={() => setDetail({ loading: false, delivery: null, trip: null, stops: [], error: '' })} /><header className="mobile-section-heading"><div><p className="eyebrow">{historyMode ? 'Task history' : 'Driver task'}</p><h2>{detail.trip?.code || detail.delivery.trip_code || detail.delivery.code}</h2></div><span className={`status ${statusFamily(tripStatus)}`}>{statusLabel(tripStatus)}</span></header>{tripStatus !== 'assigned' && <section className="driver-delivery-hero"><div><Navigation size={22} /><span><strong>{detail.delivery.route_name}</strong><small>{detail.stops.length} stops Â· {detail.delivery.plate_no}</small></span></div><dl><Info label="Planned" value={date(detail.trip?.planned_date || detail.delivery.planned_date)} /><Info label="Warehouse" value={detail.delivery.warehouse_name} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} Â· ${detail.delivery.plate_no}`} /><Info label="Quantity" value={number(historyMode ? loadedTotal : plannedTotal)} /></dl></section>}
+            {tripStatus === 'assigned' && <><section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Load list</p><h2>Products to load</h2></div><strong>{number(plannedTotal)} units</strong></div><div className="driver-load-summary driver-assigned-product-list">{productsToLoad.map((item) => <span key={item.product_id}><span><strong>{item.product_name}</strong><small>{item.product_sku} Â· {item.unit}</small></span><strong>{number(item.planned_quantity)}</strong></span>)}</div></section><section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Route</p><h2>Stop list</h2></div><strong>{detail.stops.length} stops</strong></div><div className="driver-trip-stops driver-assigned-stop-list">{detail.stops.map((stop, index) => <article key={stop.id}><header><span className="delivery-stop-index">{index + 1}</span><span><strong>{stop.shop_name}</strong><small>{stop.order_code} Â· {stop.delivery_address || 'No address'}</small></span><strong>{number(stop.total_quantity)}</strong></header></article>)}</div>{message && <p className={message === 'Load received.' ? 'mobile-success-message' : 'form-alert'}>{message}</p>}<button className="button primary driver-load-action" type="button" disabled={saving} onClick={confirmLoad}><Package size={17} />{saving ? 'Confirmingâ€¦' : 'Confirm load received'}</button></section></>}
+            {tripStatus === 'loading' && <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Ready</p><h2>Load received</h2><small>Your next action is to start this trip.</small></div><strong>{number(loadedTotal)} units</strong></div><div className="driver-route-summary"><Info label="Warehouse" value={detail.delivery.warehouse_name} /><Info label="Vehicle" value={`${detail.delivery.vehicle_code} Â· ${detail.delivery.plate_no}`} /><Info label="Route" value={detail.delivery.route_name} /><Info label="Stops" value={detail.stops.length} /></div>{message && <p className={['Load received.', 'Trip started.'].includes(message) ? 'mobile-success-message' : 'form-alert'}>{message}</p>}<button className="button primary driver-load-action" type="button" disabled={saving} onClick={startRoute}><Navigation size={17} />{saving ? 'Startingâ€¦' : 'Start trip'}</button></section>}
             {(tripStatus === 'on_route' || historyMode) && <>
                 <section className="driver-load-panel">
                     <div className="mobile-section-heading"><div><p className="eyebrow">{historyMode ? 'Completed task' : 'In progress'}</p><h2>{historyMode ? 'Trip result' : 'Current route'}</h2></div><strong>{number(detail.stops.filter((stop) => ['delivered', 'partially_delivered', 'failed'].includes(stop.status)).length)} / {detail.stops.length} stops</strong></div>
@@ -886,10 +1169,49 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en' }) {
         </div>;
     }
 
-    return <div className="driver-delivery-list"><header className="mobile-master-heading"><div><p className="eyebrow">Driver</p><h1>{historyMode ? 'Task history' : 'Tasks'}</h1><span className="muted">{historyMode ? 'Review your completed delivery routes and results.' : 'Receive, start, and complete your assigned route in one place.'}</span></div><button className="icon-button" type="button" aria-label="Refresh" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></header>{state.loading ? <MobileState title={historyMode ? 'Loading task history' : 'Loading tasks'} loading /> : state.error ? <MobileState title={state.error} action={() => setRefresh((value) => value + 1)} /> : !state.items.length ? <MobileState title={historyMode ? 'No completed tasks yet.' : 'No active or assigned tasks.'} /> : <section className="mobile-master-section"><div className="mobile-delivery-cards">{state.items.map((item) => <button type="button" key={item.id} onClick={() => open(item.id)}><span className="mobile-order-icon">{historyMode ? <CheckCircle2 size={17} /> : <Navigation size={17} />}</span><span><strong>{item.code}</strong><small>{item.route_name} · {item.stops_count} stops</small><small>{historyMode ? `${number(item.completed_stops)} completed · ${number(item.delivered_quantity)} delivered` : item.status === 'assigned' ? `${number(item.total_quantity)} units to receive` : `${number(item.completed_stops)} completed · ${number(item.loaded_quantity)} loaded`}</small></span><span><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span><ChevronRight size={16} /></span></button>)}</div></section>}</div>;
+    return <div className="driver-delivery-list">
+        <header className="mobile-master-heading">
+            <div><p className="eyebrow">Driver</p><h1>{historyMode ? 'Task history' : 'Tasks'}</h1><span className="muted">{historyMode ? 'Review your completed delivery routes and results.' : 'Receive, start, and complete your assigned route in one place.'}</span></div>
+            <ShellPageActions><button className="icon-button" type="button" aria-label="Refresh" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></ShellPageActions>
+        </header>
+        {historyMode && <div className="mobile-order-filters driver-history-filters">
+            <label className="mobile-search"><Search size={16} /><input type="search" value={historyFilters.search} placeholder="Search trip, customer, route or vehicle" aria-label="Search driver history" onChange={(event) => setHistoryFilters((current) => ({ ...current, search: event.target.value }))} /></label>
+            <label className="mobile-order-filter-field"><span>Result status</span><select value={historyFilters.status} aria-label="Trip result status" onChange={(event) => setHistoryFilters((current) => ({ ...current, status: event.target.value }))}><option value="">All results</option><option value="delivered">Delivered</option><option value="partially_delivered">Partially delivered</option><option value="failed">Failed</option></select></label>
+            <label className="mobile-order-filter-field"><span>Planned from</span><input type="date" value={historyFilters.date_from} max={historyFilters.date_to || undefined} aria-label="Planned date from" onChange={(event) => setHistoryFilters((current) => ({ ...current, date_from: event.target.value }))} /></label>
+            <label className="mobile-order-filter-field"><span>Planned through</span><input type="date" value={historyFilters.date_to} min={historyFilters.date_from || undefined} aria-label="Planned date through" onChange={(event) => setHistoryFilters((current) => ({ ...current, date_to: event.target.value }))} /></label>
+            <label className="mobile-order-filter-field"><span>Route</span><select value={historyFilters.route_id} aria-label="Route" onChange={(event) => setHistoryFilters((current) => ({ ...current, route_id: event.target.value }))}><option value="">All routes</option>{historyRoutes.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
+            <label className="mobile-order-filter-field"><span>Vehicle</span><select value={historyFilters.vehicle_id} aria-label="Vehicle" onChange={(event) => setHistoryFilters((current) => ({ ...current, vehicle_id: event.target.value }))}><option value="">All vehicles</option>{historyVehicles.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
+            <button className="button" type="button" onClick={() => setHistoryFilters(emptyHistoryFilters())}>Clear filters</button>
+        </div>}
+        {state.loading ? <MobileState title={historyMode ? 'Loading task history' : 'Loading tasks'} loading /> : state.error ? <MobileState title={state.error} action={() => setRefresh((value) => value + 1)} /> : !visibleItems.length ? <MobileState title={historyMode && state.items.length ? 'No trips match these filters.' : historyMode ? 'No completed tasks yet.' : 'No active or assigned tasks.'} /> : <section className="mobile-master-section">
+            {historyMode && <div className="mobile-section-heading"><div><h2>Completed trips</h2><small>{visibleItems.length === state.items.length ? `${visibleItems.length} trips` : `${visibleItems.length} of ${state.items.length} trips`}</small></div></div>}
+            <div className="mobile-delivery-cards">{visibleItems.map((item) => <button type="button" key={item.id} onClick={() => open(item.id)}><span className="mobile-order-icon">{historyMode ? <CheckCircle2 size={17} /> : <Navigation size={17} />}</span><span><strong>{item.code}</strong><small>{item.route_name} / {item.stops_count} stops</small><small>{historyMode ? `${number(item.completed_stops)} completed / ${number(item.delivered_quantity)} delivered` : item.status === 'assigned' ? `${number(item.total_quantity)} units to receive` : `${number(item.completed_stops)} completed / ${number(item.loaded_quantity)} loaded`}</small></span><span><span className={`status ${statusFamily(item.status)}`}>{statusLabel(item.status)}</span><ChevronRight size={16} /></span></button>)}</div>
+        </section>}
+    </div>;
 }
 
-function DriverStopPage({ stop, delivery, trip, availableProducts = [], historyMode, active, resultStatus, setResultStatus, results, setResults, finalLines, setFinalLines, orderDiscount, setOrderDiscount, notes, setNotes, modificationNote, setModificationNote, settlement, setSettlement, message, saving, onSave, onBack }) {
+function DriverStopPage({ stop, delivery, trip, availableProducts = [], historyMode, active, resultStatus, setResultStatus, results, setResults, finalLines, setFinalLines, orderDiscount, setOrderDiscount, notes, setNotes, modificationNote, setModificationNote, settlement, setSettlement, message, saving, onSave, onCustomerLocationUpdated, onBack }) {
+    const [printProfile, setPrintProfile] = useState({ company: null, setting: null });
+    const [customerLocation, setCustomerLocation] = useState(null);
+    const [customerLocationDraft, setCustomerLocationDraft] = useState(null);
+    const [customerLocationState, setCustomerLocationState] = useState({ locating: false, saving: false, message: '', error: '' });
+    useEffect(() => {
+        let mounted = true;
+        window.axios.get(window.ValleyRuntime?.api?.printSettings || '/api/settings/printing')
+            .then(({ data }) => mounted && setPrintProfile({ company: data.data.company, setting: data.data.documents?.delivery_voucher || null }))
+            .catch(() => {});
+        return () => { mounted = false; };
+    }, []);
+    useEffect(() => {
+        setCustomerLocation(hasGpsCoordinate(stop.customer_latitude) && hasGpsCoordinate(stop.customer_longitude) ? {
+            latitude: Number(stop.customer_latitude),
+            longitude: Number(stop.customer_longitude),
+            accuracy_m: [null, undefined, ''].includes(stop.customer_gps_accuracy_m) ? null : Number(stop.customer_gps_accuracy_m),
+            captured_at: stop.customer_gps_captured_at || null,
+        } : null);
+        setCustomerLocationDraft(null);
+        setCustomerLocationState({ locating: false, saving: false, message: '', error: '' });
+    }, [stop.id]);
     const [addProductId, setAddProductId] = useState('');
     const finalSaleMode = active && !historyMode;
     const originalLines = useMemo(() => {
@@ -947,26 +1269,69 @@ function DriverStopPage({ stop, delivery, trip, availableProducts = [], historyM
         event.preventDefault();
         if (active && !historyMode) onSave();
     };
+    const captureCustomerLocation = () => {
+        if (!navigator.geolocation) {
+            setCustomerLocationState({ locating: false, saving: false, message: '', error: 'GPS is not available on this device.' });
+            return;
+        }
+        setCustomerLocationState({ locating: true, saving: false, message: '', error: '' });
+        navigator.geolocation.getCurrentPosition((position) => {
+            setCustomerLocationDraft({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy_m: position.coords.accuracy, captured_at: new Date(position.timestamp).toISOString() });
+            setCustomerLocationState({ locating: false, saving: false, message: 'Position captured as a draft. Submit it to update the customer.', error: '' });
+        }, (error) => {
+            setCustomerLocationState({ locating: false, saving: false, message: '', error: error.code === 1 ? 'Location permission was denied.' : 'Unable to capture the current position.' });
+        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    };
+    const submitCustomerLocation = () => {
+        if (!customerLocationDraft) return;
+        setCustomerLocationState((current) => ({ ...current, saving: true, message: '', error: '' }));
+        const mobileDeliveryApi = window.ValleyRuntime?.api?.mobileDeliveries || '/api/mobile/deliveries';
+        window.axios.post(`${mobileDeliveryApi}/${stop.id}/customer-location`, {
+            latitude: customerLocationDraft.latitude,
+            longitude: customerLocationDraft.longitude,
+            accuracy_m: customerLocationDraft.accuracy_m,
+        }).then(({ data }) => {
+            setCustomerLocation(data.data.customer_location);
+            onCustomerLocationUpdated?.(data.data.customer_location);
+            setCustomerLocationDraft(null);
+            setCustomerLocationState({ locating: false, saving: false, message: 'Customer GPS position updated.', error: '' });
+        }).catch((error) => setCustomerLocationState({ locating: false, saving: false, message: '', error: errorMessage(error) }));
+    };
     const voucherItems = historyMode || !active ? stop.items.filter((item) => Number(item.delivered_quantity) > 0) : stop.items;
+    const printSetting = printProfile.setting || { paper_size: 'A5', orientation: 'portrait', margin_mm: 10, design: 'compact', accent_color: '#0b84a5', show_signatures: true, show_notes: true, header_text: '', footer_text: '' };
+    const pageSize = printSetting.paper_size === '80mm' ? '80mm 297mm' : printSetting.paper_size === '58mm' ? '58mm 210mm' : `${printSetting.paper_size} ${printSetting.orientation}`;
+    const displayedCustomerLocation = customerLocationDraft || customerLocation;
+    const customerMapBounds = displayedCustomerLocation ? `${displayedCustomerLocation.longitude - 0.004},${displayedCustomerLocation.latitude - 0.003},${displayedCustomerLocation.longitude + 0.004},${displayedCustomerLocation.latitude + 0.003}` : null;
+    const customerMapUrl = displayedCustomerLocation ? `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(customerMapBounds)}&layer=mapnik&marker=${displayedCustomerLocation.latitude},${displayedCustomerLocation.longitude}` : null;
 
     return <form className="driver-stop-page" onSubmit={submit}>
+        <style media="print">{`@page { size: ${pageSize}; margin: ${Number(printSetting.margin_mm) || 0}mm; }`}</style>
         <ShellBackButton label="Back to route stops" disabled={saving} onClick={onBack} />
-        <header className="mobile-section-heading driver-stop-page-heading"><div><p className="eyebrow">Stop {stop.stop_sequence} · Final sale</p><h2>{stop.shop_name}</h2><small>{stop.order_code} · {stop.invoice_code}</small></div><span className={`status ${statusFamily(stop.status)}`}>{statusLabel(stop.status)}</span></header>
-        <section className="driver-stop-voucher">
-            <header><div><p className="eyebrow">Valley Water Distribution</p><h1>Delivery voucher</h1></div><strong>{trip?.code || delivery.trip_code || delivery.code}</strong></header>
-            <dl className="driver-stop-voucher-facts"><Info label="Customer" value={stop.shop_name} /><Info label="Order" value={stop.order_code} /><Info label="Invoice" value={stop.invoice_code} /><Info label="Planned date" value={date(trip?.planned_date || delivery.planned_date)} /><Info label="Route" value={delivery.route_name} /><Info label="Vehicle" value={`${delivery.vehicle_code} · ${delivery.plate_no}`} /><Info label="Address" value={stop.delivery_address} /><Info label="Loaded quantity" value={number(stop.loaded_quantity)} /></dl>
+        <ShellPageActions><button className="icon-button" type="button" aria-label="Print voucher" title="Print voucher" onClick={() => window.print()}><Printer size={17} /></button></ShellPageActions>
+        <header className="mobile-section-heading driver-stop-page-heading"><div><p className="eyebrow">Stop {stop.stop_sequence} Â· Final sale</p><h2>{stop.shop_name}</h2><small>{stop.order_code} Â· {stop.invoice_code}</small></div><span className={`status ${statusFamily(stop.status)}`}>{statusLabel(stop.status)}</span></header>
+        <section className="driver-stop-customer-location">
+            <header><span><MapPin size={16} /><span><strong>Customer GPS position</strong><small>{customerLocationDraft ? 'Draft position - not submitted' : customerLocation ? 'Saved customer position' : 'No customer position saved'}</small></span></span>{customerLocationDraft && <span className="status warning">Draft</span>}</header>
+            {customerMapUrl ? <iframe key={`${displayedCustomerLocation.latitude}-${displayedCustomerLocation.longitude}`} src={customerMapUrl} title={`${stop.shop_name} GPS position`} loading="lazy" referrerPolicy="no-referrer" /> : <div className="driver-stop-location-empty"><MapPin size={22} /><span>No saved GPS position for this customer.</span></div>}
+            {displayedCustomerLocation && <dl><Info label="Latitude" value={Number(displayedCustomerLocation.latitude).toFixed(6)} /><Info label="Longitude" value={Number(displayedCustomerLocation.longitude).toFixed(6)} /><Info label="Accuracy" value={displayedCustomerLocation.accuracy_m !== null ? `${Math.round(displayedCustomerLocation.accuracy_m)} m` : '-'} /><Info label={customerLocationDraft ? 'Captured' : 'Last updated'} value={displayedCustomerLocation.captured_at ? new Date(displayedCustomerLocation.captured_at).toLocaleString() : '-'} /></dl>}
+            {customerLocationState.message && <p className={`driver-stop-location-message ${customerLocationDraft ? 'draft' : 'success'}`}><CheckCircle2 size={14} />{customerLocationState.message}</p>}
+            {customerLocationState.error && <p className="driver-stop-location-message error"><TriangleAlert size={14} />{customerLocationState.error}</p>}
+            {active && !historyMode && stop.customer_id && <footer><button className="button" type="button" disabled={customerLocationState.locating || customerLocationState.saving} onClick={captureCustomerLocation}><Navigation size={15} />{customerLocationState.locating ? 'Capturing GPS...' : customerLocation ? 'Capture new position' : 'Capture current position'}</button><button className="button primary" type="button" disabled={!customerLocationDraft || customerLocationState.saving} onClick={submitCustomerLocation}><Save size={15} />{customerLocationState.saving ? 'Submitting...' : 'Submit GPS update'}</button></footer>}
+        </section>
+        <section className={`driver-stop-voucher print-design-${printSetting.design} print-paper-${printSetting.paper_size.toLowerCase()}`} style={{ '--voucher-accent': printSetting.accent_color }}>
+            <header><div><p className="eyebrow">{printProfile.company?.name || 'Valley Water Distribution'}</p><h1>Delivery voucher</h1>{printSetting.header_text && <small>{printSetting.header_text}</small>}</div><strong>{trip?.code || delivery.trip_code || delivery.code}</strong></header>
+            <dl className="driver-stop-voucher-facts"><Info label="Customer" value={stop.shop_name} /><Info label="Order" value={stop.order_code} /><Info label="Invoice" value={stop.invoice_code} /><Info label="Planned date" value={date(trip?.planned_date || delivery.planned_date)} /><Info label="Route" value={delivery.route_name} /><Info label="Vehicle" value={`${delivery.vehicle_code} Â· ${delivery.plate_no}`} /><Info label="Address" value={stop.delivery_address} /><Info label="Loaded quantity" value={number(stop.loaded_quantity)} /></dl>
             {active && !historyMode && <label className="driver-result-status driver-stop-edit-control">Result<select value={resultStatus} onChange={(event) => setResultStatus(event.target.value)}><option value="delivered">Delivered</option><option value="partially_delivered">Partially delivered</option><option value="failed">Failed</option></select></label>}
 
             {finalSaleMode && resultStatus !== 'failed' ? <section className="driver-final-sale-editor">
                 <header><div><p className="eyebrow">Final order</p><h3>Sale and FOC items</h3></div><span><strong>{money(estimatedPayable)}</strong><small>{number(focQuantity)} FOC</small></span></header>
                 <div className="driver-final-sale-lines">{finalLines.map((item, index) => <article key={item.key}>
-                    <header><span className="driver-voucher-line">{index + 1}</span><span><strong>{item.product_name}</strong><small>{item.product_sku} · {number(item.loaded_quantity)} available · {money(Number(item.sale_quantity || 0) * Number(item.unit_price || 0))}</small></span><button className="icon-button danger-text" type="button" aria-label={`Remove ${item.product_name}`} onClick={() => setFinalLines((current) => current.filter((line) => line.key !== item.key))}><X size={15} /></button></header>
-                    <div className="driver-final-sale-line-fields"><label>Sale quantity<input required type="number" min="0" step="0.01" value={item.sale_quantity} onChange={(event) => updateLine(item.key, 'sale_quantity', event.target.value)} /></label><label>FOC quantity<input required type="number" min="0" step="0.01" value={item.foc_quantity} onChange={(event) => updateLine(item.key, 'foc_quantity', event.target.value)} /></label><label>Price MMK<input required type="number" min="0" step="1" value={item.unit_price} onChange={(event) => updateLine(item.key, 'unit_price', event.target.value)} /></label><label>Damaged<input type="number" min="0" step="0.01" value={item.damaged_quantity || 0} onChange={(event) => updateLine(item.key, 'damaged_quantity', event.target.value)} /></label></div>
+                    <header><span className="driver-voucher-line">{index + 1}</span><span><strong>{item.product_name}</strong><small>{item.product_sku} Â· {number(item.loaded_quantity)} available Â· {money(Number(item.sale_quantity || 0) * Number(item.unit_price || 0))}</small></span><button className="icon-button danger-text" type="button" aria-label={`Remove ${item.product_name}`} onClick={() => setFinalLines((current) => current.filter((line) => line.key !== item.key))}><X size={15} /></button></header>
+                    <div className="driver-final-sale-line-fields"><label>Sale quantity<input required type="number" inputMode="numeric" min="0" step="1" value={item.sale_quantity} onChange={(event) => updateLine(item.key, 'sale_quantity', event.target.value)} /></label><label>FOC quantity<input required type="number" inputMode="numeric" min="0" step="1" value={item.foc_quantity} onChange={(event) => updateLine(item.key, 'foc_quantity', event.target.value)} /></label><label>Price MMK<input required type="number" min="0" step="1" value={item.unit_price} onChange={(event) => updateLine(item.key, 'unit_price', event.target.value)} /></label><label>Damaged<input type="text" inputMode="numeric" pattern="[0-9]*" value={item.damaged_quantity ?? ''} onChange={(event) => updateLine(item.key, 'damaged_quantity', event.target.value.replace(/\D/g, ''))} /></label></div>
                 </article>)}</div>
-                <div className="driver-final-sale-add"><select aria-label="Product to add" value={addProductId} onChange={(event) => setAddProductId(event.target.value)}><option value="">Add product from vehicle</option>{availableProducts.filter((product) => !finalLines.some((item) => Number(item.product_id) === Number(product.id))).map((product) => <option key={product.id} value={product.id}>{product.name} · {number(product.loaded_quantity)} loaded</option>)}</select><button className="button" type="button" disabled={!addProductId} onClick={addLine}><Plus size={15} />Add product</button></div>
-                <label className="driver-order-discount">Order discount (MMK)<input type="number" min="0" max={saleSubtotal} step="1" value={orderDiscount || 0} onChange={(event) => setOrderDiscount(event.target.value)} /><small>{money(estimatedPayable)} payable after discount</small></label>
+                <div className="driver-final-sale-add"><select aria-label="Product to add" value={addProductId} onChange={(event) => setAddProductId(event.target.value)}><option value="">Add product from vehicle</option>{availableProducts.filter((product) => !finalLines.some((item) => Number(item.product_id) === Number(product.id))).map((product) => <option key={product.id} value={product.id}>{product.name} Â· {number(product.loaded_quantity)} loaded</option>)}</select><button className="button" type="button" disabled={!addProductId} onClick={addLine}><Plus size={15} />Add product</button></div>
+                <label className="driver-order-discount">Order discount (MMK)<input type="text" inputMode="numeric" pattern="[0-9]*" value={orderDiscount ?? ''} onChange={(event) => setOrderDiscount(event.target.value.replace(/\D/g, ''))} /><small>{money(estimatedPayable)} payable after discount</small></label>
                 {isModified && <label className="driver-load-notes driver-modification-note">Modification note (optional)<textarea rows="3" value={modificationNote} onChange={(event) => setModificationNote(event.target.value)} placeholder="Why did the final Sale or FOC quantities change?" /></label>}
-            </section> : <div className="driver-result-items driver-stop-voucher-items">{voucherItems.map((item, index) => <article key={item.id}><header><span className="driver-voucher-line">{index + 1}</span><span><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit} · {(item.item_type || 'sale').toUpperCase()}</small></span><strong>{number(active ? item.loaded_quantity : item.delivered_quantity)} {active ? 'loaded' : 'final'}</strong></header>{active && !historyMode && <div>{['delivered_quantity', 'returned_quantity', 'damaged_quantity'].map((field) => <label key={field}>{field.replace('_quantity', '')}<input type="number" min="0" max={item.loaded_quantity} step="0.01" value={results[item.id]?.[field] ?? 0} onChange={(event) => setResults((current) => ({ ...current, [item.id]: { ...current[item.id], [field]: event.target.value } }))} /></label>)}</div>}</article>)}</div>}
+            </section> : <div className="driver-result-items driver-stop-voucher-items">{voucherItems.map((item, index) => <article key={item.id}><header><span className="driver-voucher-line">{index + 1}</span><span><strong>{item.product_name}</strong><small>{item.product_sku} Â· {item.unit} Â· {(item.item_type || 'sale').toUpperCase()}</small></span><strong>{number(active ? item.loaded_quantity : item.delivered_quantity)} {active ? 'loaded' : 'final'}</strong></header>{active && !historyMode && <div>{['delivered_quantity', 'returned_quantity', 'damaged_quantity'].map((field) => <label key={field}>{field.replace('_quantity', '')}<input type="number" inputMode="numeric" min="0" max={item.loaded_quantity} step="1" value={results[item.id]?.[field] ?? 0} onChange={(event) => setResults((current) => ({ ...current, [item.id]: { ...current[item.id], [field]: event.target.value } }))} /></label>)}</div>}</article>)}</div>}
 
             {active && !historyMode && resultStatus !== 'failed' && <section className="driver-settlement-card">
                 <div><p className="eyebrow">Sale settlement</p><h3>How is this customer paying?</h3><small>{finalSaleMode ? `${money(estimatedPayable)} estimated payable. FOC has zero financial value.` : 'The final amount is calculated from delivered quantities when you save.'}</small></div>
@@ -979,16 +1344,17 @@ function DriverStopPage({ stop, delivery, trip, availableProducts = [], historyM
             </section>}
             {(historyMode || !active) && stop.settlement_method && <section className="driver-settlement-summary"><Info label="Settlement" value={{ credit: 'Credit', cash_driver: 'Cash held by driver', cash_office: 'Cash paid to office', bank_office: 'Bank paid to office' }[stop.settlement_method]} /><Info label="Final amount" value={money(stop.settlement_amount)} />{stop.credit_due_date && <Info label="Credit due" value={date(stop.credit_due_date)} />}</section>}
             {(historyMode || !active) && stop.order_modified && <div className="driver-modified-banner"><Pencil size={16} /><span><strong>Final sale modified by driver</strong><small>{stop.order_modification_note || 'No modification note was added.'}</small></span></div>}
-            {(active && !historyMode) ? <label className="driver-load-notes driver-stop-note">Completion note<textarea rows="3" value={notes} onChange={(event) => setNotes(event.target.value)} /></label> : notes && <div className="driver-stop-note-readonly"><strong>Completion note</strong><p>{notes}</p></div>}
+            {printSetting.show_notes && ((active && !historyMode) ? <label className="driver-load-notes driver-stop-note">Completion note<textarea rows="3" value={notes} onChange={(event) => setNotes(event.target.value)} /></label> : notes && <div className="driver-stop-note-readonly"><strong>Completion note</strong><p>{notes}</p></div>)}
             {message && <p className="form-alert">{message}</p>}
-            <footer className="driver-voucher-signatures"><span>Driver signature</span><span>Customer signature</span></footer>
+            {printSetting.show_signatures && <footer className="driver-voucher-signatures"><span>Driver signature</span><span>Customer signature</span></footer>}
+            {printSetting.footer_text && <p className="voucher-footer-note">{printSetting.footer_text}</p>}
         </section>
-        <footer className="driver-stop-page-actions"><button className="button" type="button" onClick={() => window.print()}><Printer size={16} />Print voucher</button>{active && !historyMode && <button className="button primary" type="submit" disabled={saving}><CheckCircle2 size={17} />{saving ? 'Saving…' : 'Save final sale'}</button>}</footer>
+        {active && !historyMode && <footer className="driver-stop-page-actions"><button className="button primary" type="submit" disabled={saving}><CheckCircle2 size={17} />{saving ? 'Savingâ€¦' : 'Save final sale'}</button></footer>}
     </form>;
 }
 
 function TripStopList({ stops, selectedId, onSelect }) {
-    return <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Route stops</p><h2>{stops.length} customers</h2></div><strong>{stops.filter((stop) => ['delivered', 'partially_delivered', 'failed'].includes(stop.status)).length} done</strong></div><div className="driver-trip-stop-list">{stops.map((stop, index) => <button className={selectedId === stop.id ? 'is-selected' : ''} type="button" key={stop.id} onClick={() => onSelect(stop)}><span className="delivery-stop-index">{index + 1}</span><span><strong>{stop.shop_name}</strong><small>{stop.order_code} · {stop.delivery_address || 'No address'}</small></span><span className={`status ${statusFamily(stop.status)}`}>{statusLabel(stop.status)}</span></button>)}</div></section>;
+    return <section className="driver-load-panel"><div className="mobile-section-heading"><div><p className="eyebrow">Route stops</p><h2>{stops.length} customers</h2></div><strong>{stops.filter((stop) => ['delivered', 'partially_delivered', 'failed'].includes(stop.status)).length} done</strong></div><div className="driver-trip-stop-list">{stops.map((stop, index) => <button className={selectedId === stop.id ? 'is-selected' : ''} type="button" key={stop.id} onClick={() => onSelect(stop)}><span className="delivery-stop-index">{index + 1}</span><span><strong>{stop.shop_name}</strong><small>{stop.order_code} Â· {stop.delivery_address || 'No address'}</small></span><span className={`status ${statusFamily(stop.status)}`}>{statusLabel(stop.status)}</span></button>)}</div></section>;
 }
 
 function Metric({ label, value, hint, icon: Icon }) { return <article className="metric"><span>{label}</span><strong>{value}</strong><small>{hint}</small><Icon size={18} /></article>; }
@@ -997,4 +1363,4 @@ function MobileState({ title, loading = false, action }) { return <div className
 function Field({ label, wide, children }) { return <label className={wide ? 'span-2' : ''}>{label}{children}</label>; }
 function Select({ label, name, items, form, setForm }) { return <Field label={label}><select required value={form[name]} onChange={(e) => setForm((v) => ({ ...v, [name]: e.target.value }))}>{items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>; }
 function Info({ label, value }) { return <div><dt>{label}</dt><dd>{value || '-'}</dd></div>; }
-function Pagination({ meta = {}, page, setPage }) { return meta.last_page > 1 ? <div className="master-pagination"><span>Page {meta.current_page} of {meta.last_page} · {meta.total}</span><div><button disabled={page <= 1} onClick={() => setPage((v) => v - 1)}>Previous</button><button disabled={page >= meta.last_page} onClick={() => setPage((v) => v + 1)}>Next</button></div></div> : null; }
+function Pagination({ meta = {}, page, setPage }) { return meta.last_page > 1 ? <div className="master-pagination"><span>Page {meta.current_page} of {meta.last_page} Â· {meta.total}</span><div><button disabled={page <= 1} onClick={() => setPage((v) => v - 1)}>Previous</button><button disabled={page >= meta.last_page} onClick={() => setPage((v) => v + 1)}>Next</button></div></div> : null; }

@@ -29,6 +29,7 @@ Create a release candidate only when all of these checks pass:
    - `SESSION_SECURE_COOKIE=true`
    - `VALLEY_DEMO_ENDPOINTS=false`
    - an absolute protected `VALLEY_BACKUP_DIRECTORY`, preferably copied off host
+   - a named `VALLEY_ADMIN_EMAIL`, `VALLEY_ADMIN_NAME`, and strong `VALLEY_ADMIN_PASSWORD` for the first dashboard account
    - the real SMTP settings and sender address
 5. Run `composer install --no-dev --classmap-authoritative --no-interaction`.
 6. Run `npm ci` and `npm run build` in the release directory.

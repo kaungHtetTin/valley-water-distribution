@@ -41,7 +41,9 @@ Backups are not considered operational until a restore drill succeeds and the re
 
 ## Demo/UAT reset
 
-`php artisan valley:demo-reset --force` runs a fresh migration and deterministic seed only in `local` or `testing`. The command refuses to run in production. Use `--dry-run` to verify availability without changing data.
+`php artisan valley:demo-reset --force` recreates the local database with initial setup data and the administrator account only. It removes all operational records. The command is limited to `local` and `testing`; the command refuses to run in production. Use `--dry-run` to verify availability without changing data.
+
+To populate a disposable local database with one complete month of linked operational examples, run `php artisan valley:demo-seed`. It defaults to the last completed month; use `--month=2026-09` for a specific completed month or `--dry-run` to see the selected month. The command requires empty operational tables and does not run during normal `db:seed` or `valley:demo-reset`. It creates Office Staff, HR, Accountant, Finance Manager, sales, driver, and customer demo logins; the demo accounts use the UAT password. It also leaves a payroll draft for the Finance Manager to approve and the Accountant to mark paid. Run it only after a fresh local setup or a deliberate `valley:demo-reset`, which deletes existing business data.
 
 ## Audit and incident review
 

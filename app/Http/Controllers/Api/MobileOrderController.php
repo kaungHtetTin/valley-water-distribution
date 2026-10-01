@@ -82,6 +82,10 @@ class MobileOrderController extends Controller
             $query->where('orders.status', $request->query('status'));
         }
 
+        if ($request->filled('payment_type')) {
+            $query->where('orders.payment_type', $request->query('payment_type'));
+        }
+
         if ($request->filled('customer_id') && $scope['app'] === 'sales') {
             $query->where('orders.customer_id', $request->query('customer_id'));
         }
@@ -92,6 +96,22 @@ class MobileOrderController extends Controller
 
         if ($request->filled('date_to')) {
             $query->whereDate('orders.order_date', '<=', $request->query('date_to'));
+        }
+
+        if ($request->filled('delivery_from')) {
+            $query->whereDate('orders.requested_delivery_date', '>=', $request->query('delivery_from'));
+        }
+
+        if ($request->filled('delivery_to')) {
+            $query->whereDate('orders.requested_delivery_date', '<=', $request->query('delivery_to'));
+        }
+
+        if ($request->filled('min_total')) {
+            $query->where('orders.total', '>=', max((float) $request->query('min_total'), 0));
+        }
+
+        if ($request->filled('max_total')) {
+            $query->where('orders.total', '<=', max((float) $request->query('max_total'), 0));
         }
 
         if ($search = trim((string) $request->query('search'))) {
@@ -105,7 +125,7 @@ class MobileOrderController extends Controller
         }
 
         $summary = (clone $query)->reorder()
-            ->selectRaw("COUNT(*) as orders_count, COALESCE(SUM(orders.total), 0) as total_amount, SUM(CASE WHEN orders.status = 'pending' THEN 1 ELSE 0 END) as pending_count")
+            ->selectRaw("COUNT(*) as orders_count, COALESCE(SUM(orders.total), 0) as total_amount, SUM(CASE WHEN orders.status = 'pending' THEN 1 ELSE 0 END) as pending_count, SUM(CASE WHEN order_delivery.status IN ('planned','assigned','loading','on_route') THEN 1 ELSE 0 END) as active_delivery_count, SUM(CASE WHEN order_delivery.status IN ('delivered','partially_delivered') THEN 1 ELSE 0 END) as delivered_count")
             ->first();
 
         $paginator = $query->select($this->columns())
@@ -116,6 +136,8 @@ class MobileOrderController extends Controller
             'summary' => [
                 'orders_count' => (int) ($summary->orders_count ?? 0),
                 'pending_count' => (int) ($summary->pending_count ?? 0),
+                'active_delivery_count' => (int) ($summary->active_delivery_count ?? 0),
+                'delivered_count' => (int) ($summary->delivered_count ?? 0),
                 'total_amount' => (float) ($summary->total_amount ?? 0),
             ],
             'meta' => [
@@ -148,7 +170,7 @@ class MobileOrderController extends Controller
         $customer = $customerId ? DB::table('customers')->where('is_active', true)->find($customerId) : null;
         abort_if($customerId && ! $customer, 422, 'The selected customer is not active.');
         abort_if($scope['app'] === 'sales' && $customer && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
-        $destination = $this->resolveDestination($validated, $customer);
+        $destination = $this->resolveDestination($validated, $customer, $scope['app'] === 'sales');
         abort_if($scope['app'] === 'sales' && (int) $destination['route_id'] !== (int) $scope['route_id'], 403, 'Orders must stay inside the assigned sales route.');
 
         $orderDate = Carbon::parse($validated['order_date'] ?? now());
@@ -208,7 +230,7 @@ class MobileOrderController extends Controller
         $customer = $customerId ? DB::table('customers')->where('is_active', true)->find($customerId) : null;
         abort_if($customerId && ! $customer, 422, 'The selected customer is not active.');
         abort_if($scope['app'] === 'sales' && $customer && (int) $customer->route_id !== (int) $scope['route_id'], 403, 'Customer is outside the assigned route.');
-        $destination = $this->resolveDestination($validated, $customer);
+        $destination = $this->resolveDestination($validated, $customer, $scope['app'] === 'sales');
         abort_if($scope['app'] === 'sales' && (int) $destination['route_id'] !== (int) $scope['route_id'], 403, 'Orders must stay inside the assigned sales route.');
         $orderDate = Carbon::parse($validated['order_date'] ?? $order->order_date);
         $priceTypeId = $validated['price_type_id'] ?? $customer?->price_type_id ?? DB::table('price_types')->where('is_default', true)->value('id');
@@ -370,6 +392,12 @@ class MobileOrderController extends Controller
 
     private function baseQuery()
     {
+        $latestDelivery = DB::table('deliveries')
+            ->selectRaw('MAX(id) as id, order_id')
+            ->whereNotNull('order_id')
+            ->where('status', '!=', 'cancelled')
+            ->groupBy('order_id');
+
         return DB::table('orders')
             ->leftJoin('customers', 'orders.customer_id', '=', 'customers.id')
             ->leftJoin('routes', 'orders.route_id', '=', 'routes.id')
@@ -378,6 +406,10 @@ class MobileOrderController extends Controller
                 $join->on('orders.id', '=', 'invoices.order_id')
                     ->where('invoices.status', '!=', 'cancelled');
             })
+            ->leftJoinSub($latestDelivery, 'latest_delivery', fn ($join) => $join->on('latest_delivery.order_id', '=', 'orders.id'))
+            ->leftJoin('deliveries as order_delivery', 'order_delivery.id', '=', 'latest_delivery.id')
+            ->leftJoin('employees as delivery_driver', 'delivery_driver.id', '=', 'order_delivery.driver_id')
+            ->leftJoin('vehicles as delivery_vehicle', 'delivery_vehicle.id', '=', 'order_delivery.vehicle_id')
             ->whereExists(function ($query) {
                 $query->selectRaw('1')
                     ->from('order_items')
@@ -398,6 +430,21 @@ class MobileOrderController extends Controller
             'invoices.invoice_date',
             'invoices.due_date',
             'invoices.status as invoice_status',
+            'order_delivery.id as delivery_id',
+            'order_delivery.code as delivery_code',
+            'order_delivery.status as delivery_status',
+            'order_delivery.planned_date as delivery_planned_date',
+            'order_delivery.total_quantity as delivery_total_quantity',
+            'order_delivery.loaded_quantity as delivery_loaded_quantity',
+            'order_delivery.delivered_quantity as delivery_delivered_quantity',
+            'order_delivery.assigned_at as delivery_assigned_at',
+            'order_delivery.loaded_at as delivery_loaded_at',
+            'order_delivery.departed_at as delivery_departed_at',
+            'order_delivery.completed_at as delivery_completed_at',
+            'delivery_driver.code as delivery_driver_code',
+            'delivery_driver.name as delivery_driver_name',
+            'delivery_vehicle.code as delivery_vehicle_code',
+            'delivery_vehicle.plate_no as delivery_plate_no',
         ];
     }
 
@@ -440,6 +487,23 @@ class MobileOrderController extends Controller
             'invoice_date' => $order->invoice_date ? Carbon::parse($order->invoice_date)->toDateString() : null,
             'due_date' => $order->due_date ? Carbon::parse($order->due_date)->toDateString() : null,
             'invoice_status' => $order->invoice_status,
+            'delivery' => $order->delivery_id ? [
+                'id' => (int) $order->delivery_id,
+                'code' => $order->delivery_code,
+                'status' => $order->delivery_status,
+                'planned_date' => $order->delivery_planned_date ? Carbon::parse($order->delivery_planned_date)->toDateString() : null,
+                'total_quantity' => (float) $order->delivery_total_quantity,
+                'loaded_quantity' => (float) $order->delivery_loaded_quantity,
+                'delivered_quantity' => (float) $order->delivery_delivered_quantity,
+                'driver_code' => $order->delivery_driver_code,
+                'driver_name' => $order->delivery_driver_name,
+                'vehicle_code' => $order->delivery_vehicle_code,
+                'plate_no' => $order->delivery_plate_no,
+                'assigned_at' => $order->delivery_assigned_at ? Carbon::parse($order->delivery_assigned_at)->toDateTimeString() : null,
+                'loaded_at' => $order->delivery_loaded_at ? Carbon::parse($order->delivery_loaded_at)->toDateTimeString() : null,
+                'departed_at' => $order->delivery_departed_at ? Carbon::parse($order->delivery_departed_at)->toDateTimeString() : null,
+                'completed_at' => $order->delivery_completed_at ? Carbon::parse($order->delivery_completed_at)->toDateTimeString() : null,
+            ] : null,
             'notes' => $order->notes,
             'updated_at' => Carbon::parse($order->updated_at)->toDateTimeString(),
         ];
@@ -470,15 +534,16 @@ class MobileOrderController extends Controller
         return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 
-    private function resolveDestination(array $validated, ?object $customer): array
+    private function resolveDestination(array $validated, ?object $customer, bool $requireRoute): array
     {
         $routeId = $validated['route_id'] ?? $customer?->route_id;
         $route = $routeId ? DB::table('routes')->where('is_active', true)->find($routeId) : null;
-        abort_unless($route, 422, 'An active delivery route is required.');
+        abort_if($requireRoute && ! $route, 422, 'An active delivery route is required.');
 
-        $areaId = $validated['area_id'] ?? $customer?->area_id ?? $route->area_id;
-        abort_unless($areaId && (int) $route->area_id === (int) $areaId, 422, 'The selected route must belong to the selected area.');
-        abort_unless(DB::table('areas')->where('id', $areaId)->where('is_active', true)->exists(), 422, 'An active delivery area is required.');
+        $areaId = $validated['area_id'] ?? $customer?->area_id ?? $route?->area_id;
+        abort_if($route && (! $areaId || (int) $route->area_id !== (int) $areaId), 422, 'The selected route must belong to the selected area.');
+        abort_if($areaId && ! DB::table('areas')->where('id', $areaId)->where('is_active', true)->exists(), 422, 'The selected delivery area is not active.');
+        abort_if($requireRoute && ! $areaId, 422, 'An active delivery area is required.');
 
         $recipientName = trim((string) ($validated['recipient_name'] ?? $customer?->shop_name));
         $deliveryAddress = trim((string) ($validated['delivery_address'] ?? $customer?->address));
@@ -486,8 +551,8 @@ class MobileOrderController extends Controller
         abort_if($deliveryAddress === '', 422, 'Delivery address is required.');
 
         return [
-            'area_id' => (int) $areaId,
-            'route_id' => (int) $route->id,
+            'area_id' => $areaId ? (int) $areaId : null,
+            'route_id' => $route ? (int) $route->id : null,
             'recipient_name' => $recipientName,
             'recipient_phone' => trim((string) ($validated['recipient_phone'] ?? $customer?->phone)) ?: null,
             'delivery_address' => $deliveryAddress,

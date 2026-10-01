@@ -1,5 +1,6 @@
 import { CalendarDays, Download, Package, Printer, RefreshCw, TrendingUp, Truck, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { ShellPageActions } from './components/ShellPageActions';
 
 const api = () => window.ValleyRuntime?.api?.operationsReports || '/api/reports/operations';
 const money = (value) => `${Number(value || 0).toLocaleString()} MMK`;
@@ -28,7 +29,7 @@ function Filter({ label, value, onChange, options }) {
 }
 
 function Metric({ icon: Icon, label, value, hint }) {
-    return <article className="report-metric"><span><Icon size={17} /></span><div><small>{label}</small><strong>{value}</strong><em>{hint}</em></div></article>;
+    return <article className="metric report-metric"><span>{label}<Icon size={16} /></span><strong>{value}</strong><small>{hint}</small></article>;
 }
 
 export function OperationsReportScreen({ locale = 'en' }) {
@@ -68,7 +69,7 @@ export function OperationsReportScreen({ locale = 'en' }) {
     const exportUrl = `${api()}/export?${new URLSearchParams({ ...Object.fromEntries(Object.entries(applied).filter(([, value]) => value !== '')), section }).toString()}`;
 
     return <section className="page operations-report-page">
-        <header className="report-heading"><div><p className="eyebrow">REPORTING</p><h1>{locale === 'my' ? 'လုပ်ငန်းဆိုင်ရာ အစီရင်ခံစာ' : 'Operations report'}</h1><p>Review sales, stock, cash, expenses, payroll, delivery, routes, customers, and staff from one report.</p></div><div className="report-actions"><button className="button" type="button" onClick={() => window.open(exportUrl, '_blank')}><Download size={15} />CSV</button><button className="button" type="button" onClick={() => window.print()}><Printer size={15} />Print</button></div></header>
+        <header className="master-heading report-heading"><div><p className="eyebrow">REPORTING</p><h1>{locale === 'my' ? 'လုပ်ငန်းဆိုင်ရာ အစီရင်ခံစာ' : 'Operations report'}</h1><span className="muted">Review sales, stock, cash, expenses, payroll, delivery, routes, customers, and staff from one report.</span></div><ShellPageActions className="report-actions"><button className="button" type="button" onClick={() => window.open(exportUrl, '_blank')}><Download size={15} />CSV</button><button className="button" type="button" onClick={() => window.print()}><Printer size={15} />Print</button></ShellPageActions></header>
 
         <section className="master-panel report-filter-panel">
             <form onSubmit={(event) => { event.preventDefault(); setApplied({ ...filters }); }}>
@@ -86,7 +87,7 @@ export function OperationsReportScreen({ locale = 'en' }) {
         </section>
 
         {state.error && <p className="form-alert">{state.error}</p>}
-        <div className="report-metrics">
+        <div className="metrics report-metrics">
             <Metric icon={TrendingUp} label="Sales" value={money(summary.sales)} hint={`${number(summary.orders)} orders · ${money(summary.average_order_value)} average`} />
             <Metric icon={Package} label="Stock movement" value={`${number(summary.stock_in)} in`} hint={`${number(summary.stock_out)} out · ${money(summary.stock_value)} current value`} />
             <Metric icon={WalletCards} label="Cash net" value={money(summary.cash_net)} hint={`${money(summary.cash_in)} in · ${money(summary.cash_out)} out`} />
@@ -96,14 +97,15 @@ export function OperationsReportScreen({ locale = 'en' }) {
         </div>
 
         <section className="master-panel report-trend-panel">
-            <header><div><h2>Period trend</h2><span>{report.period?.grouping === 'month' ? 'Monthly totals' : 'Daily totals'}</span></div></header>
+            <header className="report-panel-heading"><div><p className="eyebrow">REPORT TREND</p><h2>Period trend</h2><span>{report.period?.grouping === 'month' ? 'Monthly totals' : 'Daily totals'} · {applied.date_from} to {applied.date_to}</span></div></header>
             {state.loading ? <p className="report-empty">Loading report…</p> : !(report.trend || []).length ? <p className="report-empty">No trend data for this period.</p> : <div className="report-trend-scroll">{report.trend.map((item) => <article key={item.label}><div className="report-bars"><i className="sales" style={{ height: `${Math.max(2, Number(item.sales || 0) / trendMax * 100)}%` }} title={`Sales ${money(item.sales)}`} /><i className="cash" style={{ height: `${Math.max(2, Number(item.cash_in || 0) / trendMax * 100)}%` }} title={`Cash in ${money(item.cash_in)}`} /><i className="expense" style={{ height: `${Math.max(2, Number(item.expenses || 0) / trendMax * 100)}%` }} title={`Expense ${money(item.expenses)}`} /></div><small title={item.label}>{report.period?.grouping === 'month' ? item.label : item.label.slice(5)}</small></article>)}</div>}
             <footer><span><i className="sales" />Sales</span><span><i className="cash" />Cash in</span><span><i className="expense" />Expense</span></footer>
         </section>
 
         <section className="master-panel report-breakdown-panel">
-            <div className="report-tabs" role="tablist">{Object.entries(sections).map(([key, config]) => <button className={section === key ? 'is-active' : ''} type="button" role="tab" aria-selected={section === key} onClick={() => setSection(key)} key={key}>{config.label}</button>)}</div>
-            <div className="master-table-wrap"><table className="master-table"><thead><tr>{sections[section].columns.map(([, label, type]) => <th className={type ? 'numeric' : ''} key={label}>{label}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, index) => <tr key={`${row.code || row.name}-${index}`}>{sections[section].columns.map(([key, label, type]) => <td className={type ? 'numeric' : ''} key={label}>{formatValue(row[key], type)}</td>)}</tr>) : <tr><td className="report-empty" colSpan={sections[section].columns.length}>No records for this report section.</td></tr>}</tbody></table></div>
+            <header className="report-panel-heading"><div><p className="eyebrow">DETAILS</p><h2>Operational breakdown</h2><span>{sections[section].label} for the selected period</span></div><strong>{rows.length} records</strong></header>
+            <div className="customer-history-tabs report-tabs" role="tablist">{Object.entries(sections).map(([key, config]) => <button className={section === key ? 'is-active' : ''} type="button" role="tab" aria-selected={section === key} onClick={() => setSection(key)} key={key}>{config.label}</button>)}</div>
+            <div className="master-table-wrap"><table className="master-table operations-report-table"><thead><tr>{sections[section].columns.map(([, label, type]) => <th className={type ? 'numeric' : ''} key={label}>{label}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, index) => <tr key={`${row.code || row.name}-${index}`}>{sections[section].columns.map(([key, label, type]) => <td className={type ? 'numeric' : ''} key={label}>{formatValue(row[key], type)}</td>)}</tr>) : <tr><td className="report-empty" colSpan={sections[section].columns.length}>No records for this report section.</td></tr>}</tbody></table></div>
         </section>
     </section>;
 }

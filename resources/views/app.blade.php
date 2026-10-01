@@ -17,6 +17,9 @@
                 auth: {
                     user: @json(url('/api/auth/user')),
                     login: @json(url('/api/auth/login')),
+                    register: @json(url('/api/auth/register')),
+                    googleRedirect: @json(url('/api/auth/google/redirect')),
+                    googleEnabled: @json(filled(config('services.google.client_id')) && filled(config('services.google.client_secret')) && filled(config('services.google.redirect'))),
                     logout: @json(url('/api/auth/logout')),
                     preferences: @json(url('/api/auth/preferences')),
                     profile: @json(url('/api/auth/profile')),
@@ -25,8 +28,10 @@
                 api: {
                     actionAlerts: @json(url('/api/action-alerts')),
                     companySettings: @json(url('/api/settings/company')),
+                    printSettings: @json(url('/api/settings/printing')),
                     masterData: @json(url('/api/master-data')),
                     mobileMaster: @json(url('/api/mobile/master')),
+                    mobileSalesVisits: @json(url('/api/mobile/sales-visits')),
                     mobileAttendance: @json(url('/api/mobile/attendance')),
                     mobilePayroll: @json(url('/api/mobile/payroll')),
                     mobileOrders: @json(url('/api/mobile/orders')),

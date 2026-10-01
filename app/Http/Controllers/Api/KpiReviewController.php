@@ -14,7 +14,7 @@ class KpiReviewController extends Controller
 {
     public function meta(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.view');
+        $this->authorizePermission($request, 'office.kpi.view');
 
         $templates = DB::table('kpi_templates')
             ->where('is_active', true)
@@ -45,16 +45,16 @@ class KpiReviewController extends Controller
 
     public function targets(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.view');
+        $this->authorizePermission($request, 'office.kpi.view');
         $validated = $request->validate([
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
             'template_id' => ['nullable', 'integer', 'exists:kpi_templates,id'],
             'search' => ['nullable', 'string', 'max:100'],
         ]);
 
         $templates = DB::table('kpi_templates')
             ->where('is_active', true)
-            ->orderByRaw("FIELD(code, 'SALES-REP-V1', 'SALES-SUPERVISOR-V1', 'DRIVER-V1', 'HELPER-V1', 'STOREKEEPER-V1')")
+            ->orderByRaw("FIELD(code, 'OFFICE-STAFF-V1', 'SALES-REP-V1', 'SALES-SUPERVISOR-V1', 'DRIVER-V1', 'HELPER-V1', 'STOREKEEPER-V1')")
             ->orderBy('name')
             ->get()
             ->map(function ($template) {
@@ -130,7 +130,7 @@ class KpiReviewController extends Controller
 
     public function employeeTarget(Request $request, int $employeeId)
     {
-        $this->authorizePermission($request, 'office.payroll.view');
+        $this->authorizePermission($request, 'office.kpi.view');
         $employee = DB::table('employees')
             ->leftJoin('kpi_staff_profiles', 'employees.id', '=', 'kpi_staff_profiles.employee_id')
             ->leftJoin('kpi_templates', 'kpi_staff_profiles.kpi_template_id', '=', 'kpi_templates.id')
@@ -151,6 +151,7 @@ class KpiReviewController extends Controller
 
         $templates = DB::table('kpi_templates')
             ->where('is_active', true)
+            ->where('employee_type', $employee->employee_type)
             ->orderBy('employee_type')
             ->orderBy('name')
             ->get()
@@ -173,7 +174,7 @@ class KpiReviewController extends Controller
 
     public function saveRoleTarget(Request $request, int $templateId)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.manage');
         $template = DB::table('kpi_templates')->where('id', $templateId)->where('is_active', true)->first();
         abort_unless($template, 404, 'Active KPI role not found.');
 
@@ -259,7 +260,7 @@ class KpiReviewController extends Controller
 
     public function saveTarget(Request $request, int $employeeId)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.manage');
         $employee = DB::table('employees')->where('id', $employeeId)->where('is_active', true)->first();
         abort_unless($employee, 404, 'Active employee not found.');
 
@@ -279,6 +280,7 @@ class KpiReviewController extends Controller
 
         $template = DB::table('kpi_templates')->where('id', $validated['template_id'])->where('is_active', true)->first();
         abort_unless($template, 422, 'Choose an active KPI role.');
+        abort_unless($template->employee_type === $employee->employee_type, 422, 'Choose a KPI role for this employee category.');
         $metrics = DB::table('kpi_template_metrics')->where('kpi_template_id', $template->id)->orderBy('sort_order')->get();
         $metricIds = $metrics->pluck('id')->map(fn ($id) => (int) $id)->all();
         $targets = collect($validated['targets'] ?? [])->keyBy(fn ($target) => (int) $target['metric_id']);
@@ -362,26 +364,34 @@ class KpiReviewController extends Controller
 
     public function index(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.view');
+        $this->authorizePermission($request, 'office.kpi.view');
+        $validated = $request->validate([
+            'month' => ['nullable', 'date_format:Y-m'],
+            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
+            'template_id' => ['nullable', 'integer', 'exists:kpi_templates,id'],
+            'status' => ['nullable', Rule::in(['draft', 'submitted', 'approved'])],
+            'search' => ['nullable', 'string', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+        $selectedMonth = $validated['month'] ?? now()->format('Y-m');
+        $this->ensureMonthlyReviews($selectedMonth, createdBy: $request->user()?->id, refreshExisting: true);
 
         $query = DB::table('kpi_results')
             ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
             ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
             ->join('employees', 'kpi_results.employee_id', '=', 'employees.id');
 
-        if ($request->filled('month')) {
-            $query->where('kpi_periods.month', $request->query('month'));
+        $query->where('kpi_periods.month', $selectedMonth);
+        if (! empty($validated['employee_type'])) {
+            $query->where('kpi_templates.employee_type', $validated['employee_type']);
         }
-        if ($request->filled('employee_type')) {
-            $query->where('kpi_templates.employee_type', $request->query('employee_type'));
+        if (! empty($validated['template_id'])) {
+            $query->where('kpi_results.kpi_template_id', $validated['template_id']);
         }
-        if ($request->filled('template_id')) {
-            $query->where('kpi_results.kpi_template_id', $request->query('template_id'));
+        if (! empty($validated['status'])) {
+            $query->where('kpi_results.status', $validated['status']);
         }
-        if ($request->filled('status')) {
-            $query->where('kpi_results.status', $request->query('status'));
-        }
-        if ($search = trim((string) $request->query('search'))) {
+        if ($search = trim((string) ($validated['search'] ?? ''))) {
             $query->where(function ($query) use ($search) {
                 $query->where('employees.name', 'like', "%{$search}%")
                     ->orWhere('employees.code', 'like', "%{$search}%");
@@ -415,7 +425,7 @@ class KpiReviewController extends Controller
                 'employees.name as employee_name'
             )
             ->orderBy('employees.name')
-            ->paginate(min(max((int) $request->query('per_page', 30), 1), 100));
+            ->paginate((int) ($validated['per_page'] ?? 30));
 
         return ApiResponse::success('KPI reviews loaded.', [
             'items' => collect($paginator->items())->map(fn ($result) => $this->resultPayload($result)),
@@ -442,6 +452,8 @@ class KpiReviewController extends Controller
         $validated = $request->validate([
             'month' => ['nullable', 'date_format:Y-m'],
         ]);
+        $selectedMonth = $validated['month'] ?? now()->format('Y-m');
+        $this->ensureMonthlyReviews($selectedMonth, createdBy: $user->id, refreshExisting: true);
 
         $baseQuery = DB::table('kpi_results')
             ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
@@ -465,7 +477,6 @@ class KpiReviewController extends Controller
             ->get()
             ->map(fn ($result) => $this->resultPayload($result));
 
-        $selectedMonth = $validated['month'] ?? now()->format('Y-m');
         $result = (clone $baseQuery)->where('kpi_periods.month', $selectedMonth)->first();
         if (! $result && ! array_key_exists('month', $validated)) {
             $result = (clone $baseQuery)->orderByDesc('kpi_periods.month')->first();
@@ -489,12 +500,12 @@ class KpiReviewController extends Controller
 
     public function report(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.view');
+        $this->authorizePermission($request, 'office.kpi.view');
         $validated = $request->validate([
             'period' => ['nullable', Rule::in(['month', 'year'])],
             'month' => ['nullable', 'date_format:Y-m'],
             'year' => ['nullable', 'integer', 'between:2020,2100'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
             'employee_id' => ['nullable', 'integer', 'exists:employees,id'],
         ]);
 
@@ -503,6 +514,10 @@ class KpiReviewController extends Controller
         $year = (int) ($validated['year'] ?? substr($month, 0, 4));
         $employeeType = $validated['employee_type'] ?? null;
         $employeeId = $validated['employee_id'] ?? null;
+
+        if ($period === 'month') {
+            $this->ensureMonthlyReviews($month, createdBy: $request->user()?->id, refreshExisting: true);
+        }
 
         $query = fn () => DB::table('kpi_results')
             ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
@@ -633,95 +648,21 @@ class KpiReviewController extends Controller
 
     public function generate(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.manage');
         $validated = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
             'template_id' => ['nullable', 'integer', 'exists:kpi_templates,id', 'required_without:employee_type'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'driver', 'warehouse']), 'required_without:template_id'],
+            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse']), 'required_without:template_id'],
         ]);
 
-        $month = Carbon::createFromFormat('Y-m', $validated['month'])->startOfMonth();
-        $generation = DB::transaction(function () use ($month, $request, $validated) {
-            $templateQuery = DB::table('kpi_templates')->where('is_active', true);
-            if (! empty($validated['template_id'])) {
-                $templateQuery->where('id', $validated['template_id']);
-            } else {
-                $templateQuery->where('employee_type', $validated['employee_type'])->orderBy('id');
-            }
-            $template = $templateQuery->first();
-            abort_unless($template, 422, 'No active KPI role was found.');
-
-            $periodId = DB::table('kpi_periods')->where('month', $validated['month'])->value('id');
-            if (! $periodId) {
-                $periodId = DB::table('kpi_periods')->insertGetId([
-                    'month' => $validated['month'],
-                    'period_start' => $month->toDateString(),
-                    'period_end' => $month->copy()->endOfMonth()->toDateString(),
-                    'status' => 'open',
-                    'created_by' => $request->user()?->id,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
-
-            $employees = DB::table('kpi_staff_profiles')
-                ->join('employees', 'kpi_staff_profiles.employee_id', '=', 'employees.id')
-                ->where('kpi_staff_profiles.kpi_template_id', $template->id)
-                ->where('employees.is_active', true)
-                ->orderBy('employees.name')
-                ->get(['employees.id', 'kpi_staff_profiles.id as profile_id', 'kpi_staff_profiles.target_bonus']);
-            abort_if($employees->isEmpty(), 422, 'No active staff are assigned to this KPI role. Set staff targets first.');
-
-            $metrics = DB::table('kpi_template_metrics')
-                ->where('kpi_template_id', $template->id)
-                ->orderBy('sort_order')
-                ->get();
-            $created = 0;
-            $refreshed = 0;
-            foreach ($employees as $employee) {
-                $staffTargets = DB::table('kpi_staff_target_items')
-                    ->where('kpi_staff_profile_id', $employee->profile_id)
-                    ->pluck('target_value', 'kpi_template_metric_id');
-                $result = DB::table('kpi_results')
-                    ->where('kpi_period_id', $periodId)
-                    ->where('employee_id', $employee->id)
-                    ->first();
-                if (! $result) {
-                    $resultId = DB::table('kpi_results')->insertGetId([
-                        'kpi_period_id' => $periodId,
-                        'kpi_template_id' => $template->id,
-                        'employee_id' => $employee->id,
-                        'status' => 'draft',
-                        'target_bonus' => $employee->target_bonus,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                    foreach ($metrics as $metric) {
-                        DB::table('kpi_result_items')->insert([
-                            'kpi_result_id' => $resultId,
-                            'kpi_template_metric_id' => $metric->id,
-                            'target_value' => $staffTargets->get($metric->id) ?? $metric->default_target,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    }
-                    $this->recalculate($resultId);
-                    $created++;
-                } else {
-                    $resultId = $result->id;
-                }
-
-                $currentStatus = $result->status ?? 'draft';
-                if (in_array($template->code, ['SALES-REP-V1', 'DRIVER-V1'], true) && $currentStatus === 'draft') {
-                    $template->code === 'SALES-REP-V1'
-                        ? $this->syncSalesActuals($resultId)
-                        : $this->syncDriverActuals($resultId);
-                    $refreshed++;
-                }
-            }
-
-            return ['created' => $created, 'refreshed' => $refreshed];
-        });
+        $generation = $this->ensureMonthlyReviews(
+            $validated['month'],
+            $validated['template_id'] ?? null,
+            $validated['employee_type'] ?? null,
+            $request->user()?->id,
+            true,
+        );
+        abort_if($generation['eligible'] === 0, 422, 'No active staff are assigned to this KPI role. Set staff targets first.');
 
         $message = $generation['created']
             ? "{$generation['created']} KPI review(s) created and current figures loaded."
@@ -730,16 +671,117 @@ class KpiReviewController extends Controller
         return ApiResponse::success($message, $generation);
     }
 
+    public function ensureMonthlyReviews(
+        string $monthValue,
+        ?int $templateId = null,
+        ?string $employeeType = null,
+        ?int $createdBy = null,
+        bool $refreshExisting = false,
+    ): array {
+        $month = Carbon::createFromFormat('Y-m', $monthValue)->startOfMonth();
+
+        return DB::transaction(function () use ($monthValue, $month, $templateId, $employeeType, $createdBy, $refreshExisting) {
+            $now = now();
+            DB::table('kpi_periods')->upsert([[
+                'month' => $monthValue,
+                'period_start' => $month->toDateString(),
+                'period_end' => $month->copy()->endOfMonth()->toDateString(),
+                'status' => 'open',
+                'created_by' => $createdBy,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]], ['month'], ['period_start', 'period_end', 'updated_at']);
+            $periodId = (int) DB::table('kpi_periods')->where('month', $monthValue)->value('id');
+
+            $profiles = DB::table('kpi_staff_profiles')
+                ->join('employees', 'kpi_staff_profiles.employee_id', '=', 'employees.id')
+                ->join('kpi_templates', 'kpi_staff_profiles.kpi_template_id', '=', 'kpi_templates.id')
+                ->where('employees.is_active', true)
+                ->where('kpi_templates.is_active', true)
+                ->when($templateId, fn ($query) => $query->where('kpi_templates.id', $templateId))
+                ->when($employeeType, fn ($query) => $query->where('kpi_templates.employee_type', $employeeType))
+                ->orderBy('employees.name')
+                ->get([
+                    'employees.id as employee_id',
+                    'kpi_staff_profiles.id as profile_id',
+                    'kpi_staff_profiles.target_bonus',
+                    'kpi_templates.id as template_id',
+                    'kpi_templates.code as template_code',
+                ]);
+
+            $metricsByTemplate = [];
+            $created = 0;
+            $refreshed = 0;
+            foreach ($profiles as $profile) {
+                $metrics = $metricsByTemplate[$profile->template_id] ??= DB::table('kpi_template_metrics')
+                    ->where('kpi_template_id', $profile->template_id)
+                    ->orderBy('sort_order')
+                    ->get();
+                $staffTargets = DB::table('kpi_staff_target_items')
+                    ->where('kpi_staff_profile_id', $profile->profile_id)
+                    ->pluck('target_value', 'kpi_template_metric_id');
+                $inserted = DB::table('kpi_results')->insertOrIgnore([
+                    'kpi_period_id' => $periodId,
+                    'kpi_template_id' => $profile->template_id,
+                    'employee_id' => $profile->employee_id,
+                    'status' => 'draft',
+                    'target_bonus' => $profile->target_bonus,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+                $result = DB::table('kpi_results')
+                    ->where('kpi_period_id', $periodId)
+                    ->where('employee_id', $profile->employee_id)
+                    ->first();
+                if (! $result) {
+                    continue;
+                }
+
+                foreach ($metrics as $metric) {
+                    DB::table('kpi_result_items')->insertOrIgnore([
+                        'kpi_result_id' => $result->id,
+                        'kpi_template_metric_id' => $metric->id,
+                        'target_value' => $staffTargets->get($metric->id) ?? $metric->default_target,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                }
+
+                if ($inserted) {
+                    $created++;
+                    $this->recalculate((int) $result->id);
+                }
+                if (($inserted || $refreshExisting) && $result->status === 'draft' && in_array($profile->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1'], true)) {
+                    $this->syncAutomaticActuals((int) $result->id, $profile->template_code);
+                    $refreshed++;
+                }
+            }
+
+            return ['eligible' => $profiles->count(), 'created' => $created, 'refreshed' => $refreshed];
+        });
+    }
+
     public function show(Request $request, int $id)
     {
-        $this->authorizePermission($request, 'office.payroll.view');
+        $this->authorizePermission($request, 'office.kpi.view');
+        $result = DB::table('kpi_results')
+            ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
+            ->where('kpi_results.id', $id)
+            ->select('kpi_results.status', 'kpi_templates.code as template_code')
+            ->first();
+        abort_unless($result, 404);
+        if ($result->status === 'draft') {
+            if (in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1'], true)) {
+                $this->syncAutomaticActuals($id, $result->template_code);
+            }
+        }
 
         return ApiResponse::success('KPI review loaded.', $this->detailPayload($id));
     }
 
     public function update(Request $request, int $id)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.manage');
         $result = DB::table('kpi_results')->where('id', $id)->first();
         abort_unless($result, 404);
         abort_unless($result->status === 'draft', 409, 'Only draft KPI reviews can be edited.');
@@ -784,7 +826,7 @@ class KpiReviewController extends Controller
 
     public function refresh(Request $request, int $id)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.manage');
         $result = DB::table('kpi_results')
             ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
             ->where('kpi_results.id', $id)
@@ -792,18 +834,15 @@ class KpiReviewController extends Controller
             ->first();
         abort_unless($result, 404);
         abort_unless($result->status === 'draft', 409, 'Only draft KPI reviews can refresh source figures.');
-        abort_unless(in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1'], true), 422, 'Automatic refresh is not available for this KPI role.');
-
-        $result->template_code === 'SALES-REP-V1'
-            ? $this->syncSalesActuals($id)
-            : $this->syncDriverActuals($id);
+        abort_unless(in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1'], true), 422, 'Automatic refresh is not available for this KPI role.');
+        $this->syncAutomaticActuals($id, $result->template_code);
 
         return ApiResponse::success(ucfirst($result->employee_type).' figures refreshed.', $this->detailPayload($id));
     }
 
     public function submit(Request $request, int $id)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.manage');
         $result = DB::table('kpi_results')->where('id', $id)->first();
         abort_unless($result, 404);
         abort_unless($result->status === 'draft', 409, 'Only draft KPI reviews can be submitted.');
@@ -824,10 +863,13 @@ class KpiReviewController extends Controller
 
     public function approve(Request $request, int $id)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.approve');
         $result = DB::table('kpi_results')->where('id', $id)->first();
         abort_unless($result, 404);
         abort_unless($result->status === 'submitted', 409, 'Only submitted KPI reviews can be approved.');
+        if ($request->user()?->role === 'Finance Manager') {
+            abort_if($result->submitted_by === $request->user()->id, 409, 'The KPI review submitter cannot approve their own review.');
+        }
 
         DB::table('kpi_results')->where('id', $id)->update([
             'status' => 'approved',
@@ -841,7 +883,7 @@ class KpiReviewController extends Controller
 
     public function postBonus(Request $request, int $id)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, 'office.kpi.approve');
 
         DB::transaction(function () use ($id, $request) {
             $result = DB::table('kpi_results')->where('id', $id)->lockForUpdate()->first();
@@ -1043,6 +1085,39 @@ class KpiReviewController extends Controller
         $this->recalculate($resultId);
     }
 
+    private function syncOfficeActuals(int $resultId): void
+    {
+        $result = DB::table('kpi_results')
+            ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
+            ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
+            ->where('kpi_results.id', $resultId)
+            ->where('kpi_templates.code', 'OFFICE-STAFF-V1')
+            ->select('kpi_results.employee_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
+            ->first();
+        abort_unless($result, 422, 'Office KPI review not found.');
+
+        $start = Carbon::parse($result->period_start)->startOfDay();
+        $end = Carbon::parse($result->period_end)->endOfDay();
+        $attendanceDays = DB::table('attendance_records')
+            ->where('employee_id', $result->employee_id)
+            ->where('status', 'accepted')
+            ->whereBetween('attendance_at', [$start, $end])
+            ->distinct()
+            ->count(DB::raw('DATE(attendance_at)'));
+        $this->updateSourceMetric($resultId, 'OFF-ATTENDANCE', $attendanceDays, $attendanceDays, "{$attendanceDays} accepted attendance day(s)");
+        $this->recalculate($resultId);
+    }
+
+    private function syncAutomaticActuals(int $resultId, string $templateCode): void
+    {
+        match ($templateCode) {
+            'SALES-REP-V1' => $this->syncSalesActuals($resultId),
+            'DRIVER-V1' => $this->syncDriverActuals($resultId),
+            'OFFICE-STAFF-V1' => $this->syncOfficeActuals($resultId),
+            default => null,
+        };
+    }
+
     private function updateSourceMetric(int $resultId, string $metricCode, float|int $actual, int $sourceCount, string $sourceNote, mixed $target = null): void
     {
         $metricId = DB::table('kpi_template_metrics')->where('code', $metricCode)->value('id');
@@ -1197,11 +1272,11 @@ class KpiReviewController extends Controller
         }
 
         return str_starts_with($code, 'SAL-')
-            || in_array($code, ['DRV-ATTENDANCE', 'DRV-COMPLETION'], true);
+            || in_array($code, ['DRV-ATTENDANCE', 'DRV-COMPLETION', 'OFF-ATTENDANCE'], true);
     }
 
-    private function authorizePermission(Request $request, string $permission): void
+    private function authorizePermission(Request $request, string|array $permission): void
     {
-        abort_unless(in_array($permission, AppAccess::permissionsForRole($request->user()?->role), true), 403);
+        abort_unless(array_intersect((array) $permission, AppAccess::permissionsForRole($request->user()?->role)), 403);
     }
 }

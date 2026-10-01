@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,29 +19,43 @@ use Illuminate\Validation\ValidationException;
 
 class MasterDataController extends Controller
 {
+    private const DEFAULT_KPI_TEMPLATE_BY_EMPLOYEE_TYPE = [
+        'office' => 'OFFICE-STAFF-V1',
+        'sales' => 'SALES-REP-V1',
+        'sales_supervisor' => 'SALES-SUPERVISOR-V1',
+        'driver' => 'DRIVER-V1',
+        'warehouse' => 'STOREKEEPER-V1',
+    ];
+
+    public function __construct(private readonly CustomerCreditService $customerCredit)
+    {
+    }
+
     public function meta(Request $request)
     {
-        $this->authorizeOffice($request, 'office.master-data.view');
+        $this->authorizeAnyMasterView($request);
 
-        $resources = collect($this->resources())->map(fn ($config, $key) => [
+        $resources = collect($this->resources())->filter(fn ($config, $key) => $this->canUseResource($request, $key, 'view'))->map(fn ($config, $key) => [
             'key' => $key,
             'label' => $config['label'],
             'singular' => $config['singular'],
             'description' => $config['description'],
-            'fields' => $config['fields'],
+            'fields' => $key === 'employees' && ! $this->canManageUserAccess($request)
+                ? array_values(array_filter($config['fields'], fn ($field) => ! in_array($field['name'], ['access_role', 'password', 'password_confirmation'], true)))
+                : $config['fields'],
             'list' => $config['list'],
         ])->values();
 
         return ApiResponse::success('Master data setup loaded.', [
             'resources' => $resources,
-            'options' => $this->optionLists(),
+            'options' => $this->optionLists($request),
         ]);
     }
 
     public function index(Request $request, string $resource)
     {
-        $this->authorizeOffice($request, 'office.master-data.view');
         $config = $this->resource($resource);
+        $this->authorizeMasterResource($request, $resource, 'view');
         $query = DB::table($config['table']);
         if (Schema::hasColumn($config['table'], 'deleted_at')) {
             $query->whereNull('deleted_at');
@@ -60,7 +76,29 @@ class MasterDataController extends Controller
 
         foreach ($config['filters'] ?? [] as $filter) {
             if ($request->filled($filter)) {
-                $query->where($filter, $request->query($filter));
+                $value = $request->query($filter);
+                $value === '__none__' ? $query->whereNull($filter) : $query->where($filter, $value);
+            }
+        }
+
+        if ($resource === 'employees') {
+            if ($request->filled('assigned_vehicle_id')) {
+                $vehicleId = $request->query('assigned_vehicle_id');
+                $relation = fn ($vehicles) => $vehicles
+                    ->selectRaw('1')
+                    ->from('vehicles')
+                    ->whereColumn('vehicles.assigned_driver_id', 'employees.id');
+
+                $vehicleId === '__none__'
+                    ? $query->whereNotExists($relation)
+                    : $query->whereExists(fn ($vehicles) => $relation($vehicles)->where('vehicles.id', $vehicleId));
+            }
+
+            if ($request->filled('hire_date_from')) {
+                $query->whereDate('hire_date', '>=', $request->query('hire_date_from'));
+            }
+            if ($request->filled('hire_date_to')) {
+                $query->whereDate('hire_date', '<=', $request->query('hire_date_to'));
             }
         }
 
@@ -81,8 +119,8 @@ class MasterDataController extends Controller
 
     public function show(Request $request, string $resource, int $id)
     {
-        $this->authorizeOffice($request, 'office.master-data.view');
         $config = $this->resource($resource);
+        $this->authorizeMasterResource($request, $resource, 'view');
         $query = DB::table($config['table'])->where('id', $id);
         if (Schema::hasColumn($config['table'], 'deleted_at')) {
             $query->whereNull('deleted_at');
@@ -93,6 +131,328 @@ class MasterDataController extends Controller
         return ApiResponse::success("{$config['singular']} loaded.", [
             'item' => $this->decorate($resource, (array) $item),
         ]);
+    }
+
+    public function customerDetail(Request $request, int $id)
+    {
+        $this->authorizeOffice($request, 'office.master-data.view');
+
+        $customer = DB::table('customers')
+            ->leftJoin('areas', 'customers.area_id', '=', 'areas.id')
+            ->leftJoin('routes', 'customers.route_id', '=', 'routes.id')
+            ->leftJoin('price_types', 'customers.price_type_id', '=', 'price_types.id')
+            ->where('customers.id', $id)
+            ->select(
+                'customers.*',
+                'areas.name as area',
+                'routes.name as route',
+                'price_types.name as price_type',
+            )
+            ->first();
+        abort_unless($customer, 404);
+
+        $itemCounts = DB::table('order_items')
+            ->select('order_id')
+            ->selectRaw('COUNT(*) as items_count')
+            ->groupBy('order_id');
+
+        $sales = DB::table('orders')
+            ->leftJoinSub($itemCounts, 'order_item_counts', fn ($join) => $join->on('orders.id', '=', 'order_item_counts.order_id'))
+            ->leftJoin('invoices', function ($join) {
+                $join->on('orders.id', '=', 'invoices.order_id')
+                    ->where('invoices.status', '!=', 'cancelled');
+            })
+            ->where('orders.customer_id', $id)
+            ->whereNull('orders.original_order_id')
+            ->orderByDesc('orders.order_date')
+            ->orderByDesc('orders.id')
+            ->limit(50)
+            ->get([
+                'orders.id', 'orders.code', 'orders.order_date', 'orders.requested_delivery_date',
+                'orders.payment_type', 'orders.status', 'orders.total',
+                'invoices.code as invoice_code', 'invoices.due_date',
+                DB::raw('COALESCE(order_item_counts.items_count, 0) as items_count'),
+            ])
+            ->map(function ($order) {
+                $order->total = (float) $order->total;
+                $order->items_count = (int) $order->items_count;
+
+                return $order;
+            });
+
+        $validSales = $sales->where('status', '!=', 'cancelled');
+        $credit = $this->customerCredit->summary($id);
+        $pendingAmount = (float) DB::table('collections')
+            ->where('customer_id', $id)
+            ->where('status', 'submitted')
+            ->sum('amount');
+
+        $payments = DB::table('collections')
+            ->leftJoin('invoices', 'collections.invoice_id', '=', 'invoices.id')
+            ->leftJoin('employees', 'collections.employee_id', '=', 'employees.id')
+            ->where('collections.customer_id', $id)
+            ->orderByDesc('collections.collection_date')
+            ->orderByDesc('collections.id')
+            ->limit(50)
+            ->get([
+                'collections.id', 'collections.code', 'collections.collection_date', 'collections.amount',
+                'collections.payment_method', 'collections.reference_no', 'collections.source_app',
+                'collections.status', 'invoices.code as invoice_code', 'employees.name as employee_name',
+            ])
+            ->map(function ($payment) {
+                $payment->amount = (float) $payment->amount;
+
+                return $payment;
+            });
+
+        $customer->credit_limit = (float) $customer->credit_limit;
+
+        return ApiResponse::success('Customer detail loaded.', [
+            'customer' => $customer,
+            'summary' => [
+                'orders_count' => $validSales->count(),
+                'total_sales' => (float) $validSales->sum('total'),
+                'average_order' => $validSales->count() ? (float) $validSales->avg('total') : 0,
+                'last_order_date' => $validSales->first()?->order_date,
+                'credit_sales_amount' => $credit['credit_sales_amount'],
+                'collected_amount' => $credit['payments_amount'],
+                'pending_collection_amount' => $pendingAmount,
+                'outstanding_amount' => $credit['outstanding_amount'],
+                'customer_credit_amount' => $credit['customer_credit_amount'],
+                'available_credit' => $customer->credit_limit > 0
+                    ? max($customer->credit_limit - $credit['outstanding_amount'] + $credit['customer_credit_amount'], 0)
+                    : null,
+            ],
+            'sales' => $sales->values(),
+            'payments' => $payments,
+        ]);
+    }
+
+    public function employeeDetail(Request $request, int $id)
+    {
+        $this->authorizeMasterResource($request, 'employees', 'view');
+
+        $validated = $request->validate([
+            'attendance_month' => ['nullable', 'date_format:Y-m'],
+        ]);
+
+        $employee = DB::table('employees')
+            ->leftJoin('routes', 'employees.assigned_route_id', '=', 'routes.id')
+            ->where('employees.id', $id)
+            ->select('employees.*', 'routes.name as assigned_route')
+            ->first();
+        abort_unless($employee, 404);
+
+        $vehicle = DB::table('vehicles')
+            ->where('assigned_driver_id', $id)
+            ->orderBy('id')
+            ->first(['id', 'code', 'plate_no', 'vehicle_type', 'make', 'model', 'capacity', 'is_active']);
+        $availableVehicles = $employee->employee_type === 'driver'
+            ? DB::table('vehicles')
+                ->where('is_active', true)
+                ->where(function ($query) use ($id) {
+                    $query->whereNull('assigned_driver_id')->orWhere('assigned_driver_id', $id);
+                })
+                ->orderBy('code')
+                ->get(['id', 'code', 'plate_no', 'vehicle_type', 'make', 'model', 'capacity'])
+            : collect();
+        $userId = DB::table('users')->where('employee_id', $id)->value('id');
+        $monthStart = isset($validated['attendance_month'])
+            ? Carbon::createFromFormat('Y-m', $validated['attendance_month'])->startOfMonth()
+            : now()->startOfMonth();
+        $monthEnd = $monthStart->copy()->endOfMonth();
+
+        $attendanceQuery = DB::table('attendance_records')->where('employee_id', $id);
+        $attendanceSummary = [
+            'accepted_this_month' => (clone $attendanceQuery)->where('status', 'accepted')->whereBetween('attendance_at', [$monthStart, $monthEnd])->count(),
+            'rejected_this_month' => (clone $attendanceQuery)->where('status', '!=', 'accepted')->whereBetween('attendance_at', [$monthStart, $monthEnd])->count(),
+            'last_attendance_at' => (clone $attendanceQuery)->max('attendance_at'),
+        ];
+        $attendance = (clone $attendanceQuery)
+            ->leftJoin('attendance_locations', 'attendance_records.attendance_location_id', '=', 'attendance_locations.id')
+            ->whereBetween('attendance_records.attendance_at', [$monthStart, $monthEnd])
+            ->orderByDesc('attendance_records.attendance_at')
+            ->get([
+                'attendance_records.id', 'attendance_records.attendance_at', 'attendance_records.status',
+                'attendance_records.distance_m', 'attendance_records.rejection_reason',
+                'attendance_locations.name as location_name',
+            ]);
+
+        $payroll = DB::table('payroll_items')
+            ->join('payrolls', 'payroll_items.payroll_id', '=', 'payrolls.id')
+            ->where('payroll_items.employee_id', $id)
+            ->orderByDesc('payrolls.month')
+            ->limit(24)
+            ->get([
+                'payroll_items.id', 'payrolls.code', 'payrolls.month', 'payrolls.status',
+                'payroll_items.base_salary', 'payroll_items.allowance_amount', 'payroll_items.incentive_amount',
+                'payroll_items.ot_amount', 'payroll_items.gross_pay', 'payroll_items.advance_deduction',
+                'payroll_items.other_deduction', 'payroll_items.net_pay',
+            ])
+            ->map(function ($item) {
+                foreach (['base_salary', 'allowance_amount', 'incentive_amount', 'ot_amount', 'gross_pay', 'advance_deduction', 'other_deduction', 'net_pay'] as $field) {
+                    $item->{$field} = (float) $item->{$field};
+                }
+
+                return $item;
+            });
+
+        [$roleMetrics, $activity] = match ($employee->employee_type) {
+            'sales' => $this->salesEmployeeActivity($employee, $userId),
+            'sales_supervisor' => $this->salesSupervisorActivity(),
+            'driver' => $this->driverEmployeeActivity($employee),
+            'warehouse' => $this->warehouseEmployeeActivity($userId),
+            default => $this->officeEmployeeActivity($userId),
+        };
+
+        $employee->assigned_vehicle_id = $vehicle?->id;
+        $employee->assigned_vehicle = $vehicle ? $vehicle->code.' · '.$vehicle->plate_no : null;
+
+        return ApiResponse::success('Employee detail loaded.', [
+            'employee' => $employee,
+            'vehicle' => $vehicle,
+            'available_vehicles' => $availableVehicles,
+            'attendance_summary' => $attendanceSummary,
+            'attendance' => $attendance,
+            'payroll' => $payroll,
+            'role_metrics' => $roleMetrics,
+            'activity' => $activity,
+        ]);
+    }
+
+    public function assignEmployeeVehicle(Request $request, int $id)
+    {
+        $this->authorizeMasterResource($request, 'employees', 'manage');
+
+        $employee = DB::table('employees')->where('id', $id)->first(['id', 'employee_type']);
+        abort_unless($employee, 404);
+        if ($employee->employee_type !== 'driver') {
+            throw ValidationException::withMessages([
+                'assigned_vehicle_id' => 'Vehicles can only be assigned to driver employees.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'assigned_vehicle_id' => ['nullable', 'integer', Rule::exists('vehicles', 'id')->where('is_active', true)],
+        ]);
+
+        DB::transaction(function () use ($id, $validated) {
+            $this->syncAssignedVehicle($id, $validated['assigned_vehicle_id'] ?? null);
+        });
+
+        $vehicle = DB::table('vehicles')
+            ->where('assigned_driver_id', $id)
+            ->orderBy('id')
+            ->first(['id', 'code', 'plate_no', 'vehicle_type', 'make', 'model', 'capacity', 'is_active']);
+        $availableVehicles = DB::table('vehicles')
+            ->where('is_active', true)
+            ->where(function ($query) use ($id) {
+                $query->whereNull('assigned_driver_id')->orWhere('assigned_driver_id', $id);
+            })
+            ->orderBy('code')
+            ->get(['id', 'code', 'plate_no', 'vehicle_type', 'make', 'model', 'capacity']);
+
+        return ApiResponse::success('Vehicle assignment updated.', [
+            'vehicle' => $vehicle,
+            'assigned_vehicle_id' => $vehicle?->id,
+            'assigned_vehicle' => $vehicle ? $vehicle->code.' · '.$vehicle->plate_no : null,
+            'available_vehicles' => $availableVehicles,
+        ]);
+    }
+
+    private function salesEmployeeActivity(object $employee, ?int $userId): array
+    {
+        $userId ??= -1;
+        $orders = DB::table('orders')->where('created_by', $userId)->whereNull('original_order_id');
+        $collections = DB::table('collections')->where('employee_id', $employee->id)->whereIn('status', ['submitted', 'approved']);
+        $visits = DB::table('sales_route_visits')->where('employee_id', $employee->id);
+        $metrics = [
+            ['label' => 'Route customers', 'value' => $employee->assigned_route_id ? DB::table('customers')->where('route_id', $employee->assigned_route_id)->where('is_active', true)->count() : 0, 'format' => 'number'],
+            ['label' => 'Orders created', 'value' => (clone $orders)->count(), 'format' => 'number'],
+            ['label' => 'Sales value', 'value' => (float) (clone $orders)->where('status', '!=', 'cancelled')->sum('total'), 'format' => 'money'],
+            ['label' => 'Collections', 'value' => (float) (clone $collections)->sum('amount'), 'format' => 'money'],
+            ['label' => 'Customer visits', 'value' => (clone $visits)->count(), 'format' => 'number'],
+        ];
+        $activity = (clone $orders)->orderByDesc('order_date')->orderByDesc('id')->limit(30)
+            ->get(['id', 'code as reference', 'order_date as date', 'status', 'total as amount'])
+            ->map(fn ($item) => [...(array) $item, 'kind' => 'Order', 'amount' => (float) $item->amount]);
+
+        return [$metrics, $activity];
+    }
+
+    private function driverEmployeeActivity(object $employee): array
+    {
+        $trips = DB::table('delivery_trips')->where('driver_id', $employee->id);
+        $deliveries = DB::table('deliveries')->where('driver_id', $employee->id);
+        $collections = DB::table('collections')->where('employee_id', $employee->id)->whereIn('status', ['submitted', 'approved']);
+        $metrics = [
+            ['label' => 'Delivery trips', 'value' => (clone $trips)->count(), 'format' => 'number'],
+            ['label' => 'Completed trips', 'value' => (clone $trips)->whereIn('status', ['completed', 'delivered'])->count(), 'format' => 'number'],
+            ['label' => 'Delivered units', 'value' => (float) (clone $deliveries)->sum('delivered_quantity'), 'format' => 'number'],
+            ['label' => 'Cash collected', 'value' => (float) (clone $collections)->where('payment_method', 'cash')->sum('amount'), 'format' => 'money'],
+        ];
+        $activity = (clone $trips)->orderByDesc('planned_date')->orderByDesc('id')->limit(30)
+            ->get(['id', 'code as reference', 'planned_date as date', 'status', 'total_quantity as amount'])
+            ->map(fn ($item) => [...(array) $item, 'kind' => 'Trip', 'amount' => (float) $item->amount, 'unit' => 'units']);
+
+        return [$metrics, $activity];
+    }
+
+    private function warehouseEmployeeActivity(?int $userId): array
+    {
+        $userId ??= -1;
+        $movements = DB::table('stock_movements')->where('created_by', $userId);
+        $metrics = [
+            ['label' => 'Stock movements', 'value' => (clone $movements)->count(), 'format' => 'number'],
+            ['label' => 'Units handled', 'value' => (float) (clone $movements)->sum(DB::raw('ABS(signed_quantity)')), 'format' => 'number'],
+            ['label' => 'Receipts', 'value' => (clone $movements)->where('movement_type', 'receive')->count(), 'format' => 'number'],
+            ['label' => 'Adjustments', 'value' => (clone $movements)->where('movement_type', 'adjustment')->count(), 'format' => 'number'],
+        ];
+        $activity = (clone $movements)->orderByDesc('movement_date')->orderByDesc('id')->limit(30)
+            ->get(['id', 'code as reference', 'movement_date as date', 'movement_type as status', 'signed_quantity as amount'])
+            ->map(fn ($item) => [...(array) $item, 'kind' => 'Stock movement', 'amount' => (float) $item->amount, 'unit' => 'units']);
+
+        return [$metrics, $activity];
+    }
+
+    private function officeEmployeeActivity(?int $userId): array
+    {
+        $userId ??= -1;
+        $orders = DB::table('orders')->where('created_by', $userId)->whereNull('original_order_id');
+        $invoices = DB::table('invoices')->where('created_by', $userId);
+        $metrics = [
+            ['label' => 'Orders created', 'value' => (clone $orders)->count(), 'format' => 'number'],
+            ['label' => 'Invoices issued', 'value' => (clone $invoices)->count(), 'format' => 'number'],
+            ['label' => 'Collections reviewed', 'value' => DB::table('collections')->where('reviewed_by', $userId)->count(), 'format' => 'number'],
+            ['label' => 'Expenses reviewed', 'value' => DB::table('expenses')->where('reviewed_by', $userId)->count(), 'format' => 'number'],
+        ];
+        $activity = (clone $orders)->orderByDesc('order_date')->orderByDesc('id')->limit(30)
+            ->get(['id', 'code as reference', 'order_date as date', 'status', 'total as amount'])
+            ->map(fn ($item) => [...(array) $item, 'kind' => 'Order', 'amount' => (float) $item->amount]);
+
+        return [$metrics, $activity];
+    }
+
+    private function salesSupervisorActivity(): array
+    {
+        $salesUsers = DB::table('users')
+            ->join('employees', 'users.employee_id', '=', 'employees.id')
+            ->where('employees.employee_type', 'sales')
+            ->where('employees.is_active', true)
+            ->select('users.id');
+        $orders = DB::table('orders')->whereIn('created_by', $salesUsers)->whereNull('original_order_id');
+        $salesEmployeeIds = DB::table('employees')->where('employee_type', 'sales')->where('is_active', true)->select('id');
+        $metrics = [
+            ['label' => 'Sales representatives', 'value' => DB::table('employees')->where('employee_type', 'sales')->where('is_active', true)->count(), 'format' => 'number'],
+            ['label' => 'All sales orders', 'value' => (clone $orders)->count(), 'format' => 'number'],
+            ['label' => 'All sales order value', 'value' => (float) (clone $orders)->where('status', '!=', 'cancelled')->sum('total'), 'format' => 'money'],
+            ['label' => 'All sales collections', 'value' => (float) DB::table('collections')->whereIn('employee_id', $salesEmployeeIds)->where('status', 'approved')->sum('amount'), 'format' => 'money'],
+        ];
+        $activity = (clone $orders)->orderByDesc('order_date')->orderByDesc('id')->limit(30)
+            ->get(['id', 'code as reference', 'order_date as date', 'status', 'total as amount'])
+            ->map(fn ($item) => [...(array) $item, 'kind' => 'Sales order', 'amount' => (float) $item->amount]);
+
+        return [$metrics, $activity];
     }
 
     public function productPriceMatrix(Request $request)
@@ -196,18 +556,20 @@ class MasterDataController extends Controller
 
     public function store(Request $request, string $resource)
     {
-        $this->authorizeOffice($request, 'office.master-data.manage');
         $config = $this->resource($resource);
+        $this->authorizeMasterResource($request, $resource, 'manage');
         if ($resource === 'customers' && ! $request->filled('credit_limit')) {
             $request->merge([
                 'credit_limit' => (float) (DB::table('companies')->oldest('id')->value('default_customer_credit_limit') ?? 500000),
             ]);
         }
+        $this->authorizeEmployeeAccountChange($request, $resource);
         $validated = $request->validate($this->rules($resource));
+        $accessRole = $validated['access_role'] ?? null;
         $assignedVehicleId = $resource === 'employees' ? ($validated['assigned_vehicle_id'] ?? null) : null;
         $permissionIds = $validated['permission_ids'] ?? [];
         $password = $validated['password'] ?? null;
-        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation'], $validated['assigned_vehicle_id']);
+        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation'], $validated['assigned_vehicle_id'], $validated['access_role']);
         if ($resource === 'roles') {
             $validated['allowed_apps'] = json_encode($validated['allowed_apps'] ?? []);
         }
@@ -223,16 +585,17 @@ class MasterDataController extends Controller
         $validated['created_at'] = now();
         $validated['updated_at'] = now();
 
-        $id = DB::transaction(function () use ($config, $generateCode, $password, $permissionIds, $resource, $validated, $assignedVehicleId) {
+        $id = DB::transaction(function () use ($config, $generateCode, $password, $permissionIds, $resource, $validated, $assignedVehicleId, $accessRole) {
             $id = DB::table($config['table'])->insertGetId($validated);
             if ($generateCode) {
                 $validated['code'] = $this->generatedCode($resource, $id);
                 DB::table($config['table'])->where('id', $id)->update(['code' => $validated['code']]);
             }
             $this->syncRolePermissions($resource, $id, $permissionIds);
-            $this->syncLoginAccount($resource, $id, $validated, $password);
+            $this->syncLoginAccount($resource, $id, $validated, $password, $accessRole);
             if ($resource === 'employees') {
                 $this->syncAssignedVehicle($id, $validated['employee_type'] === 'driver' ? $assignedVehicleId : null);
+                $this->syncDefaultKpiProfile($id, $validated['employee_type'], $validated['created_by'] ?? null);
             }
 
             return $id;
@@ -245,16 +608,19 @@ class MasterDataController extends Controller
 
     public function update(Request $request, string $resource, int $id)
     {
-        $this->authorizeOffice($request, 'office.master-data.manage');
         $config = $this->resource($resource);
+        $this->authorizeMasterResource($request, $resource, 'manage');
         abort_unless(DB::table($config['table'])->where('id', $id)->exists(), 404);
         $previousRoleName = $resource === 'roles' ? DB::table('roles')->where('id', $id)->value('name') : null;
+        $previousEmployeeType = $resource === 'employees' ? DB::table('employees')->where('id', $id)->value('employee_type') : null;
+        $this->authorizeEmployeeAccountChange($request, $resource, $id);
         $validated = $request->validate($this->rules($resource, $id));
+        $accessRole = $validated['access_role'] ?? null;
         $hasVehicleAssignment = $resource === 'employees' && array_key_exists('assigned_vehicle_id', $validated);
         $assignedVehicleId = $hasVehicleAssignment ? $validated['assigned_vehicle_id'] : null;
         $permissionIds = $validated['permission_ids'] ?? null;
         $password = $validated['password'] ?? null;
-        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation'], $validated['assigned_vehicle_id']);
+        unset($validated['permission_ids'], $validated['password'], $validated['password_confirmation'], $validated['assigned_vehicle_id'], $validated['access_role']);
         if ($resource === 'roles') {
             $validated['allowed_apps'] = json_encode($validated['allowed_apps'] ?? []);
         }
@@ -266,7 +632,7 @@ class MasterDataController extends Controller
         }
         $validated['updated_at'] = now();
 
-        DB::transaction(function () use ($id, $config, $password, $permissionIds, $previousRoleName, $resource, $validated, $hasVehicleAssignment, $assignedVehicleId) {
+        DB::transaction(function () use ($id, $config, $password, $permissionIds, $previousRoleName, $previousEmployeeType, $resource, $validated, $hasVehicleAssignment, $assignedVehicleId, $accessRole) {
             DB::table($config['table'])->where('id', $id)->update($validated);
             if ($resource === 'roles' && $previousRoleName !== $validated['name']) {
                 User::query()->where('role', $previousRoleName)->update(['role' => $validated['name']]);
@@ -275,9 +641,17 @@ class MasterDataController extends Controller
                 $this->syncRolePermissions($resource, $id, $permissionIds);
             }
             $record = (array) DB::table($config['table'])->find($id);
-            $this->syncLoginAccount($resource, $id, $record, $password);
+            $this->syncLoginAccount($resource, $id, $record, $password, $accessRole);
             if ($resource === 'employees' && ($hasVehicleAssignment || $validated['employee_type'] !== 'driver')) {
                 $this->syncAssignedVehicle($id, $validated['employee_type'] === 'driver' ? $assignedVehicleId : null);
+            }
+            if ($resource === 'employees') {
+                $this->syncDefaultKpiProfile(
+                    $id,
+                    $validated['employee_type'],
+                    $validated['updated_by'] ?? null,
+                    $previousEmployeeType !== $validated['employee_type'],
+                );
             }
         });
 
@@ -288,8 +662,8 @@ class MasterDataController extends Controller
 
     public function destroy(Request $request, string $resource, int $id)
     {
-        $this->authorizeOffice($request, 'office.master-data.manage');
         $config = $this->resource($resource);
+        $this->authorizeMasterResource($request, $resource, 'manage');
         if ($this->hasReferences($resource, $id)) {
             return ApiResponse::error(
                 "{$config['singular']} is used by another record and cannot be deleted.",
@@ -325,6 +699,64 @@ class MasterDataController extends Controller
     private function authorizeOffice(Request $request, string $permission): void
     {
         abort_unless($request->user() && in_array($permission, AppAccess::permissionsForRole($request->user()->role), true), 403);
+    }
+
+    private function canManageUserAccess(Request $request): bool
+    {
+        return in_array('office.access.users.manage', AppAccess::permissionsForRole($request->user()?->role), true);
+    }
+
+    private function canUseResource(Request $request, string $resource, string $action): bool
+    {
+        $permissions = AppAccess::permissionsForRole($request->user()?->role);
+        if (in_array($resource, ['roles', 'permissions'], true)) {
+            return in_array('office.access.roles.manage', $permissions, true);
+        }
+
+        if ($resource === 'customers') {
+            return in_array("office.customers.{$action}", $permissions, true)
+                || in_array("office.master-data.{$action}", $permissions, true);
+        }
+
+        $specific = match ($resource) {
+            'employees' => "office.employees.{$action}",
+            'suppliers' => "office.suppliers.{$action}",
+            default => null,
+        };
+
+        if ($specific) {
+            return in_array($specific, $permissions, true)
+                || ($request->user()?->role === 'Owner' && in_array("office.master-data.{$action}", $permissions, true));
+        }
+
+        return in_array("office.master-data.{$action}", $permissions, true);
+    }
+
+    private function authorizeMasterResource(Request $request, string $resource, string $action): void
+    {
+        abort_unless($this->canUseResource($request, $resource, $action), 403);
+    }
+
+    private function authorizeAnyMasterView(Request $request): void
+    {
+        abort_unless(collect(array_keys($this->resources()))->contains(fn ($resource) => $this->canUseResource($request, $resource, 'view')), 403);
+    }
+
+    private function authorizeEmployeeAccountChange(Request $request, string $resource, ?int $employeeId = null): void
+    {
+        if ($resource !== 'employees') {
+            return;
+        }
+        $linked = $employeeId ? User::query()->where('employee_id', $employeeId)->first() : null;
+        $emailChanged = $linked && $request->exists('email') && $request->input('email') !== $linked->email;
+        $typeChanged = $linked && $request->filled('employee_type')
+            && $request->input('employee_type') !== DB::table('employees')->where('id', $employeeId)->value('employee_type');
+        if ($request->filled('access_role') || $request->filled('password') || $emailChanged || $typeChanged) {
+            abort_unless($this->canManageUserAccess($request), 403);
+        }
+        if ($request->filled('access_role') && ! $linked && ! $request->filled('password')) {
+            throw ValidationException::withMessages(['password' => 'Enter a password to create the employee login account.']);
+        }
     }
 
     private function resource(string $resource): array
@@ -397,12 +829,21 @@ class MasterDataController extends Controller
                 'credit_limit' => ['required', 'numeric', 'min:0'],
                 'is_active' => $active,
             ],
+            'suppliers' => [
+                'code' => ['nullable', 'string', 'max:30', $unique('suppliers', 'code')],
+                'name' => ['required', 'string', 'max:150'],
+                'contact_name' => ['nullable', 'string', 'max:150'],
+                'phone' => ['nullable', 'string', 'max:40'],
+                'email' => ['nullable', 'email', 'max:150', $unique('suppliers', 'email')],
+                'address' => ['nullable', 'string', 'max:500'],
+                'is_active' => $active,
+            ],
             'employees' => [
                 'assigned_route_id' => ['nullable', 'integer', 'exists:routes,id'],
-                'assigned_vehicle_id' => ['nullable', 'integer', Rule::exists('vehicles', 'id')->where('is_active', true)],
                 'code' => ['nullable', 'string', 'max:30', $unique('employees', 'code')],
                 'name' => ['required', 'string', 'max:150'],
-                'employee_type' => ['required', Rule::in(['office', 'sales', 'driver', 'warehouse'])],
+                'employee_type' => ['required', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
+                'access_role' => ['nullable', Rule::in(['Office Staff', 'HR', 'Accountant', 'Finance Manager'])],
                 'phone' => ['nullable', 'string', 'max:40'],
                 'email' => [$emailPresence, 'required_with:password', 'email', 'max:150', $unique('employees', 'email'), $accountEmail],
                 'password' => $password,
@@ -412,7 +853,6 @@ class MasterDataController extends Controller
                 'is_active' => $active,
             ],
             'vehicles' => [
-                'assigned_driver_id' => ['nullable', 'integer', 'exists:employees,id'],
                 'code' => ['nullable', 'string', 'max:30', $unique('vehicles', 'code')],
                 'plate_no' => ['required', 'string', 'max:40', $unique('vehicles', 'plate_no')],
                 'vehicle_type' => ['required', Rule::in(['truck', 'van', 'motorbike', 'other'])],
@@ -485,7 +925,82 @@ class MasterDataController extends Controller
         }
     }
 
-    private function syncLoginAccount(string $resource, int $recordId, array $record, ?string $password): void
+    private function syncDefaultKpiProfile(int $employeeId, string $employeeType, ?int $actorId, bool $replaceExisting = false): void
+    {
+        $templateCode = self::DEFAULT_KPI_TEMPLATE_BY_EMPLOYEE_TYPE[$employeeType] ?? null;
+        $template = $templateCode
+            ? DB::table('kpi_templates')->where('code', $templateCode)->where('is_active', true)->first()
+            : null;
+        if (! $template) {
+            return;
+        }
+
+        $now = now();
+        $profile = DB::table('kpi_staff_profiles')->where('employee_id', $employeeId)->first();
+        if ($profile && ! $replaceExisting) {
+            return;
+        }
+
+        $values = [
+            'kpi_template_id' => $template->id,
+            'target_bonus' => $template->target_bonus,
+            'updated_by' => $actorId,
+            'updated_at' => $now,
+        ];
+        if ($profile) {
+            DB::table('kpi_staff_profiles')->where('id', $profile->id)->update($values);
+            $profileId = (int) $profile->id;
+        } else {
+            $profileId = (int) DB::table('kpi_staff_profiles')->insertGetId([
+                'employee_id' => $employeeId,
+                ...$values,
+                'created_by' => $actorId,
+                'created_at' => $now,
+            ]);
+        }
+
+        $metrics = DB::table('kpi_template_metrics')->where('kpi_template_id', $template->id)->orderBy('sort_order')->get();
+        DB::table('kpi_staff_target_items')->where('kpi_staff_profile_id', $profileId)->delete();
+        foreach ($metrics as $metric) {
+            if ($metric->calculation_type === 'manual' || $metric->default_target === null) {
+                continue;
+            }
+            DB::table('kpi_staff_target_items')->insert([
+                'kpi_staff_profile_id' => $profileId,
+                'kpi_template_metric_id' => $metric->id,
+                'target_value' => $metric->default_target,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        if (! $replaceExisting) {
+            return;
+        }
+
+        $drafts = DB::table('kpi_results')->where('employee_id', $employeeId)->where('status', 'draft')->get();
+        foreach ($drafts as $draft) {
+            DB::table('kpi_results')->where('id', $draft->id)->update([
+                'kpi_template_id' => $template->id,
+                'target_bonus' => $template->target_bonus,
+                'overall_score' => 0,
+                'bonus_amount' => 0,
+                'updated_at' => $now,
+            ]);
+            DB::table('kpi_result_items')->where('kpi_result_id', $draft->id)->delete();
+            foreach ($metrics as $metric) {
+                DB::table('kpi_result_items')->insert([
+                    'kpi_result_id' => $draft->id,
+                    'kpi_template_metric_id' => $metric->id,
+                    'target_value' => $metric->default_target,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+        }
+    }
+
+    private function syncLoginAccount(string $resource, int $recordId, array $record, ?string $password, ?string $accessRole = null): void
     {
         if (! in_array($resource, ['customers', 'employees'], true)) {
             return;
@@ -501,7 +1016,13 @@ class MasterDataController extends Controller
             'name' => $resource === 'customers' ? $record['contact_name'] : $record['name'],
             'email' => $record['email'],
             'phone' => $record['phone'] ?? null,
-            'role' => $resource === 'customers' ? 'Customer' : $this->employeeRole($record['employee_type']),
+            'role' => $resource === 'customers' ? 'Customer' : (
+                in_array($record['employee_type'], ['sales', 'sales_supervisor', 'driver'], true)
+                    ? $this->employeeRole($record['employee_type'])
+                    : ($accessRole ?: (in_array($user?->role, ['Sales Representative', 'Sales Supervisor', 'Driver'], true)
+                        ? 'Office Staff'
+                        : ($user?->role ?: 'Office Staff')))
+            ),
             'customer_id' => $resource === 'customers' ? $recordId : null,
             'employee_id' => $resource === 'employees' ? $recordId : null,
         ];
@@ -521,6 +1042,7 @@ class MasterDataController extends Controller
     {
         return match ($employeeType) {
             'sales' => 'Sales Representative',
+            'sales_supervisor' => 'Sales Supervisor',
             'driver' => 'Driver',
             default => 'Office Staff',
         };
@@ -554,6 +1076,7 @@ class MasterDataController extends Controller
             'brands' => 'BRD',
             'price-types' => 'PRT',
             'customers' => 'CUS',
+            'suppliers' => 'SUP',
             'employees' => 'EMP',
             'vehicles' => 'VEH',
         ];
@@ -575,12 +1098,13 @@ class MasterDataController extends Controller
             $vehicle = DB::table('vehicles')->where('assigned_driver_id', $item['id'])->orderBy('id')->first(['id', 'code', 'plate_no']);
             $item['assigned_vehicle_id'] = $vehicle?->id;
             $item['assigned_vehicle'] = $vehicle ? $vehicle->code.' · '.$vehicle->plate_no : null;
+            $item['access_role'] = User::query()->where('employee_id', $item['id'])->value('role');
         }
 
         return $item;
     }
 
-    private function optionLists(): array
+    private function optionLists(Request $request): array
     {
         $lists = [
             'areas' => ['areas', 'name'],
@@ -588,6 +1112,7 @@ class MasterDataController extends Controller
             'brands' => ['brands', 'name'],
             'products' => ['products', 'name'],
             'price-types' => ['price_types', 'name'],
+            'suppliers' => ['suppliers', 'name'],
             'employees' => ['employees', 'name'],
             'vehicles' => ['vehicles', 'code'],
             'permissions' => ['permissions', 'name'],
@@ -602,6 +1127,9 @@ class MasterDataController extends Controller
             return $query->orderBy($definition[1])->get(['id', DB::raw("{$definition[1]} as label")]);
         })->all();
 
+        $options['routes'] = DB::table('routes')->where('is_active', true)->orderBy('name')
+            ->get(['id', 'name as label', 'area_id']);
+
         $options['vehicles'] = DB::table('vehicles')->where('is_active', true)->orderBy('code')->get(['id', 'code', 'plate_no'])
             ->map(fn ($vehicle) => ['id' => $vehicle->id, 'label' => $vehicle->code.' · '.$vehicle->plate_no]);
 
@@ -609,6 +1137,18 @@ class MasterDataController extends Controller
             'id' => $app,
             'label' => ucfirst($app).' App',
         ]);
+
+        if (! $this->canUseResource($request, 'roles', 'view')) {
+            unset($options['permissions']);
+        }
+
+        $permissions = AppAccess::permissionsForRole($request->user()?->role);
+        if (! in_array('office.master-data.view', $permissions, true)) {
+            $allowed = in_array('office.employees.view', $permissions, true)
+                ? ['routes', 'vehicles', 'employees']
+                : ['suppliers'];
+            $options = array_intersect_key($options, array_flip($allowed));
+        }
 
         return $options;
     }
@@ -624,7 +1164,7 @@ class MasterDataController extends Controller
             'customers' => [['users', 'customer_id'], ['orders', 'customer_id'], ['invoices', 'customer_id'], ['collections', 'customer_id']],
             'employees' => [['users', 'employee_id'], ['attendance_records', 'employee_id'], ['deliveries', 'driver_id'], ['vehicle_costs', 'employee_id']],
             'vehicles' => [['deliveries', 'vehicle_id'], ['vehicle_costs', 'vehicle_id']],
-            'suppliers' => [['supplier_ledger_entries', 'supplier_id']],
+            'suppliers' => [['supplier_ledger_entries', 'supplier_id'], ['supplier_invoices', 'supplier_id'], ['supplier_payments', 'supplier_id'], ['stock_movements', 'supplier_id']],
         ];
 
         return collect($references[$resource] ?? [])->contains(fn ($reference) => DB::table($reference[0])->where($reference[1], $id)->exists());
@@ -661,11 +1201,14 @@ class MasterDataController extends Controller
             'customers' => $this->config('customers', 'Customers', 'Customer', 'Reseller shops, contacts, route, and credit settings.',
                 [['name' => 'area_id', 'label' => 'Area', 'type' => 'select', 'source' => 'areas'], ['name' => 'route_id', 'label' => 'Route', 'type' => 'select', 'source' => 'routes'], ['name' => 'price_type_id', 'label' => 'Price type', 'type' => 'select', 'source' => 'price-types'], $code, ['name' => 'shop_name', 'label' => 'Shop name', 'type' => 'text', 'required' => true], ['name' => 'contact_name', 'label' => 'Contact name', 'type' => 'text', 'required' => true], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text', 'required' => true], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], ['name' => 'credit_limit', 'label' => 'Credit limit', 'type' => 'number', 'required' => true, 'default' => (float) (DB::table('companies')->oldest('id')->value('default_customer_credit_limit') ?? 500000)], $active],
                 ['code', 'shop_name', 'contact_name', 'route', 'phone', 'is_active'], ['code', 'shop_name', 'contact_name', 'phone', 'email', 'address'], ['area_id', 'route_id', 'price_type_id'], ['area_id' => ['areas', 'name', 'area'], 'route_id' => ['routes', 'name', 'route'], 'price_type_id' => ['price_types', 'name', 'price_type']]),
-            'employees' => $this->config('employees', 'Employees', 'Employee', 'Office, warehouse, sales, and driver records.',
-                [['name' => 'assigned_route_id', 'label' => 'Assigned route', 'type' => 'select', 'source' => 'routes'], $code, $name, ['name' => 'employee_type', 'label' => 'Employee type', 'type' => 'select', 'required' => true, 'options' => ['office', 'sales', 'driver', 'warehouse']], ['name' => 'assigned_vehicle_id', 'label' => 'Assigned vehicle', 'type' => 'select', 'source' => 'vehicles', 'depends_on' => 'employee_type', 'show_when' => 'driver'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'hire_date', 'label' => 'Hire date', 'type' => 'date'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
+            'suppliers' => $this->config('suppliers', 'Suppliers', 'Supplier', 'Supplier companies, contacts, and account status used by purchasing and supplier ledgers.',
+                [$code, $name, ['name' => 'contact_name', 'label' => 'Contact name', 'type' => 'text'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
+                ['code', 'name', 'contact_name', 'phone', 'email', 'is_active'], ['code', 'name', 'contact_name', 'phone', 'email', 'address']),
+            'employees' => $this->config('employees', 'Employees', 'Employee', 'Office, warehouse, sales, sales supervisor, and driver records.',
+                [['name' => 'assigned_route_id', 'label' => 'Assigned route', 'type' => 'select', 'source' => 'routes'], $code, $name, ['name' => 'employee_type', 'label' => 'Employee type', 'type' => 'select', 'required' => true, 'options' => ['office', 'sales', 'sales_supervisor', 'driver', 'warehouse']], ['name' => 'access_role', 'label' => 'Office access role', 'type' => 'select', 'options' => ['Office Staff', 'HR', 'Accountant', 'Finance Manager'], 'depends_on' => 'employee_type', 'show_when' => 'office'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'hire_date', 'label' => 'Hire date', 'type' => 'date'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
                 ['code', 'name', 'employee_type', 'assigned_route', 'assigned_vehicle', 'phone', 'is_active'], ['code', 'name', 'employee_type', 'phone', 'email'], ['assigned_route_id', 'employee_type'], ['assigned_route_id' => ['routes', 'name', 'assigned_route']]),
             'vehicles' => $this->config('vehicles', 'Vehicles', 'Vehicle', 'Delivery vehicles and assigned drivers.',
-                [['name' => 'assigned_driver_id', 'label' => 'Assigned driver', 'type' => 'select', 'source' => 'employees'], $code, ['name' => 'plate_no', 'label' => 'Plate no.', 'type' => 'text', 'required' => true], ['name' => 'vehicle_type', 'label' => 'Vehicle type', 'type' => 'select', 'required' => true, 'options' => ['truck', 'van', 'motorbike', 'other']], ['name' => 'make', 'label' => 'Make', 'type' => 'text'], ['name' => 'model', 'label' => 'Model', 'type' => 'text'], ['name' => 'capacity', 'label' => 'Capacity', 'type' => 'number'], $active],
+                [$code, ['name' => 'plate_no', 'label' => 'Plate no.', 'type' => 'text', 'required' => true], ['name' => 'vehicle_type', 'label' => 'Vehicle type', 'type' => 'select', 'required' => true, 'options' => ['truck', 'van', 'motorbike', 'other']], ['name' => 'make', 'label' => 'Make', 'type' => 'text'], ['name' => 'model', 'label' => 'Model', 'type' => 'text'], ['name' => 'capacity', 'label' => 'Capacity', 'type' => 'number'], $active],
                 ['code', 'plate_no', 'vehicle_type', 'assigned_driver', 'capacity', 'is_active'], ['code', 'plate_no', 'make', 'model'], ['assigned_driver_id', 'vehicle_type'], ['assigned_driver_id' => ['employees', 'name', 'assigned_driver']]),
             'roles' => $this->config('roles', 'Roles & Permissions', 'Role', 'App roles and permission assignments.',
                 [$name, ['name' => 'description', 'label' => 'Description', 'type' => 'textarea'], ['name' => 'guard_name', 'label' => 'Guard', 'type' => 'hidden', 'default' => 'web'], ['name' => 'allowed_apps', 'label' => 'Allowed apps', 'type' => 'multiselect', 'source' => 'apps'], ['name' => 'permission_ids', 'label' => 'Permissions', 'type' => 'multiselect', 'source' => 'permissions'], $active],

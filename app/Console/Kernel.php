@@ -2,6 +2,7 @@
 
 namespace App\Console;
 
+use App\Http\Controllers\Api\KpiReviewController;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
@@ -15,6 +16,11 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('valley:backup')->dailyAt('02:00')->withoutOverlapping()->onOneServer();
+        $schedule->call(fn () => app(KpiReviewController::class)->ensureMonthlyReviews(now()->format('Y-m'), refreshExisting: true))
+            ->name('generate-monthly-kpi-reviews')
+            ->dailyAt('00:05')
+            ->withoutOverlapping()
+            ->onOneServer();
     }
 
     /**

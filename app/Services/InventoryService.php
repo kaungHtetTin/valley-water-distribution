@@ -40,6 +40,7 @@ class InventoryService
         $movement = StockMovement::create([
             'code' => $code ?? $this->nextCode($data['movement_type'], $movementDate),
             'document_code' => $data['document_code'] ?? null,
+            'supplier_id' => $data['supplier_id'] ?? null,
             'warehouse_id' => $data['warehouse_id'],
             'product_id' => $data['product_id'],
             'movement_type' => $data['movement_type'],

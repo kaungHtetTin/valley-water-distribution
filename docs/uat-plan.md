@@ -2,6 +2,8 @@
 
 Use `/office/uat` to record every finding. Password for seeded test accounts is `password`. Reset only disposable local data with `php artisan valley:demo-reset --force` before a formal run.
 
+For a one-month local walkthrough, run `php artisan valley:demo-seed` after the reset. Sign in as `hr@valley.test` to review attendance and the payroll draft, `finance.manager@valley.test` to approve KPI and payroll, and `accountant@valley.test` to review books and mark approved payroll paid. The sales, driver, customer, and Office Staff demo logins remain available at `sales@valley.test`, `driver@valley.test`, `client@valley.test`, and `office@valley.test`.
+
 ## Acceptance workflow
 
 For each scenario, record tester, device/browser, date, result, and evidence. A failed scenario must have a UAT issue code. Critical and high findings must be fixed, retested, and closed before launch.

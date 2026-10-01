@@ -21,17 +21,38 @@ class VehicleCostController extends Controller
         $this->authorizePermission($request, 'office.vehicle-costs.view');
 
         return ApiResponse::success('Vehicle cost setup loaded.', [
-            'vehicles' => DB::table('vehicles')->where('is_active', true)->orderBy('code')->get(['id', 'code', 'plate_no', 'make', 'model'])->map(function ($item) {
-                $item->label = "{$item->code} - {$item->plate_no}";
+            'vehicles' => DB::table('vehicles')->orderBy('code')->get(['id', 'code', 'plate_no', 'make', 'model', 'is_active'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->plate_no}".($item->is_active ? '' : ' (Inactive)');
 
                 return $item;
             }),
-            'deliveries' => DB::table('deliveries')->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')->orderByDesc('planned_date')->limit(100)->get(['deliveries.id', 'deliveries.code', 'deliveries.vehicle_id', 'deliveries.planned_date', 'vehicles.code as vehicle_code'])->map(function ($item) {
+            'deliveries' => DB::table('deliveries')->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')->orderByDesc('planned_date')->limit(500)->get(['deliveries.id', 'deliveries.code', 'deliveries.vehicle_id', 'deliveries.planned_date', 'vehicles.code as vehicle_code'])->map(function ($item) {
                 $item->label = "{$item->code} - {$item->vehicle_code}";
 
                 return $item;
             }),
+            'routes' => DB::table('routes')->orderBy('name')->get(['id', 'code', 'name'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->name}";
+
+                return $item;
+            }),
+            'drivers' => DB::table('employees')->where('employee_type', 'driver')->orderBy('name')->get(['id', 'code', 'name'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->name}";
+
+                return $item;
+            }),
+            'customers' => DB::table('customers')->orderBy('shop_name')->get(['id', 'code', 'shop_name'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->shop_name}";
+
+                return $item;
+            }),
+            'employees' => DB::table('employees')->orderBy('name')->get(['id', 'code', 'name'])->map(function ($item) {
+                $item->label = "{$item->code} - {$item->name}";
+
+                return $item;
+            }),
             'cost_types' => self::TYPES,
+            'delivery_statuses' => ['planned', 'assigned', 'loading', 'on_route', 'delivered', 'partially_delivered', 'failed', 'cancelled'],
         ]);
     }
 
@@ -39,10 +60,15 @@ class VehicleCostController extends Controller
     {
         $this->authorizePermission($request, 'office.vehicle-costs.view');
         $query = $this->query()->latest('vehicle_costs.cost_date')->latest('vehicle_costs.id');
-        foreach (['vehicle_id', 'cost_type', 'record_type', 'status', 'payment_method'] as $filter) {
+        foreach (['vehicle_id', 'cost_type', 'record_type', 'status', 'payment_method', 'source_app', 'delivery_id', 'employee_id', 'issue_severity'] as $filter) {
             if ($request->filled($filter)) {
                 $query->where("vehicle_costs.{$filter}", $request->query($filter));
             }
+        }
+        if ($request->query('has_delivery') === 'yes') {
+            $query->whereNotNull('vehicle_costs.delivery_id');
+        } elseif ($request->query('has_delivery') === 'no') {
+            $query->whereNull('vehicle_costs.delivery_id');
         }
         if ($request->filled('date_from')) {
             $query->whereDate('vehicle_costs.cost_date', '>=', $request->query('date_from'));
@@ -50,8 +76,35 @@ class VehicleCostController extends Controller
         if ($request->filled('date_to')) {
             $query->whereDate('vehicle_costs.cost_date', '<=', $request->query('date_to'));
         }
+        if ($request->filled('amount_min')) {
+            $query->where('vehicle_costs.amount', '>=', $request->query('amount_min'));
+        }
+        if ($request->filled('amount_max')) {
+            $query->where('vehicle_costs.amount', '<=', $request->query('amount_max'));
+        }
+        if ($request->filled('odometer_min')) {
+            $query->where('vehicle_costs.odometer_km', '>=', $request->query('odometer_min'));
+        }
+        if ($request->filled('odometer_max')) {
+            $query->where('vehicle_costs.odometer_km', '<=', $request->query('odometer_max'));
+        }
+        if ($request->filled('vendor')) {
+            $query->where('vehicle_costs.vendor', 'like', '%'.trim((string) $request->query('vendor')).'%');
+        }
+        if ($request->filled('reference_no')) {
+            $query->where('vehicle_costs.reference_no', 'like', '%'.trim((string) $request->query('reference_no')).'%');
+        }
         if ($search = trim((string) $request->query('search'))) {
-            $query->where(fn ($q) => $q->where('vehicle_costs.code', 'like', "%{$search}%")->orWhere('vehicle_costs.description', 'like', "%{$search}%")->orWhere('vehicles.plate_no', 'like', "%{$search}%"));
+            $query->where(fn ($q) => $q->where('vehicle_costs.code', 'like', "%{$search}%")
+                ->orWhere('vehicle_costs.description', 'like', "%{$search}%")
+                ->orWhere('vehicle_costs.vendor', 'like', "%{$search}%")
+                ->orWhere('vehicle_costs.reference_no', 'like', "%{$search}%")
+                ->orWhere('vehicles.code', 'like', "%{$search}%")
+                ->orWhere('vehicles.plate_no', 'like', "%{$search}%")
+                ->orWhere('vehicles.make', 'like', "%{$search}%")
+                ->orWhere('vehicles.model', 'like', "%{$search}%")
+                ->orWhere('deliveries.code', 'like', "%{$search}%")
+                ->orWhere('employees.name', 'like', "%{$search}%"));
         }
         $summary = (clone $query)->reorder()->selectRaw("COUNT(*) records_count, COALESCE(SUM(vehicle_costs.amount),0) total_amount, COALESCE(SUM(CASE WHEN vehicle_costs.status='approved' THEN vehicle_costs.amount ELSE 0 END),0) approved_amount, COALESCE(SUM(CASE WHEN vehicle_costs.status='submitted' THEN 1 ELSE 0 END),0) submitted_count")->first();
         $paginator = $query->select($this->columns())->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
@@ -81,7 +134,7 @@ class VehicleCostController extends Controller
             return $cost;
         });
 
-        return ApiResponse::success('Vehicle cost recorded.', ['id' => $cost->id, 'code' => $cost->code], 201);
+        return ApiResponse::success('Vehicle cost recorded.', ['id' => $cost->id, 'code' => $cost->code, 'item' => $this->payload($this->query()->select($this->columns())->where('vehicle_costs.id', $cost->id)->first())], 201);
     }
 
     public function update(Request $request, VehicleCost $vehicleCost)
@@ -95,7 +148,7 @@ class VehicleCostController extends Controller
             }
         });
 
-        return ApiResponse::success('Vehicle cost updated.');
+        return ApiResponse::success('Vehicle cost updated.', ['item' => $this->payload($this->query()->select($this->columns())->where('vehicle_costs.id', $vehicleCost->id)->first())]);
     }
 
     public function destroy(Request $request, VehicleCost $vehicleCost)
@@ -121,21 +174,52 @@ class VehicleCostController extends Controller
             }
         });
 
-        return ApiResponse::success('Vehicle record review saved.');
+        return ApiResponse::success('Vehicle record review saved.', ['item' => $this->payload($this->query()->select($this->columns())->where('vehicle_costs.id', $vehicleCost->id)->first())]);
     }
 
     public function routeHistory(Request $request)
     {
         $this->authorizePermission($request, 'office.vehicle-costs.view');
         $query = DB::table('deliveries')->join('vehicles', 'deliveries.vehicle_id', '=', 'vehicles.id')->join('routes', 'deliveries.route_id', '=', 'routes.id')->join('employees', 'deliveries.driver_id', '=', 'employees.id')->leftJoin('customers', 'deliveries.customer_id', '=', 'customers.id');
-        if ($request->filled('vehicle_id')) {
-            $query->where('deliveries.vehicle_id', $request->query('vehicle_id'));
+        foreach (['vehicle_id', 'route_id', 'driver_id', 'customer_id', 'status'] as $filter) {
+            if ($request->filled($filter)) {
+                $query->where("deliveries.{$filter}", $request->query($filter));
+            }
         }
         if ($request->filled('date_from')) {
             $query->whereDate('deliveries.planned_date', '>=', $request->query('date_from'));
         }
         if ($request->filled('date_to')) {
             $query->whereDate('deliveries.planned_date', '<=', $request->query('date_to'));
+        }
+        if ($request->query('distance_status') === 'recorded') {
+            $query->whereNotNull('deliveries.distance_km');
+        } elseif ($request->query('distance_status') === 'missing') {
+            $query->whereNull('deliveries.distance_km');
+        }
+        if ($request->filled('distance_min')) {
+            $query->where('deliveries.distance_km', '>=', $request->query('distance_min'));
+        }
+        if ($request->filled('distance_max')) {
+            $query->where('deliveries.distance_km', '<=', $request->query('distance_max'));
+        }
+        if ($request->filled('delivered_min')) {
+            $query->where('deliveries.delivered_quantity', '>=', $request->query('delivered_min'));
+        }
+        if ($request->filled('delivered_max')) {
+            $query->where('deliveries.delivered_quantity', '<=', $request->query('delivered_max'));
+        }
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(fn ($q) => $q->where('deliveries.code', 'like', "%{$search}%")
+                ->orWhere('vehicles.code', 'like', "%{$search}%")
+                ->orWhere('vehicles.plate_no', 'like', "%{$search}%")
+                ->orWhere('routes.code', 'like', "%{$search}%")
+                ->orWhere('routes.name', 'like', "%{$search}%")
+                ->orWhere('employees.code', 'like', "%{$search}%")
+                ->orWhere('employees.name', 'like', "%{$search}%")
+                ->orWhere('customers.code', 'like', "%{$search}%")
+                ->orWhere('customers.shop_name', 'like', "%{$search}%")
+                ->orWhere('deliveries.recipient_name', 'like', "%{$search}%"));
         }
         $items = $query->orderByDesc('deliveries.planned_date')->get(['deliveries.id', 'deliveries.code', 'deliveries.planned_date', 'deliveries.status', 'deliveries.total_quantity', 'deliveries.delivered_quantity', 'deliveries.start_odometer_km', 'deliveries.end_odometer_km', 'deliveries.distance_km', 'vehicles.id as vehicle_id', 'vehicles.code as vehicle_code', 'vehicles.plate_no', 'routes.name as route_name', 'employees.name as driver_name', DB::raw('COALESCE(deliveries.recipient_name, customers.shop_name) as shop_name')])->map(function ($item) {
             foreach (['total_quantity', 'delivered_quantity', 'start_odometer_km', 'end_odometer_km', 'distance_km'] as $field) {
@@ -166,12 +250,22 @@ class VehicleCostController extends Controller
     {
         $this->authorizePermission($request, 'office.vehicle-costs.view');
         $year = (int) $request->query('year', now()->year);
-        $costs = $this->approvedCostQuery($request)->whereYear('cost_date', $year)->get(['vehicle_costs.vehicle_id', 'vehicle_costs.cost_date', 'vehicle_costs.cost_type', 'vehicle_costs.amount', 'vehicles.code as vehicle_code', 'vehicles.plate_no']);
+        $costQuery = $this->approvedCostQuery($request)->whereYear('cost_date', $year);
+        if ($request->filled('month_from')) {
+            $costQuery->whereMonth('cost_date', '>=', (int) $request->query('month_from'));
+        }
+        if ($request->filled('month_to')) {
+            $costQuery->whereMonth('cost_date', '<=', (int) $request->query('month_to'));
+        }
+        $costs = $costQuery->get(['vehicle_costs.vehicle_id', 'vehicle_costs.cost_date', 'vehicle_costs.cost_type', 'vehicle_costs.amount', 'vehicles.code as vehicle_code', 'vehicles.plate_no']);
         $items = $costs->groupBy(fn ($item) => Carbon::parse($item->cost_date)->format('Y-m'))->map(function ($monthCosts, $month) {
             $types = collect(self::TYPES)->mapWithKeys(fn ($type) => [$type => (float) $monthCosts->where('cost_type', $type)->sum('amount')]);
 
             return ['month' => $month, 'total' => (float) $monthCosts->sum('amount'), 'types' => $types, 'vehicles_count' => $monthCosts->pluck('vehicle_id')->unique()->count()];
-        })->sortByDesc('month')->values();
+        })->when($request->filled('total_min'), fn ($rows) => $rows->where('total', '>=', (float) $request->query('total_min')))
+            ->when($request->filled('total_max'), fn ($rows) => $rows->where('total', '<=', (float) $request->query('total_max')))
+            ->when($request->filled('vehicles_min'), fn ($rows) => $rows->where('vehicles_count', '>=', (int) $request->query('vehicles_min')))
+            ->sortByDesc('month')->values();
 
         return ApiResponse::success('Monthly vehicle costs loaded.', ['items' => $items, 'summary' => ['year' => $year, 'total' => (float) $costs->sum('amount'), 'records_count' => $costs->count()]]);
     }
@@ -221,7 +315,7 @@ class VehicleCostController extends Controller
         }
         $cost = VehicleCost::create($validated + ['code' => $this->nextCode(), 'vehicle_id' => $vehicleId, 'employee_id' => $scope['employee_id'], 'amount' => $validated['amount'] ?? 0, 'source_app' => 'driver', 'status' => 'submitted', 'submitted_by' => $request->user()->id]);
 
-        return ApiResponse::success('Vehicle record submitted for Office review.', ['id' => $cost->id, 'code' => $cost->code], 201);
+        return ApiResponse::success('Vehicle record submitted for Office review.', ['id' => $cost->id, 'code' => $cost->code, 'item' => $this->payload($this->query()->select($this->columns())->where('vehicle_costs.id', $cost->id)->first())], 201);
     }
 
     private function rules(Request $request): array
@@ -238,22 +332,68 @@ class VehicleCostController extends Controller
     {
         $from = $request->query('date_from', now()->startOfYear()->toDateString());
         $to = $request->query('date_to', now()->toDateString());
-        $vehicles = DB::table('vehicles')->where('is_active', true)->when($request->filled('vehicle_id'), fn ($q) => $q->where('id', $request->query('vehicle_id')))->orderBy('code')->get(['id', 'code', 'plate_no', 'make', 'model']);
-        $items = $vehicles->map(function ($vehicle) use ($from, $to) {
-            $deliveries = DB::table('deliveries')->where('vehicle_id', $vehicle->id)->whereBetween('planned_date', [$from, $to])->get();
-            $cost = (float) VehicleCost::where('vehicle_id', $vehicle->id)->where('status', 'approved')->whereBetween('cost_date', [$from, $to])->sum('amount');
+        $vehiclesQuery = DB::table('vehicles')
+            ->when($request->filled('vehicle_id'), fn ($q) => $q->where('id', $request->query('vehicle_id')))
+            ->when(! $request->filled('vehicle_id'), fn ($q) => $q->where('is_active', true));
+        if ($search = trim((string) $request->query('search'))) {
+            $vehiclesQuery->where(fn ($q) => $q->where('code', 'like', "%{$search}%")->orWhere('plate_no', 'like', "%{$search}%")->orWhere('make', 'like', "%{$search}%")->orWhere('model', 'like', "%{$search}%"));
+        }
+        $vehicles = $vehiclesQuery->orderBy('code')->get(['id', 'code', 'plate_no', 'make', 'model']);
+        $items = $vehicles->map(function ($vehicle) use ($from, $to, $request) {
+            $deliveryQuery = DB::table('deliveries')->where('vehicle_id', $vehicle->id)->whereBetween('planned_date', [$from, $to]);
+            foreach (['route_id', 'driver_id', 'customer_id', 'status'] as $filter) {
+                if ($request->filled($filter)) {
+                    $deliveryQuery->where($filter, $request->query($filter));
+                }
+            }
+            if ($request->query('distance_status') === 'recorded') {
+                $deliveryQuery->whereNotNull('distance_km');
+            } elseif ($request->query('distance_status') === 'missing') {
+                $deliveryQuery->whereNull('distance_km');
+            }
+            $deliveries = $deliveryQuery->get();
+            $costQuery = VehicleCost::where('vehicle_id', $vehicle->id)->where('status', 'approved')->whereBetween('cost_date', [$from, $to]);
+            if (collect(['route_id', 'driver_id', 'customer_id', 'status', 'distance_status'])->contains(fn ($filter) => $request->filled($filter))) {
+                $costQuery->whereIn('delivery_id', $deliveries->pluck('id'));
+            }
+            foreach (['cost_type', 'payment_method', 'source_app'] as $filter) {
+                if ($request->filled($filter)) {
+                    $costQuery->where($filter, $request->query($filter));
+                }
+            }
+            $cost = (float) $costQuery->sum('amount');
             $distance = (float) $deliveries->sum('distance_km');
             $completed = $deliveries->whereIn('status', ['delivered', 'partially_delivered'])->count();
 
             return ['vehicle_id' => $vehicle->id, 'vehicle_code' => $vehicle->code, 'plate_no' => $vehicle->plate_no, 'make_model' => trim("{$vehicle->make} {$vehicle->model}"), 'deliveries_count' => $deliveries->count(), 'completed_count' => $completed, 'completion_rate' => $deliveries->count() ? round($completed / $deliveries->count() * 100, 1) : 0, 'delivered_quantity' => (float) $deliveries->sum('delivered_quantity'), 'distance_km' => $distance, 'total_cost' => $cost, 'cost_per_km' => $distance > 0 ? round($cost / $distance, 2) : null];
-        });
+        })->when(collect(['route_id', 'driver_id', 'customer_id', 'status', 'distance_status'])->contains(fn ($filter) => $request->filled($filter)), fn ($rows) => $rows->where('deliveries_count', '>', 0))
+            ->when($request->filled('completion_min'), fn ($rows) => $rows->where('completion_rate', '>=', (float) $request->query('completion_min')))
+            ->when($request->filled('completion_max'), fn ($rows) => $rows->where('completion_rate', '<=', (float) $request->query('completion_max')))
+            ->when($request->filled('deliveries_min'), fn ($rows) => $rows->where('deliveries_count', '>=', (int) $request->query('deliveries_min')))
+            ->when($request->filled('deliveries_max'), fn ($rows) => $rows->where('deliveries_count', '<=', (int) $request->query('deliveries_max')))
+            ->when($request->filled('delivered_min'), fn ($rows) => $rows->where('delivered_quantity', '>=', (float) $request->query('delivered_min')))
+            ->when($request->filled('delivered_max'), fn ($rows) => $rows->where('delivered_quantity', '<=', (float) $request->query('delivered_max')))
+            ->when($request->filled('distance_min'), fn ($rows) => $rows->where('distance_km', '>=', (float) $request->query('distance_min')))
+            ->when($request->filled('distance_max'), fn ($rows) => $rows->where('distance_km', '<=', (float) $request->query('distance_max')))
+            ->when($request->filled('cost_min'), fn ($rows) => $rows->where('total_cost', '>=', (float) $request->query('cost_min')))
+            ->when($request->filled('cost_max'), fn ($rows) => $rows->where('total_cost', '<=', (float) $request->query('cost_max')))
+            ->when($request->filled('cost_per_km_min'), fn ($rows) => $rows->where('cost_per_km', '>=', (float) $request->query('cost_per_km_min')))
+            ->when($request->filled('cost_per_km_max'), fn ($rows) => $rows->where('cost_per_km', '<=', (float) $request->query('cost_per_km_max')))
+            ->values();
 
         return ['period' => ['date_from' => $from, 'date_to' => $to], 'items' => $items, 'summary' => ['vehicles_count' => $items->count(), 'deliveries_count' => $items->sum('deliveries_count'), 'distance_km' => (float) $items->sum('distance_km'), 'total_cost' => (float) $items->sum('total_cost'), 'cost_per_km' => $items->sum('distance_km') > 0 ? round($items->sum('total_cost') / $items->sum('distance_km'), 2) : null]];
     }
 
     private function approvedCostQuery(Request $request)
     {
-        return DB::table('vehicle_costs')->join('vehicles', 'vehicle_costs.vehicle_id', '=', 'vehicles.id')->where('vehicle_costs.status', 'approved')->where('vehicle_costs.record_type', 'cost')->when($request->filled('vehicle_id'), fn ($q) => $q->where('vehicle_costs.vehicle_id', $request->query('vehicle_id')));
+        $query = DB::table('vehicle_costs')->join('vehicles', 'vehicle_costs.vehicle_id', '=', 'vehicles.id')->where('vehicle_costs.status', 'approved')->where('vehicle_costs.record_type', 'cost')->when($request->filled('vehicle_id'), fn ($q) => $q->where('vehicle_costs.vehicle_id', $request->query('vehicle_id')));
+        foreach (['cost_type', 'payment_method', 'source_app'] as $filter) {
+            if ($request->filled($filter)) {
+                $query->where("vehicle_costs.{$filter}", $request->query($filter));
+            }
+        }
+
+        return $query;
     }
 
     private function syncTransaction(VehicleCost $cost, ?int $userId): void

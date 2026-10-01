@@ -118,9 +118,9 @@ try {
     await send('Page.enable');
     await send('Network.enable');
     await screenshot(send, `${baseUrl}/office/deliveries/live-map`, 1440, 900, path.join(artifactPath, 'phase6-office-live-map.png'), officeCookies.header);
-    await screenshot(send, `${baseUrl}/office/deliveries/history`, 1280, 720, path.join(artifactPath, 'phase6-office-history.png'), officeCookies.header);
+    await screenshot(send, `${baseUrl}/office/deliveries`, 1280, 720, path.join(artifactPath, 'phase6-office-trips.png'), officeCookies.header);
     await setLocale(officeCookies, 'my');
-    await screenshot(send, `${baseUrl}/office/deliveries/history`, 1280, 720, path.join(artifactPath, 'phase6-office-history-my.png'), officeCookies.header, 'my');
+    await screenshot(send, `${baseUrl}/office/deliveries`, 1280, 720, path.join(artifactPath, 'phase6-office-trips-my.png'), officeCookies.header, 'my');
     await setLocale(officeCookies, 'en');
     await screenshot(send, `${baseUrl}/client/deliveries`, 390, 844, path.join(artifactPath, 'phase6-client-deliveries.png'), clientCookies.header);
     await screenshot(send, `${baseUrl}/sales/deliveries`, 430, 932, path.join(artifactPath, 'phase6-sales-deliveries.png'), salesCookies.header);

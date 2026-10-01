@@ -8,7 +8,7 @@ class ResetDemoData extends Command
 {
     protected $signature = 'valley:demo-reset {--force : Skip confirmation} {--dry-run : Check whether reset is allowed}';
 
-    protected $description = 'Reset the local demo database and reload deterministic UAT seed data.';
+    protected $description = 'Reset the local database to initial setup data and one administrator account.';
 
     public function handle(): int
     {
@@ -24,7 +24,7 @@ class ResetDemoData extends Command
             return self::SUCCESS;
         }
 
-        if (! $this->option('force') && ! $this->confirm('This will replace all current local data with demo data. Continue?')) {
+        if (! $this->option('force') && ! $this->confirm('This permanently removes all local business records and keeps only the administrator and initial setup data. Continue?')) {
             return self::FAILURE;
         }
 
@@ -33,7 +33,7 @@ class ResetDemoData extends Command
             return self::FAILURE;
         }
 
-        $this->info('Valley demo data reset completed.');
+        $this->info('Valley initial setup reset completed. Operational and demo records were not seeded.');
 
         return self::SUCCESS;
     }

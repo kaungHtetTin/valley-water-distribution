@@ -39,6 +39,9 @@ Route::redirect('/', url('/office'));
 Route::prefix('api/auth')->group(function () {
     Route::get('/user', [AppAuthController::class, 'user']);
     Route::post('/login', [AppAuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('/register', [AppAuthController::class, 'register'])->middleware('throttle:6,1');
+    Route::get('/google/redirect', [AppAuthController::class, 'googleRedirect'])->middleware('throttle:20,1');
+    Route::get('/google/callback', [AppAuthController::class, 'googleCallback'])->middleware('throttle:20,1');
     Route::post('/logout', [AppAuthController::class, 'logout']);
     Route::put('/preferences', [AppAuthController::class, 'preferences'])->middleware('auth');
     Route::put('/profile', [AppAuthController::class, 'profile'])->middleware(['auth', 'audit.api']);
@@ -49,10 +52,15 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/action-alerts', [ActionAlertController::class, 'index']);
     Route::get('/settings/company', [CompanySettingsController::class, 'show']);
     Route::put('/settings/company', [CompanySettingsController::class, 'update']);
+    Route::get('/settings/printing', [CompanySettingsController::class, 'printing']);
+    Route::put('/settings/printing', [CompanySettingsController::class, 'updatePrinting']);
 
     Route::get('/master-data/meta', [MasterDataController::class, 'meta']);
     Route::get('/master-data/product-prices/matrix', [MasterDataController::class, 'productPriceMatrix']);
     Route::put('/master-data/product-prices/matrix', [MasterDataController::class, 'updateProductPriceMatrix']);
+    Route::get('/master-data/customers/{id}/detail', [MasterDataController::class, 'customerDetail'])->whereNumber('id');
+    Route::get('/master-data/employees/{id}/detail', [MasterDataController::class, 'employeeDetail'])->whereNumber('id');
+    Route::put('/master-data/employees/{id}/vehicle', [MasterDataController::class, 'assignEmployeeVehicle'])->whereNumber('id');
     Route::get('/master-data/{resource}', [MasterDataController::class, 'index']);
     Route::post('/master-data/{resource}', [MasterDataController::class, 'store']);
     Route::get('/master-data/{resource}/{id}', [MasterDataController::class, 'show'])->whereNumber('id');
@@ -65,6 +73,10 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/mobile/master/customers/{id}', [MobileMasterDataController::class, 'customer'])->whereNumber('id');
     Route::put('/mobile/master/customers/{id}', [MobileMasterDataController::class, 'updateCustomer'])->whereNumber('id');
     Route::get('/mobile/master/vehicle', [MobileMasterDataController::class, 'assignedVehicle']);
+    Route::get('/mobile/sales-visits', [MobileMasterDataController::class, 'salesVisits']);
+    Route::post('/mobile/sales-visits/customers/{customerId}', [MobileMasterDataController::class, 'updateSalesVisit'])
+        ->whereNumber('customerId')
+        ->middleware('throttle:30,1');
     Route::get('/mobile/attendance/locations', [MobileMasterDataController::class, 'attendanceLocations']);
     Route::post('/mobile/attendance/check-in', [MobileMasterDataController::class, 'recordAttendance'])->middleware('throttle:10,1');
     Route::get('/mobile/attendance/records', [MobileMasterDataController::class, 'attendanceRecords']);
@@ -83,6 +95,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::post('/mobile/deliveries/{delivery}/confirm-loading', [DeliveryController::class, 'confirmLoading']);
     Route::post('/mobile/deliveries/{delivery}/start-route', [DeliveryController::class, 'startRoute']);
     Route::post('/mobile/deliveries/{delivery}/location', [DeliveryController::class, 'storeLocation']);
+    Route::post('/mobile/deliveries/{delivery}/customer-location', [DeliveryController::class, 'updateCustomerLocation']);
     Route::post('/mobile/deliveries/{delivery}/complete', [DeliveryController::class, 'completeDelivery']);
     Route::post('/mobile/deliveries/{delivery}/complete-trip', [DeliveryController::class, 'completeTrip']);
     Route::get('/mobile/finance/meta', [FinanceController::class, 'mobileMeta']);
@@ -116,6 +129,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::post('/stock/movements', [StockController::class, 'storeMovement']);
     Route::get('/stock/receipts', [StockController::class, 'receipts']);
     Route::get('/stock/transfers', [StockController::class, 'transfers']);
+    Route::get('/stock/documents/{documentCode}', [StockController::class, 'document']);
     Route::post('/stock/receipts', [StockController::class, 'storeReceipt']);
     Route::post('/stock/transfers', [StockController::class, 'storeTransfer']);
     Route::get('/stock/closing-counts', [StockController::class, 'closingCounts']);
@@ -149,6 +163,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/finance/suppliers', [FinanceController::class, 'suppliers']);
     Route::get('/finance/suppliers/{supplierId}/ledger', [FinanceController::class, 'supplierLedger'])->whereNumber('supplierId');
     Route::post('/finance/suppliers/{supplierId}/ledger', [FinanceController::class, 'storeSupplierEntry'])->whereNumber('supplierId');
+    Route::post('/finance/suppliers/{supplierId}/payments', [FinanceController::class, 'storeSupplierPayment'])->whereNumber('supplierId');
     Route::get('/finance/profit-loss', [FinanceController::class, 'profitLoss']);
 
     Route::get('/vehicle-costs/meta', [VehicleCostController::class, 'meta']);

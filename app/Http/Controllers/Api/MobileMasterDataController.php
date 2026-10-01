@@ -82,6 +82,153 @@ class MobileMasterDataController extends Controller
         ]);
     }
 
+    public function salesVisits(Request $request)
+    {
+        $this->authorizePermission($request, 'sales.customers.view');
+        abort_unless($request->user()->role === 'Sales Representative', 403);
+
+        $employee = DB::table('employees')->find($request->user()->employee_id);
+        abort_unless($employee, 404, 'Sales employee record not found.');
+
+        $date = now()->toDateString();
+        $route = $employee->assigned_route_id
+            ? DB::table('routes')->where('is_active', true)->find($employee->assigned_route_id)
+            : null;
+        $visits = DB::table('sales_route_visits')
+            ->where('employee_id', $employee->id)
+            ->whereDate('visit_date', $date)
+            ->get()
+            ->keyBy('customer_id');
+
+        $customers = $route
+            ? DB::table('customers')
+                ->leftJoin('areas', 'customers.area_id', '=', 'areas.id')
+                ->where('customers.route_id', $route->id)
+                ->where('customers.is_active', true)
+                ->whereNull('customers.deleted_at')
+                ->orderBy('customers.shop_name')
+                ->get([
+                    'customers.id',
+                    'customers.code',
+                    'customers.shop_name',
+                    'customers.contact_name',
+                    'customers.phone',
+                    'customers.address',
+                    'customers.latitude',
+                    'customers.longitude',
+                    'customers.gps_accuracy_m',
+                    'customers.gps_captured_at',
+                    'areas.name as area',
+                ])
+                ->map(function ($customer) use ($visits) {
+                    $visit = $visits->get($customer->id);
+                    $customer->visit_status = $visit?->status ?? 'planned';
+                    $customer->started_at = $visit?->started_at;
+                    $customer->completed_at = $visit?->completed_at;
+                    $customer->visit_latitude = $visit?->completed_latitude ?? $visit?->started_latitude;
+                    $customer->visit_longitude = $visit?->completed_longitude ?? $visit?->started_longitude;
+                    $customer->visit_accuracy_m = $visit?->completed_accuracy_m ?? $visit?->started_accuracy_m;
+
+                    return $customer;
+                })
+            : collect();
+
+        return ApiResponse::success('Customer visits loaded.', [
+            'date' => $date,
+            'route' => $route,
+            'customers' => $customers,
+            'summary' => [
+                'total' => $customers->count(),
+                'planned' => $customers->where('visit_status', 'planned')->count(),
+                'in_progress' => $customers->where('visit_status', 'in_progress')->count(),
+                'completed' => $customers->where('visit_status', 'completed')->count(),
+                'skipped' => $customers->where('visit_status', 'skipped')->count(),
+            ],
+        ]);
+    }
+
+    public function updateSalesVisit(Request $request, int $customerId)
+    {
+        $this->authorizePermission($request, 'sales.customers.view');
+        abort_unless($request->user()->role === 'Sales Representative', 403);
+
+        $validated = $request->validate([
+            'status' => ['required', 'in:in_progress,completed,skipped'],
+            'latitude' => ['required_unless:status,skipped', 'nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['required_unless:status,skipped', 'nullable', 'numeric', 'between:-180,180'],
+            'accuracy_m' => ['nullable', 'numeric', 'min:0', 'max:10000'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $employee = DB::table('employees')->find($request->user()->employee_id);
+        abort_unless($employee?->assigned_route_id, 422, 'An assigned sales route is required.');
+        $customer = DB::table('customers')
+            ->where('id', $customerId)
+            ->where('route_id', $employee->assigned_route_id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
+        abort_unless($customer, 404, 'Customer is not assigned to this sales route.');
+
+        $date = now()->toDateString();
+        $existing = DB::table('sales_route_visits')
+            ->where('employee_id', $employee->id)
+            ->where('customer_id', $customer->id)
+            ->whereDate('visit_date', $date)
+            ->first();
+        abort_if($existing?->status === 'completed', 422, 'This visit is already completed.');
+        abort_if($validated['status'] === 'completed' && $existing?->status !== 'in_progress', 422, 'Start the visit before completing it.');
+
+        $visitId = DB::transaction(function () use ($customer, $date, $employee, $existing, $validated) {
+            $now = now();
+            $values = [
+                'route_id' => $employee->assigned_route_id,
+                'status' => $validated['status'],
+                'notes' => $validated['notes'] ?? $existing?->notes,
+                'updated_at' => $now,
+            ];
+
+            if ($validated['status'] === 'in_progress') {
+                $values += [
+                    'started_at' => $now,
+                    'started_latitude' => $validated['latitude'],
+                    'started_longitude' => $validated['longitude'],
+                    'started_accuracy_m' => $validated['accuracy_m'] ?? null,
+                ];
+            } elseif ($validated['status'] === 'completed') {
+                $values += [
+                    'completed_at' => $now,
+                    'completed_latitude' => $validated['latitude'],
+                    'completed_longitude' => $validated['longitude'],
+                    'completed_accuracy_m' => $validated['accuracy_m'] ?? null,
+                ];
+                DB::table('customers')->where('id', $customer->id)->update([
+                    'latitude' => $validated['latitude'],
+                    'longitude' => $validated['longitude'],
+                    'gps_accuracy_m' => $validated['accuracy_m'] ?? null,
+                    'gps_captured_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            if ($existing) {
+                DB::table('sales_route_visits')->where('id', $existing->id)->update($values);
+                return (int) $existing->id;
+            }
+
+            return (int) DB::table('sales_route_visits')->insertGetId($values + [
+                'employee_id' => $employee->id,
+                'customer_id' => $customer->id,
+                'visit_date' => $date,
+                'created_at' => $now,
+            ]);
+        });
+
+        return ApiResponse::success('Customer visit updated.', [
+            'visit' => DB::table('sales_route_visits')->find($visitId),
+        ]);
+    }
+
     public function customer(Request $request, int $id)
     {
         $this->authorizePermission($request, 'sales.customers.view');
@@ -201,8 +348,19 @@ class MobileMasterDataController extends Controller
             'phone' => ['required', 'string', 'max:40'],
             'email' => ['nullable', 'email', 'max:150'],
             'address' => ['nullable', 'string', 'max:500'],
+            'latitude' => ['nullable', 'required_with:longitude', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'required_with:latitude', 'numeric', 'between:-180,180'],
+            'gps_accuracy_m' => ['nullable', 'numeric', 'min:0', 'max:10000'],
         ]);
         abort_if(DB::table('customers')->where('route_id', $routeId)->where('phone', $validated['phone'])->where('id', '!=', $id)->exists(), 422, 'A customer with this phone number already exists on your route.');
+
+        if (array_key_exists('latitude', $validated) || array_key_exists('longitude', $validated)) {
+            $validated['gps_captured_at'] = isset($validated['latitude'], $validated['longitude']) ? now() : null;
+            if ($validated['gps_captured_at'] === null) {
+                $validated['gps_accuracy_m'] = null;
+            }
+        }
+
         DB::table('customers')->where('id', $id)->update($validated + ['updated_at' => now()]);
 
         return ApiResponse::success('Customer updated.', ['customer' => DB::table('customers')->find($id)]);

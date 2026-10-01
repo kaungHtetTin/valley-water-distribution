@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\StockMovement;
+use App\Models\FinancialTransaction;
+use App\Models\SupplierInvoice;
+use App\Models\SupplierLedgerEntry;
+use App\Models\SupplierPayment;
 use App\Services\InventoryService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
@@ -53,9 +57,20 @@ class StockController extends Controller
                 return $product;
             });
 
+        $suppliers = DB::table('suppliers')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'code', 'name'])
+            ->map(function ($supplier) {
+                $supplier->label = "{$supplier->code} - {$supplier->name}";
+
+                return $supplier;
+            });
+
         return ApiResponse::success('Stock setup loaded.', [
             'warehouses' => $warehouses,
             'products' => $products,
+            'suppliers' => $suppliers,
             'movement_types' => ['opening', 'receive', 'issue', 'damage', 'adjustment', 'transfer_out', 'transfer_in', 'delivery_issue', 'delivery_issue_reversal', 'delivery_return', 'delivery_damage'],
         ]);
     }
@@ -74,6 +89,10 @@ class StockController extends Controller
 
         if ($request->filled('product_id')) {
             $query->where('stock_movements.product_id', $request->query('product_id'));
+        }
+
+        if ($request->filled('supplier_id')) {
+            $query->where('stock_movements.supplier_id', $request->query('supplier_id'));
         }
 
         if ($request->query('type_group') === 'issue' && ! $request->filled('type')) {
@@ -157,6 +176,10 @@ class StockController extends Controller
             $query->where('stock_movements.product_id', $request->query('product_id'));
         }
 
+        if ($request->filled('supplier_id')) {
+            $query->where('stock_movements.supplier_id', $request->query('supplier_id'));
+        }
+
         if ($request->filled('type')) {
             $query->where('stock_movements.movement_type', $request->query('type'));
         }
@@ -172,13 +195,18 @@ class StockController extends Controller
                     ->orWhere('warehouses.code', 'like', "%{$search}%")
                     ->orWhere('warehouses.name', 'like', "%{$search}%")
                     ->orWhere('products.sku', 'like', "%{$search}%")
-                    ->orWhere('products.name', 'like', "%{$search}%");
+                    ->orWhere('products.name', 'like', "%{$search}%")
+                    ->orWhere('suppliers.code', 'like', "%{$search}%")
+                    ->orWhere('suppliers.name', 'like', "%{$search}%");
             });
         }
 
         $grouped = $query
             ->groupBy([
                 'stock_movements.document_code',
+                'stock_movements.supplier_id',
+                'suppliers.code',
+                'suppliers.name',
                 'stock_movements.warehouse_id',
                 'warehouses.code',
                 'warehouses.name',
@@ -189,6 +217,9 @@ class StockController extends Controller
             ])
             ->select([
                 'stock_movements.document_code',
+                'stock_movements.supplier_id',
+                'suppliers.code as supplier_code',
+                'suppliers.name as supplier_name',
                 'stock_movements.warehouse_id',
                 'warehouses.code as warehouse_code',
                 'warehouses.name as warehouse_name',
@@ -211,6 +242,9 @@ class StockController extends Controller
         return ApiResponse::success('Stock receipts loaded.', [
             'items' => collect($paginator->items())->map(fn ($receipt) => [
                 'document_code' => $receipt->document_code,
+                'supplier_id' => $receipt->supplier_id,
+                'supplier_code' => $receipt->supplier_code,
+                'supplier_name' => $receipt->supplier_name,
                 'warehouse_id' => $receipt->warehouse_id,
                 'warehouse_code' => $receipt->warehouse_code,
                 'warehouse_name' => $receipt->warehouse_name,
@@ -301,6 +335,46 @@ class StockController extends Controller
             ]),
             'summary' => ['records_count' => (int) ($summary->records_count ?? 0), 'in_quantity' => 0, 'out_quantity' => (float) ($summary->out_quantity ?? 0), 'stock_value' => (float) ($summary->stock_value ?? 0)],
             'meta' => ['current_page' => $paginator->currentPage(), 'last_page' => $paginator->lastPage(), 'per_page' => $paginator->perPage(), 'total' => $paginator->total()],
+        ]);
+    }
+
+    public function document(Request $request, string $documentCode)
+    {
+        $this->authorizePermission($request, self::VIEW_PERMISSION);
+
+        $movements = $this->movementQuery()
+            ->where('stock_movements.document_code', $documentCode)
+            ->orderBy('stock_movements.id')
+            ->get($this->movementColumns());
+
+        abort_if($movements->isEmpty(), 404, 'Stock document not found.');
+
+        $primary = $movements->first(fn ($movement) => $movement->movement_type !== 'transfer_in') ?: $movements->first();
+        $destination = $movements->first(fn ($movement) => $movement->movement_type === 'transfer_in');
+        $items = $movements
+            ->filter(fn ($movement) => $movement->movement_type !== 'transfer_in')
+            ->map(fn ($movement) => $this->movementPayload($movement))
+            ->values();
+
+        return ApiResponse::success('Stock document loaded.', [
+            'document' => [
+                'code' => $documentCode,
+                'movement_type' => $primary->movement_type,
+                'movement_date' => Carbon::parse($primary->movement_date)->toDateString(),
+                'reference_code' => $primary->reference_code,
+                'notes' => $primary->notes,
+                'supplier_id' => $primary->supplier_id,
+                'supplier_code' => $primary->supplier_code,
+                'supplier_name' => $primary->supplier_name,
+                'warehouse_code' => $primary->warehouse_code,
+                'warehouse_name' => $primary->warehouse_name,
+                'destination_warehouse_code' => $destination?->warehouse_code,
+                'destination_warehouse_name' => $destination?->warehouse_name,
+                'products_count' => $items->count(),
+                'total_quantity' => (float) $items->sum(fn ($item) => abs($item['signed_quantity'])),
+                'total_value' => (float) $items->sum('total_cost'),
+            ],
+            'items' => $items,
         ]);
     }
 
@@ -510,6 +584,9 @@ class StockController extends Controller
             'quantity' => ['required', 'numeric', 'not_in:0'],
             'unit_cost' => ['nullable', 'numeric', 'min:0'],
             'reference_code' => ['nullable', 'string', 'max:80'],
+            'settlement_method' => ['nullable', Rule::in(['credit', 'cash', 'bank'])],
+            'payment_terms_days' => ['nullable', 'integer', 'min:0', 'max:3650'],
+            'due_date' => ['nullable', 'date', 'after_or_equal:movement_date'],
             'notes' => ['nullable', 'string', 'max:500'],
             'adjustment_reason' => ['nullable', Rule::requiredIf(fn () => $request->input('movement_type') === 'adjustment'), Rule::in(self::ADJUSTMENT_REASONS)],
         ]);
@@ -547,9 +624,13 @@ class StockController extends Controller
 
         $validated = $request->validate([
             'movement_type' => ['required', Rule::in(['opening', 'receive'])],
+            'supplier_id' => ['nullable', Rule::requiredIf(fn () => $request->input('movement_type') === 'receive'), 'integer', 'exists:suppliers,id'],
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'movement_date' => ['nullable', 'date'],
             'reference_code' => ['nullable', 'string', 'max:80'],
+            'settlement_method' => ['nullable', Rule::requiredIf(fn () => $request->input('movement_type') === 'receive'), Rule::in(['credit', 'cash', 'bank'])],
+            'payment_terms_days' => ['nullable', 'integer', 'min:0', 'max:3650'],
+            'due_date' => ['nullable', 'date', 'after_or_equal:movement_date'],
             'notes' => ['nullable', 'string', 'max:500'],
             'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
@@ -560,13 +641,27 @@ class StockController extends Controller
         $warehouse = DB::table('warehouses')->where('is_active', true)->find($validated['warehouse_id']);
         abort_unless($warehouse, 422, 'An active warehouse is required.');
 
+        $supplier = isset($validated['supplier_id'])
+            ? DB::table('suppliers')->where('is_active', true)->find($validated['supplier_id'])
+            : null;
+        abort_if($validated['movement_type'] === 'receive' && ! $supplier, 422, 'An active supplier is required for a stock purchase.');
+
         $productIds = collect($validated['items'])->pluck('product_id');
         $activeProductIds = DB::table('products')->where('is_active', true)->whereIn('id', $productIds)->pluck('id');
         abort_unless($activeProductIds->count() === $productIds->count(), 422, 'Every receipt line requires an active product.');
 
         $movementDate = Carbon::parse($validated['movement_date'] ?? now());
+        $settlementMethod = $validated['movement_type'] === 'receive'
+            ? ($validated['settlement_method'] ?? 'credit')
+            : null;
+        $paymentTermsDays = $settlementMethod === 'credit'
+            ? (int) ($validated['payment_terms_days'] ?? 30)
+            : 0;
+        $receiptDueDate = $settlementMethod === 'credit' && isset($validated['due_date'])
+            ? Carbon::parse($validated['due_date'])->toDateString()
+            : $movementDate->copy()->addDays($paymentTermsDays)->toDateString();
 
-        $result = DB::transaction(function () use ($validated, $movementDate, $request) {
+        $result = DB::transaction(function () use ($validated, $movementDate, $settlementMethod, $paymentTermsDays, $receiptDueDate, $request) {
             $documentCode = $this->nextReceiptCode($movementDate);
             $movements = [];
             $totalQuantity = 0;
@@ -576,6 +671,7 @@ class StockController extends Controller
                 [$movement] = $this->applyMovement([
                     'movement_type' => $validated['movement_type'],
                     'warehouse_id' => $validated['warehouse_id'],
+                    'supplier_id' => $validated['movement_type'] === 'receive' ? $validated['supplier_id'] : null,
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
                     'unit_cost' => $item['unit_cost'] ?? null,
@@ -590,16 +686,90 @@ class StockController extends Controller
                 $totalValue += (float) $movement->total_cost;
             }
 
+            if ($validated['movement_type'] === 'receive') {
+                $invoice = SupplierInvoice::create([
+                    'code' => $this->nextSupplierInvoiceCode($movementDate),
+                    'supplier_id' => $validated['supplier_id'],
+                    'stock_document_code' => $documentCode,
+                    'invoice_no' => $validated['reference_code'] ?? null,
+                    'invoice_date' => $movementDate->toDateString(),
+                    'due_date' => $receiptDueDate,
+                    'payment_terms_days' => $paymentTermsDays,
+                    'total' => $totalValue,
+                    'paid_amount' => $settlementMethod === 'credit' ? 0 : $totalValue,
+                    'status' => $settlementMethod === 'credit' ? 'unpaid' : 'paid',
+                    'notes' => $validated['notes'] ?? null,
+                    'created_by' => $request->user()?->id,
+                ]);
+                SupplierLedgerEntry::create([
+                    'supplier_id' => $validated['supplier_id'],
+                    'entry_date' => $movementDate->toDateString(),
+                    'entry_type' => 'purchase',
+                    'source_type' => 'stock_receipt',
+                    'source_key' => $documentCode,
+                    'reference_no' => $validated['reference_code'] ?? $documentCode,
+                    'description' => "Stock receipt {$documentCode}",
+                    'debit' => 0,
+                    'credit' => $totalValue,
+                    'created_by' => $request->user()?->id,
+                ]);
+
+                if ($settlementMethod !== 'credit') {
+                    $payment = SupplierPayment::create([
+                        'code' => $this->nextSupplierPaymentCode($movementDate),
+                        'supplier_id' => $validated['supplier_id'],
+                        'supplier_invoice_id' => $invoice->id,
+                        'payment_date' => $movementDate->toDateString(),
+                        'amount' => $totalValue,
+                        'payment_method' => $settlementMethod,
+                        'reference_no' => $validated['reference_code'] ?? null,
+                        'notes' => 'Paid when stock receipt was recorded.',
+                        'created_by' => $request->user()?->id,
+                    ]);
+                    SupplierLedgerEntry::create([
+                        'supplier_id' => $validated['supplier_id'],
+                        'entry_date' => $movementDate->toDateString(),
+                        'entry_type' => 'payment',
+                        'source_type' => 'supplier_payment',
+                        'source_key' => $payment->code,
+                        'reference_no' => $payment->reference_no ?: $payment->code,
+                        'description' => "Immediate payment for {$invoice->code}",
+                        'debit' => $totalValue,
+                        'credit' => 0,
+                        'created_by' => $request->user()?->id,
+                    ]);
+                    FinancialTransaction::create([
+                        'code' => 'TXN-'.str_pad((string) (FinancialTransaction::max('id') + 1), 7, '0', STR_PAD_LEFT),
+                        'transaction_date' => $movementDate->toDateString(),
+                        'book_type' => $settlementMethod,
+                        'direction' => 'out',
+                        'category' => 'supplier_payment',
+                        'amount' => $totalValue,
+                        'reference_type' => 'supplier_payment',
+                        'reference_id' => $payment->id,
+                        'reference_code' => $payment->code,
+                        'description' => "Supplier payment {$payment->code}",
+                        'created_by' => $request->user()?->id,
+                    ]);
+                }
+            }
+
             return compact('documentCode', 'movements', 'totalQuantity', 'totalValue');
         }, 3);
 
         return ApiResponse::success('Stock receipt recorded.', [
             'receipt' => [
                 'document_code' => $result['documentCode'],
+                'supplier_id' => $supplier?->id,
+                'supplier_code' => $supplier?->code,
+                'supplier_name' => $supplier?->name,
                 'warehouse_id' => (int) $validated['warehouse_id'],
                 'movement_type' => $validated['movement_type'],
                 'movement_date' => $movementDate->toDateString(),
                 'reference_code' => $validated['reference_code'] ?? null,
+                'settlement_method' => $settlementMethod,
+                'payment_terms_days' => $validated['movement_type'] === 'receive' ? $paymentTermsDays : null,
+                'due_date' => $validated['movement_type'] === 'receive' ? $receiptDueDate : null,
                 'products_count' => count($result['movements']),
                 'total_quantity' => $result['totalQuantity'],
                 'total_value' => $result['totalValue'],
@@ -1030,11 +1200,28 @@ class StockController extends Controller
         return $this->inventory->applyMovement($validated, $movementDate, $request->user()?->id, $code);
     }
 
+    private function nextSupplierInvoiceCode(Carbon $date): string
+    {
+        $prefix = 'PIN-'.$date->format('Ym').'-';
+        $next = SupplierInvoice::where('code', 'like', "{$prefix}%")->count() + 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function nextSupplierPaymentCode(Carbon $date): string
+    {
+        $prefix = 'SPY-'.$date->format('Ym').'-';
+        $next = SupplierPayment::where('code', 'like', "{$prefix}%")->count() + 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
     private function movementQuery()
     {
         return DB::table('stock_movements')
             ->join('warehouses', 'stock_movements.warehouse_id', '=', 'warehouses.id')
-            ->join('products', 'stock_movements.product_id', '=', 'products.id');
+            ->join('products', 'stock_movements.product_id', '=', 'products.id')
+            ->leftJoin('suppliers', 'stock_movements.supplier_id', '=', 'suppliers.id');
     }
 
     private function balanceQuery()
@@ -1053,6 +1240,8 @@ class StockController extends Controller
             'products.sku as product_sku',
             'products.name as product_name',
             'products.unit',
+            'suppliers.code as supplier_code',
+            'suppliers.name as supplier_name',
         ];
     }
 
@@ -1074,6 +1263,9 @@ class StockController extends Controller
             'id' => $movement->id,
             'code' => $movement->code,
             'document_code' => $movement->document_code,
+            'supplier_id' => $movement->supplier_id,
+            'supplier_code' => $movement->supplier_code,
+            'supplier_name' => $movement->supplier_name,
             'warehouse_id' => $movement->warehouse_id,
             'warehouse_code' => $movement->warehouse_code,
             'warehouse_name' => $movement->warehouse_name,

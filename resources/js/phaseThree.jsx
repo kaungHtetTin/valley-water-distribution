@@ -1,6 +1,8 @@
-import { AlertCircle, BadgeCheck, CalendarDays, CircleDollarSign, FileClock, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, BadgeCheck, CalendarDays, CircleDollarSign, Download, Pencil, Plus, Printer, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
+import { ShellPageActions } from './components/ShellPageActions';
+import { printConfiguredDocument } from './printDocuments';
 
 const copy = {
     en: {
@@ -39,6 +41,7 @@ const copy = {
         loading: 'Loading payrolls',
         notes: 'Notes',
         month: 'Month',
+        year: 'Year',
         netPay: 'Net pay',
         ot: 'OT',
         paid: 'Paid',
@@ -76,6 +79,26 @@ function t(locale, key) {
     return copy[locale]?.[key] || copy.en[key] || key;
 }
 
+const payrollMonthOptions = [
+    ['01', 'January'], ['02', 'February'], ['03', 'March'], ['04', 'April'],
+    ['05', 'May'], ['06', 'June'], ['07', 'July'], ['08', 'August'],
+    ['09', 'September'], ['10', 'October'], ['11', 'November'], ['12', 'December'],
+];
+const payrollYearOptions = Array.from({ length: new Date().getFullYear() - 2019 }, (_, index) => String(new Date().getFullYear() - index));
+
+function PayrollMonthSelectors({ value, onChange, locale, allowEmpty = false }) {
+    const current = new Date().toISOString().slice(0, 7);
+    const year = value?.slice(0, 4) || '';
+    const month = value?.slice(5, 7) || '';
+    const changeYear = (nextYear) => onChange(nextYear ? `${nextYear}-${month || current.slice(5, 7)}` : '');
+    const changeMonth = (nextMonth) => onChange(nextMonth ? `${year || current.slice(0, 4)}-${nextMonth}` : '');
+
+    return <>
+        <label className="payroll-month-selector"><span>{t(locale, 'year')}</span><select aria-label={t(locale, 'year')} value={year} onChange={(event) => changeYear(event.target.value)}>{allowEmpty && <option value="">All years</option>}{payrollYearOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
+        <label className="payroll-month-selector"><span>{t(locale, 'month')}</span><select aria-label={t(locale, 'month')} value={month} onChange={(event) => changeMonth(event.target.value)}>{allowEmpty && <option value="">All months</option>}{payrollMonthOptions.map(([option, label]) => <option value={option} key={option}>{label}</option>)}</select></label>
+    </>;
+}
+
 function apiBase(name) {
     const fallback = { masterData: '/api/master-data', mobilePayroll: '/api/mobile/payroll', payrollHistory: '/api/payroll-history', payrolls: '/api/payrolls', payrollAdjustments: '/api/payroll-adjustments' };
     return window.ValleyRuntime?.api?.[name] || fallback[name];
@@ -85,7 +108,7 @@ function requestMessage(error, locale, fallbackKey = 'loading') {
     return locale === 'my' ? t(locale, fallbackKey) : error.response?.data?.message || t(locale, fallbackKey);
 }
 
-export function PayrollDraftsScreen({ locale, canManage = false, detailId = null, onNavigate }) {
+export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = false, canPay = false, detailId = null, onNavigate }) {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const [filters, setFilters] = useState({ month: currentMonth, status: '', employee_type: '' });
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
@@ -118,7 +141,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
     }, [filters, locale, refreshKey]);
 
     const generate = async () => {
-        if (!canManage) return;
+        if (!canPrepare) return;
         setGenerating(true);
         setState((current) => ({ ...current, error: '' }));
         try {
@@ -127,7 +150,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
                 employee_type: filters.employee_type || null,
             });
             setViewing(data.data);
-            setRefreshKey((key) => key + 1);
+            setState((current) => { const item = data.data.payroll; const exists = current.items.some((row) => row.id === item.id); return { ...current, items: exists ? current.items.map((row) => row.id === item.id ? { ...row, ...item } : row) : [{ ...item, items_count: data.data.items?.length || 0 }, ...current.items] }; });
             onNavigate?.(`${listPath}/${data.data.payroll.id}`);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
@@ -137,7 +160,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
     };
 
     const transitionPayroll = async (payroll, action) => {
-        if (!canManage || processingId) return;
+        if (!(action === 'approve' ? canApprove : canPay) || processingId) return;
 
         if (action === 'approve' && !window.confirm(t(locale, 'approveConfirm'))) return;
         if (action === 'mark-paid' && !window.confirm(t(locale, 'payConfirm'))) return;
@@ -154,7 +177,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
             const { data } = await window.axios.post(`${apiBase('payrolls')}/${payroll.id}/${action}`, action === 'mark-paid' ? { payment_reference: paymentReference || null } : {});
             const nextPayroll = data.data.payroll;
             setViewing((current) => current?.payroll?.id === payroll.id ? { payroll: nextPayroll, items: null } : current);
-            setRefreshKey((key) => key + 1);
+            setState((current) => ({ ...current, items: current.items.map((item) => item.id === payroll.id ? { ...item, ...nextPayroll } : item) }));
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         } finally {
@@ -163,7 +186,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
     };
 
     const deletePayroll = async (payroll) => {
-        if (!canManage || processingId || payroll.status !== 'draft') return;
+        if (!canPrepare || processingId || payroll.status !== 'draft') return;
         if (!window.confirm(t(locale, 'deletePayrollConfirm'))) return;
 
         setProcessingId(payroll.id);
@@ -171,7 +194,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
         try {
             await window.axios.delete(`${apiBase('payrolls')}/${payroll.id}`);
             setViewing(null);
-            setRefreshKey((key) => key + 1);
+            setState((current) => ({ ...current, items: current.items.filter((item) => item.id !== payroll.id) }));
             if (detailId) onNavigate?.(listPath);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
@@ -186,9 +209,9 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
         deductions: carry.deductions + Number(item.total_deductions || 0),
         net: carry.net + Number(item.total_net || 0),
     }), { employees: 0, gross: 0, deductions: 0, net: 0 });
-    const showPayrollActions = canManage && state.items.some((payroll) => ['draft', 'approved'].includes(payroll.status));
+    const showPayrollActions = state.items.some((payroll) => (payroll.status === 'draft' && (canPrepare || canApprove)) || (payroll.status === 'approved' && canPay));
 
-    if (detailId && viewing) return <PayrollDetailPage viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} operationError={state.error} onApprove={(payroll) => transitionPayroll(payroll, 'approve')} onMarkPaid={(payroll) => transitionPayroll(payroll, 'mark-paid')} onDelete={deletePayroll} onClose={() => onNavigate?.(listPath)} />;
+    if (detailId && viewing) return <PayrollDetailPage viewing={viewing} locale={locale} canPrepare={canPrepare} canApprove={canApprove} canPay={canPay} processingId={processingId} operationError={state.error} onApprove={(payroll) => transitionPayroll(payroll, 'approve')} onMarkPaid={(payroll) => transitionPayroll(payroll, 'mark-paid')} onDelete={deletePayroll} onClose={() => onNavigate?.(listPath)} />;
 
     return (
         <section className="master-workspace payroll-workspace">
@@ -198,7 +221,7 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
                     <h1>{t(locale, 'payroll')}</h1>
                     <span className="muted">{t(locale, 'payrollHint')}</span>
                 </div>
-                {canManage && <button className="button primary" type="button" disabled={generating} onClick={generate}><Plus size={16} /> {t(locale, 'generateDraft')}</button>}
+                <ShellPageActions>{canPrepare && <button className="button primary" type="button" disabled={generating} onClick={generate}><Plus size={16} /> {t(locale, 'generateDraft')}</button>}</ShellPageActions>
             </div>
 
             <div className="metrics payroll-metrics">
@@ -210,10 +233,10 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
 
             <div className="master-panel">
                 <div className="master-toolbar payroll-toolbar">
-                    <label className="date-filter" title={t(locale, 'month')}><CalendarDays size={14} /><input type="month" value={filters.month} onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))} /></label>
+                    <PayrollMonthSelectors value={filters.month} locale={locale} onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">{t(locale, 'allEmployeeTypes')}</option>
-                        {['office', 'sales', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
+                        {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
                     </select>
                     <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
                         <option value="">{t(locale, 'allStatuses')}</option>
@@ -240,9 +263,9 @@ export function PayrollDraftsScreen({ locale, canManage = false, detailId = null
                                         <td>{money(payroll.total_net)}</td>
                                         <td><StatusBadge status={payroll.status} locale={locale} /></td>
                                         {showPayrollActions && <td className="table-actions-cell" onClick={(event) => event.stopPropagation()}><div className="row-actions">
-                                            {payroll.status === 'draft' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'approve')} title={t(locale, 'approve')} onClick={() => transitionPayroll(payroll, 'approve')}><BadgeCheck size={15} /></button>}
-                                            {payroll.status === 'draft' && <button className="danger" type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => deletePayroll(payroll)}><Trash2 size={15} /></button>}
-                                            {payroll.status === 'approved' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'paid')} title={t(locale, 'paid')} onClick={() => transitionPayroll(payroll, 'mark-paid')}><CircleDollarSign size={15} /></button>}
+                                            {canApprove && payroll.status === 'draft' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'approve')} title={t(locale, 'approve')} onClick={() => transitionPayroll(payroll, 'approve')}><BadgeCheck size={15} /></button>}
+                                            {canPrepare && payroll.status === 'draft' && <button className="danger" type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'delete')} title={t(locale, 'delete')} onClick={() => deletePayroll(payroll)}><Trash2 size={15} /></button>}
+                                            {canPay && payroll.status === 'approved' && <button type="button" disabled={processingId === payroll.id} aria-label={t(locale, 'paid')} title={t(locale, 'paid')} onClick={() => transitionPayroll(payroll, 'mark-paid')}><CircleDollarSign size={15} /></button>}
                                         </div></td>}
                                     </tr>
                                 ))}
@@ -342,13 +365,15 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
                 status: form.status,
                 notes: form.notes || null,
             };
-            if (editing?.id) {
-                await window.axios.put(`${apiBase('payrollAdjustments')}/${editing.id}`, payload);
-            } else {
-                await window.axios.post(apiBase('payrollAdjustments'), payload);
-            }
+            const { data } = editing?.id
+                ? await window.axios.put(`${apiBase('payrollAdjustments')}/${editing.id}`, payload)
+                : await window.axios.post(apiBase('payrollAdjustments'), payload);
+            const adjustment = data.data.adjustment;
+            setState((current) => {
+                const exists = current.items.some((item) => item.id === adjustment.id);
+                return { ...current, items: exists ? current.items.map((item) => item.id === adjustment.id ? adjustment : item) : [adjustment, ...current.items], meta: { ...current.meta, total: Number(current.meta?.total || 0) + (exists ? 0 : 1) } };
+            });
             closeForm();
-            setRefreshKey((key) => key + 1);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
             setSaving(false);
@@ -360,7 +385,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
         setState((current) => ({ ...current, error: '' }));
         try {
             await window.axios.delete(`${apiBase('payrollAdjustments')}/${adjustment.id}`);
-            setRefreshKey((key) => key + 1);
+            setState((current) => ({ ...current, items: current.items.filter((item) => item.id !== adjustment.id), meta: { ...current.meta, total: Math.max(0, Number(current.meta?.total || 0) - 1) } }));
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         }
@@ -382,7 +407,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
                     <h1>{t(locale, 'adjustment')}</h1>
                     <span className="muted">{t(locale, 'adjustmentHint')}</span>
                 </div>
-                {canManage && <button className="button primary" type="button" onClick={() => openForm()}><Plus size={16} /> {t(locale, 'adjustment')}</button>}
+                <ShellPageActions>{canManage && <button className="button primary" type="button" onClick={() => openForm()}><Plus size={16} /> {t(locale, 'adjustment')}</button>}</ShellPageActions>
             </div>
 
             <div className="metrics payroll-metrics">
@@ -395,7 +420,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
             <div className="master-panel">
                 <div className="master-toolbar payroll-toolbar payroll-adjustment-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchAdjustments')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
-                    <label className="date-filter" title={t(locale, 'month')}><CalendarDays size={14} /><input type="month" value={filters.month} onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))} /></label>
+                    <PayrollMonthSelectors value={filters.month} locale={locale} onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'adjustmentType')} value={filters.adjustment_type} onChange={(event) => setFilters((current) => ({ ...current, adjustment_type: event.target.value }))}>
                         <option value="">{t(locale, 'adjustmentType')}</option>
                         {adjustmentTypes.map((type) => <option value={type} key={type}>{t(locale, type)}</option>)}
@@ -522,7 +547,7 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
                     <h1>{t(locale, 'salaryHistory')}</h1>
                     <span className="muted">{t(locale, 'salaryHistoryHint')}</span>
                 </div>
-                <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
+                <ShellPageActions><button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button></ShellPageActions>
             </div>
 
             <div className="metrics payroll-metrics">
@@ -535,10 +560,10 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
             <div className="master-panel">
                 <div className="master-toolbar payroll-toolbar salary-history-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchSalary')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
-                    <label className="date-filter" title={t(locale, 'month')}><CalendarDays size={14} /><input type="month" value={filters.month} onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))} /></label>
+                    <PayrollMonthSelectors value={filters.month} locale={locale} allowEmpty onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">{t(locale, 'allEmployeeTypes')}</option>
-                        {['office', 'sales', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
+                        {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
                     </select>
                     <select aria-label={t(locale, 'employee')} value={filters.employee_id} onChange={(event) => setFilters((current) => ({ ...current, employee_id: event.target.value }))}>
                         <option value="">{t(locale, 'employee')}</option>
@@ -604,7 +629,7 @@ export function MobilePayrollHistoryScreen({ locale }) {
                     <h1>{t(locale, 'salaryHistory')}</h1>
                     <span className="muted">{t(locale, 'salaryHistoryHint')}</span>
                 </div>
-                <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
+                <ShellPageActions><button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button></ShellPageActions>
             </div>
 
             <section className="mobile-payroll-summary" aria-label={t(locale, 'salaryHistory')}>
@@ -641,7 +666,7 @@ export function MobilePayrollHistoryScreen({ locale }) {
     );
 }
 
-function PayrollDetailPage({ viewing, locale, canManage = false, processingId = null, operationError = '', onApprove, onMarkPaid, onDelete, onClose }) {
+function PayrollDetailPage({ viewing, locale, canPrepare = false, canApprove = false, canPay = false, processingId = null, operationError = '', onApprove, onMarkPaid, onDelete, onClose }) {
     const [state, setState] = useState(() => viewing.items ? { loading: false, payroll: viewing.payroll, items: viewing.items, error: '' } : { loading: true, payroll: viewing.payroll, items: [], error: '' });
 
     useEffect(() => {
@@ -653,42 +678,92 @@ function PayrollDetailPage({ viewing, locale, canManage = false, processingId = 
         return () => { mounted = false; };
     }, [locale, viewing]);
 
-    const actions = canManage && ['draft', 'approved'].includes(state.payroll.status) ? <>
-        {state.payroll.status === 'draft' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onApprove?.(state.payroll)}><BadgeCheck size={15} /> {t(locale, 'approve')}</button>}
-        {state.payroll.status === 'draft' && <button className="button danger" type="button" disabled={processingId === state.payroll.id} onClick={() => onDelete?.(state.payroll)}><Trash2 size={15} /> {t(locale, 'delete')}</button>}
-        {state.payroll.status === 'approved' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onMarkPaid?.(state.payroll)}><CircleDollarSign size={15} /> {t(locale, 'paid')}</button>}
-    </> : null;
+    const exportPayrollCsv = () => {
+        const escapeCell = (value) => typeof value === 'number' && Number.isFinite(value) ? String(value) : `"${String(value ?? '').replaceAll('"', '""')}"`;
+        const headers = ['Employee', 'Employee code', 'Employee type', 'Attendance accepted', 'Attendance rejected', 'Base salary (MMK)', 'Allowance (MMK)', 'Bonus / incentive (MMK)', 'OT (MMK)', 'Advance (MMK)', 'Other deduction (MMK)', 'Gross pay (MMK)', 'Net pay (MMK)'];
+        const rows = state.items.map((item) => [item.employee_name, item.employee_code, titleCase(item.employee_type), item.accepted_count, item.rejected_count, item.base_salary, item.allowance_amount, item.incentive_amount, item.ot_amount, item.advance_deduction, item.other_deduction, item.gross_pay, item.net_pay]);
+        const totals = state.items.reduce((result, item) => ({
+            base: result.base + Number(item.base_salary || 0),
+            allowance: result.allowance + Number(item.allowance_amount || 0),
+            incentive: result.incentive + Number(item.incentive_amount || 0),
+            ot: result.ot + Number(item.ot_amount || 0),
+            advance: result.advance + Number(item.advance_deduction || 0),
+            other: result.other + Number(item.other_deduction || 0),
+            gross: result.gross + Number(item.gross_pay || 0),
+            net: result.net + Number(item.net_pay || 0),
+        }), { base: 0, allowance: 0, incentive: 0, ot: 0, advance: 0, other: 0, gross: 0, net: 0 });
+        rows.push(['TOTAL', state.payroll.code, state.payroll.status, '', '', totals.base, totals.allowance, totals.incentive, totals.ot, totals.advance, totals.other, totals.gross, totals.net]);
+        const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(escapeCell).join(',')).join('\r\n')}`;
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${state.payroll.code || 'payroll'}-${state.payroll.month}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    };
+
+    const actions = <>
+        <button className="icon-button" type="button" disabled={state.loading || state.items.length === 0} aria-label="Export payroll table to Excel CSV" title="Export Excel CSV" onClick={exportPayrollCsv}><Download size={17} /></button>
+        {canApprove && state.payroll.status === 'draft' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onApprove?.(state.payroll)}><BadgeCheck size={15} /> {t(locale, 'approve')}</button>}
+        {canPrepare && state.payroll.status === 'draft' && <button className="button danger" type="button" disabled={processingId === state.payroll.id} onClick={() => onDelete?.(state.payroll)}><Trash2 size={15} /> {t(locale, 'delete')}</button>}
+        {canPay && state.payroll.status === 'approved' && <button className="button primary" type="button" disabled={processingId === state.payroll.id} onClick={() => onMarkPaid?.(state.payroll)}><CircleDollarSign size={15} /> {t(locale, 'paid')}</button>}
+    </>;
 
     return (
-        <DetailPage eyebrow={t(locale, 'payroll')} title={state.payroll.code || t(locale, 'loading')} subtitle={state.payroll.month} onBack={onClose} actions={actions}
-            aside={!state.loading && <DetailPanel eyebrow={t(locale, 'summary')}><section className="payroll-total-card record-page-summary"><FileClock size={18} /><div><small>{state.payroll.month}</small><strong>{money(state.payroll.total_net)}</strong><span>{state.payroll.items_count} {t(locale, 'totalEmployees')} · {t(locale, state.payroll.status)}</span></div></section></DetailPanel>}
-        >
+        <DetailPage eyebrow={t(locale, 'payroll')} title={state.payroll.code || t(locale, 'loading')} subtitle={state.payroll.month} onBack={onClose} actions={actions}>
             {(state.error || operationError) && <div className="inline-error"><AlertCircle size={15} /> {state.error || operationError}</div>}
             {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : <>
-                {(state.payroll.approved_at || state.payroll.paid_at || state.payroll.payment_reference) && (
-                    <DetailPanel eyebrow={t(locale, 'status')} title={t(locale, 'details')}><section className="payroll-workflow-card">
-                        {state.payroll.approved_at && <span><strong>{t(locale, 'approvedAt')}</strong>{formatDateTime(state.payroll.approved_at)}</span>}
-                        {state.payroll.paid_at && <span><strong>{t(locale, 'paidAt')}</strong>{formatDateTime(state.payroll.paid_at)}</span>}
-                        {state.payroll.payment_reference && <span><strong>{t(locale, 'paymentReference')}</strong>{state.payroll.payment_reference}</span>}
-                    </section></DetailPanel>
-                )}
-                <DetailPanel eyebrow={t(locale, 'employees')} title={`${state.payroll.items_count} ${t(locale, 'totalEmployees')}`}>
-                    <div className="master-table-wrap">
-                            <table className="master-table payroll-item-table">
-                                <colgroup><col className="payroll-item-employee" /><col className="payroll-item-attendance" /><col className="payroll-item-money" /><col className="payroll-item-money" /></colgroup>
-                                <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'attendance')}</th><th>{t(locale, 'baseSalary')}</th><th>{t(locale, 'netPay')}</th></tr></thead>
-                                <tbody>{state.items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><span className="muted">{item.employee_code}</span></td><td>{item.accepted_count} / {item.rejected_count}</td><td>{money(item.base_salary)}</td><td>{money(item.net_pay)}</td></tr>)}</tbody>
-                            </table>
+                <section className="master-panel record-page-panel payroll-items-panel">
+                    <div className="record-page-panel-heading payroll-items-heading">
+                        <div className="payroll-items-heading-copy">
+                            <p className="eyebrow">{t(locale, 'employees')}</p>
+                            <div><h2>{state.payroll.items_count} {t(locale, 'totalEmployees')}</h2><StatusBadge status={state.payroll.status} locale={locale} /></div>
+                            {(state.payroll.approved_at || state.payroll.paid_at || state.payroll.payment_reference) && <span>{[
+                                state.payroll.paid_at ? `${t(locale, 'paidAt')}: ${formatDateTime(state.payroll.paid_at)}` : state.payroll.approved_at ? `${t(locale, 'approvedAt')}: ${formatDateTime(state.payroll.approved_at)}` : null,
+                                state.payroll.payment_reference ? `${t(locale, 'paymentReference')}: ${state.payroll.payment_reference}` : null,
+                            ].filter(Boolean).join(' · ')}</span>}
+                        </div>
+                        <div><span>{t(locale, 'netPay')}</span><strong>{money(state.payroll.total_net)}</strong></div>
                     </div>
-                </DetailPanel>
+                    <div className="master-table-wrap">
+                        <table className="master-table payroll-item-table">
+                            <colgroup><col className="payroll-col-employee" /><col className="payroll-col-role" /><col className="payroll-col-attendance" /><col className="payroll-col-base" /><col className="payroll-col-allowance" /><col className="payroll-col-bonus" /><col className="payroll-col-ot" /><col className="payroll-col-advance" /><col className="payroll-col-other" /><col className="payroll-col-gross" /><col className="payroll-col-net" /></colgroup>
+                            <thead><tr><th>{t(locale, 'employee')}</th><th>{t(locale, 'employeeType')}</th><th className="center">{t(locale, 'attendance')}</th><th className="numeric">{t(locale, 'baseSalary')}</th><th className="numeric">{t(locale, 'allowance')}</th><th className="numeric">Bonus / {t(locale, 'incentive')}</th><th className="numeric">{t(locale, 'ot')}</th><th className="numeric">{t(locale, 'advance')}</th><th className="numeric">Other deduction</th><th className="numeric">{t(locale, 'grossPay')}</th><th className="numeric">{t(locale, 'netPay')}</th></tr></thead>
+                            <tbody>{state.items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><span className="muted">{item.employee_code}</span></td><td>{titleCase(item.employee_type)}</td><td className="center"><span className="payroll-attendance-pair"><strong>{item.accepted_count}</strong><small>/ {item.rejected_count}</small></span></td><td className="numeric">{money(item.base_salary)}</td><td className="numeric">{money(item.allowance_amount)}</td><td className="numeric payroll-bonus-cell">{money(item.incentive_amount)}</td><td className="numeric">{money(item.ot_amount)}</td><td className="numeric">{money(item.advance_deduction)}</td><td className="numeric">{money(item.other_deduction)}</td><td className="numeric"><strong>{money(item.gross_pay)}</strong></td><td className="numeric payroll-net-cell"><strong>{money(item.net_pay)}</strong></td></tr>)}</tbody>
+                        </table>
+                    </div>
+                </section>
             </>}
         </DetailPage>
     );
 }
 
 function SalaryHistoryDetailPage({ item, locale, onClose }) {
+    const deductions = Number(item.advance_deduction || 0) + Number(item.other_deduction || 0);
+    const printPayslip = () => printConfiguredDocument('employee_payslip', {
+        reference: item.payroll_code,
+        facts: [
+            ['Employee', `${item.employee_code} · ${item.employee_name}`],
+            ['Role', titleCase(item.employee_type)],
+            ['Month', item.month],
+            ['Period', `${item.period_start} - ${item.period_end}`],
+            ['Attendance', `${item.accepted_count} accepted / ${item.rejected_count} rejected`],
+            ['Payment reference', item.payment_reference || '-'],
+        ],
+        columns: ['Earning', 'Amount', 'Deduction', 'Amount'],
+        rows: [
+            ['Base salary', money(item.base_salary), 'Advance', money(item.advance_deduction)],
+            ['Allowance', money(item.allowance_amount), 'Other', money(item.other_deduction)],
+            ['Incentive', money(item.incentive_amount), 'Total deductions', money(deductions)],
+            ['Overtime', money(item.ot_amount), '', ''],
+        ],
+        total: ['Net pay', money(item.net_pay)],
+        signatures: ['Prepared by', 'Employee'],
+    });
     return (
-        <DetailPage eyebrow={t(locale, 'salaryHistory')} title={item.employee_name} subtitle={`${item.employee_code} · ${item.month}`} onBack={onClose}
+        <DetailPage eyebrow={t(locale, 'salaryHistory')} title={item.employee_name} subtitle={`${item.employee_code} · ${item.month}`} onBack={onClose} actions={<button className="icon-button" type="button" title="Print payslip" aria-label="Print payslip" onClick={printPayslip}><Printer size={16} /></button>}
             aside={<DetailPanel eyebrow={t(locale, 'netPay')}><section className="payroll-total-card record-page-summary"><CircleDollarSign size={18} /><div><small>{item.payroll_code}</small><strong>{money(item.net_pay)}</strong><span>{t(locale, 'paidAt')}: {formatDateTime(item.paid_at)}</span></div></section></DetailPanel>}
         >
             <DetailPanel eyebrow={t(locale, 'details')} title={t(locale, 'salaryHistory')}>
@@ -702,7 +777,7 @@ function SalaryHistoryDetailPage({ item, locale, onClose }) {
                         <InfoLine label={t(locale, 'allowance')} value={money(item.allowance_amount)} />
                         <InfoLine label={t(locale, 'incentive')} value={money(item.incentive_amount)} />
                         <InfoLine label={t(locale, 'ot')} value={money(item.ot_amount)} />
-                        <InfoLine label={t(locale, 'deductions')} value={money(Number(item.advance_deduction || 0) + Number(item.other_deduction || 0))} />
+                        <InfoLine label={t(locale, 'deductions')} value={money(deductions)} />
                         <InfoLine label={t(locale, 'grossPay')} value={money(item.gross_pay)} />
                         <InfoLine label={t(locale, 'netPay')} value={money(item.net_pay)} />
                     </dl>

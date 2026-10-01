@@ -81,8 +81,58 @@ class OrderController extends Controller
             $query->where('orders.customer_id', $request->query('customer_id'));
         }
 
+        if ($request->query('customer_scope') === 'registered') {
+            $query->whereNotNull('orders.customer_id');
+        } elseif ($request->query('customer_scope') === 'walk_in') {
+            $query->whereNull('orders.customer_id');
+        }
+
+        if ($request->filled('area_id')) {
+            $query->where('orders.area_id', $request->query('area_id'));
+        }
+
+        if ($request->filled('route_id')) {
+            $query->where('orders.route_id', $request->query('route_id'));
+        }
+
+        if ($request->filled('price_type_id')) {
+            $query->where('orders.price_type_id', $request->query('price_type_id'));
+        }
+
+        if ($request->filled('payment_type')) {
+            $query->where('orders.payment_type', $request->query('payment_type'));
+        }
+
         if ($request->filled('date')) {
             $query->whereDate('orders.order_date', $request->query('date'));
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('orders.order_date', '>=', $request->query('date_from'));
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('orders.order_date', '<=', $request->query('date_to'));
+        }
+
+        if ($request->filled('delivery_from')) {
+            $query->whereDate('orders.requested_delivery_date', '>=', $request->query('delivery_from'));
+        }
+
+        if ($request->filled('delivery_to')) {
+            $query->whereDate('orders.requested_delivery_date', '<=', $request->query('delivery_to'));
+        }
+
+        if ($request->filled('min_total')) {
+            $query->where('orders.total', '>=', max((float) $request->query('min_total'), 0));
+        }
+
+        if ($request->filled('max_total')) {
+            $query->where('orders.total', '<=', max((float) $request->query('max_total'), 0));
+        }
+
+        if (in_array((string) $request->query('driver_modified'), ['0', '1'], true)) {
+            $query->where('orders.driver_modified', (int) $request->query('driver_modified'));
         }
 
         if ($search = trim((string) $request->query('search'))) {
@@ -194,10 +244,14 @@ class OrderController extends Controller
     {
         $this->authorizePermission($request, 'office.orders.manage');
         abort_unless($order->status === 'pending', 409, 'Only pending orders can be confirmed.');
+        abort_unless($order->area_id && $order->route_id, 422, 'Assign the delivery area and route before confirming this order.');
+        abort_if(trim((string) $order->delivery_address) === '', 422, 'Add the delivery address before confirming this order.');
 
         $invoice = DB::transaction(function () use ($order, $request) {
             $lockedOrder = Order::with('items')->lockForUpdate()->findOrFail($order->id);
             abort_unless($lockedOrder->status === 'pending', 409, 'Only pending orders can be confirmed.');
+            abort_unless($lockedOrder->area_id && $lockedOrder->route_id, 422, 'Assign the delivery area and route before confirming this order.');
+            abort_if(trim((string) $lockedOrder->delivery_address) === '', 422, 'Add the delivery address before confirming this order.');
             $lockedOrder->update([
                 'status' => 'confirmed',
                 'confirmed_by' => $request->user()?->id,
@@ -267,6 +321,15 @@ class OrderController extends Controller
                 'total' => $totals['total'],
                 'notes' => $validated['notes'] ?? null,
             ]);
+
+            if ($customer) {
+                DB::table('customers')->where('id', $customer->id)->update([
+                    'area_id' => $destination['area_id'],
+                    'route_id' => $destination['route_id'],
+                    'updated_at' => now(),
+                ]);
+            }
+
             $lockedOrder->items()->delete();
             foreach ($items as $item) {
                 $lockedOrder->items()->create($item);
@@ -437,11 +500,19 @@ class OrderController extends Controller
 
     private function baseQuery()
     {
+        $latestDelivery = DB::table('deliveries')
+            ->selectRaw('MAX(id) as id, order_id')
+            ->whereNotNull('order_id')
+            ->where('status', '!=', 'cancelled')
+            ->groupBy('order_id');
+
         return DB::table('orders')
             ->leftJoin('customers', 'orders.customer_id', '=', 'customers.id')
             ->leftJoin('routes', 'orders.route_id', '=', 'routes.id')
             ->leftJoin('areas', 'routes.area_id', '=', 'areas.id')
             ->leftJoin('price_types', 'orders.price_type_id', '=', 'price_types.id')
+            ->leftJoinSub($latestDelivery, 'latest_delivery', fn ($join) => $join->on('latest_delivery.order_id', '=', 'orders.id'))
+            ->leftJoin('deliveries as order_delivery', 'order_delivery.id', '=', 'latest_delivery.id')
             ->whereExists(function ($query) {
                 $query->selectRaw('1')
                     ->from('order_items')
@@ -455,11 +526,21 @@ class OrderController extends Controller
         return [
             'orders.*',
             'customers.code as customer_code',
+            'customers.latitude as customer_latitude',
+            'customers.longitude as customer_longitude',
+            'customers.gps_accuracy_m as customer_gps_accuracy_m',
+            'customers.gps_captured_at as customer_gps_captured_at',
             DB::raw('COALESCE(orders.recipient_name, customers.shop_name) as recipient_name_display'),
             'customers.contact_name',
             'areas.name as area',
             'routes.name as route',
             'price_types.name as price_type',
+            'order_delivery.id as delivery_id',
+            'order_delivery.code as delivery_code',
+            'order_delivery.status as delivery_status',
+            'order_delivery.loaded_at as delivery_loaded_at',
+            'order_delivery.departed_at as delivery_departed_at',
+            'order_delivery.completed_at as delivery_completed_at',
         ];
     }
 
@@ -470,6 +551,10 @@ class OrderController extends Controller
             'code' => $order->code,
             'customer_id' => $order->customer_id,
             'customer_code' => $order->customer_code,
+            'customer_latitude' => $order->customer_latitude !== null ? (float) $order->customer_latitude : null,
+            'customer_longitude' => $order->customer_longitude !== null ? (float) $order->customer_longitude : null,
+            'customer_gps_accuracy_m' => $order->customer_gps_accuracy_m !== null ? (float) $order->customer_gps_accuracy_m : null,
+            'customer_gps_captured_at' => $order->customer_gps_captured_at ? Carbon::parse($order->customer_gps_captured_at)->toDateTimeString() : null,
             'shop_name' => $order->recipient_name_display,
             'recipient_name' => $order->recipient_name_display,
             'recipient_phone' => $order->recipient_phone,
@@ -495,6 +580,14 @@ class OrderController extends Controller
             'tax_total' => (float) $order->tax_total,
             'total' => (float) $order->total,
             'confirmed_at' => $order->confirmed_at ? Carbon::parse($order->confirmed_at)->toDateTimeString() : null,
+            'delivery' => $order->delivery_id ? [
+                'id' => (int) $order->delivery_id,
+                'code' => $order->delivery_code,
+                'status' => $order->delivery_status,
+                'loaded_at' => $order->delivery_loaded_at ? Carbon::parse($order->delivery_loaded_at)->toDateTimeString() : null,
+                'departed_at' => $order->delivery_departed_at ? Carbon::parse($order->delivery_departed_at)->toDateTimeString() : null,
+                'completed_at' => $order->delivery_completed_at ? Carbon::parse($order->delivery_completed_at)->toDateTimeString() : null,
+            ] : null,
             'notes' => $order->notes,
             'updated_at' => Carbon::parse($order->updated_at)->toDateTimeString(),
         ];

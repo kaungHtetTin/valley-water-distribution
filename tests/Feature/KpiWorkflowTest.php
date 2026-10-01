@@ -28,11 +28,12 @@ class KpiWorkflowTest extends TestCase
     {
         $this->seed();
 
-        $this->assertDatabaseCount('kpi_templates', 5);
+        $this->assertDatabaseCount('kpi_templates', 6);
+        $this->assertSame(1, $this->profileCount('office', 'OFFICE-STAFF-V1'));
         $this->assertSame(2, $this->profileCount('sales', 'SALES-REP-V1'));
         $this->assertSame(1, $this->profileCount('driver', 'DRIVER-V1'));
         $this->assertSame(1, $this->profileCount('warehouse', 'STOREKEEPER-V1'));
-        $this->assertDatabaseMissing('kpi_staff_profiles', [
+        $this->assertDatabaseHas('kpi_staff_profiles', [
             'employee_id' => DB::table('employees')->where('code', 'EMP-001')->value('id'),
         ]);
     }

@@ -1,5 +1,6 @@
 import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Download, Printer, RefreshCw, Search, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { ShellPageActions } from './components/ShellPageActions';
 
 const currentMonth = () => {
     const date = new Date();
@@ -10,6 +11,12 @@ const money = (value) => `${Number(value || 0).toLocaleString(undefined, { maxim
 const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const titleCase = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const initialFilters = () => ({ period: 'month', month: currentMonth(), year: currentMonth().slice(0, 4), employee_type: '', employee_id: '' });
+const monthOptions = [
+    ['01', 'January'], ['02', 'February'], ['03', 'March'], ['04', 'April'],
+    ['05', 'May'], ['06', 'June'], ['07', 'July'], ['08', 'August'],
+    ['09', 'September'], ['10', 'October'], ['11', 'November'], ['12', 'December'],
+];
+const yearOptions = Array.from({ length: new Date().getFullYear() - 2019 }, (_, index) => String(new Date().getFullYear() - index));
 
 export function KpiReportsScreen() {
     const [draft, setDraft] = useState(initialFilters);
@@ -95,19 +102,22 @@ export function KpiReportsScreen() {
                     <div className="kpi-report-filter-scroll">
                         <div className="kpi-report-filter-fields">
                             <label><span>Period</span><select value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value }))}><option value="month">Monthly</option><option value="year">Yearly</option></select></label>
-                            {draft.period === 'month'
-                                ? <label><span>Month</span><input type="month" required value={draft.month} onChange={(event) => setDraft((current) => ({ ...current, month: event.target.value }))} /></label>
-                                : <label><span>Year</span><input type="number" min="2020" max="2100" required value={draft.year} onChange={(event) => setDraft((current) => ({ ...current, year: event.target.value }))} /></label>}
-                            <label><span>Staff group</span><select value={draft.employee_type} onChange={(event) => setDraft((current) => ({ ...current, employee_type: event.target.value, employee_id: '' }))}><option value="">All KPI staff</option><option value="sales">Sales</option><option value="driver">Driver</option><option value="warehouse">Warehouse</option><option value="office">Office</option></select></label>
+                            {draft.period === 'month' ? <>
+                                <label><span>Year</span><select aria-label="KPI analysis year" value={draft.month.slice(0, 4)} onChange={(event) => setDraft((current) => ({ ...current, month: `${event.target.value}-${current.month.slice(5, 7)}` }))}>{yearOptions.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
+                                <label><span>Month</span><select aria-label="KPI analysis month" value={draft.month.slice(5, 7)} onChange={(event) => setDraft((current) => ({ ...current, month: `${current.month.slice(0, 4)}-${event.target.value}` }))}>{monthOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                            </> : <label><span>Year</span><select required value={draft.year} onChange={(event) => setDraft((current) => ({ ...current, year: event.target.value }))}>{yearOptions.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>}
+                            <label className="kpi-report-staff-group"><span>Staff group</span><select value={draft.employee_type} onChange={(event) => setDraft((current) => ({ ...current, employee_type: event.target.value, employee_id: '' }))}><option value="">All KPI staff</option><option value="sales">Sales</option><option value="sales_supervisor">Sales Supervisor</option><option value="driver">Driver</option><option value="warehouse">Warehouse</option><option value="office">Office</option></select></label>
                             <label className="kpi-report-employee"><span>Employee</span><select value={draft.employee_id} onChange={(event) => setDraft((current) => ({ ...current, employee_id: event.target.value }))}><option value="">All employees</option>{visibleEmployees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.code}</option>)}</select></label>
                         </div>
                     </div>
                     <div className="kpi-report-filter-actions">
                         <button className="button primary" type="submit" disabled={state.loading}><Search size={15} /> Apply</button>
+                    </div>
+                    <ShellPageActions>
                         <button className="button" type="button" disabled={state.loading || state.data.reviews.length === 0} onClick={exportExcel}><Download size={15} /> Excel</button>
                         <button className="button" type="button" disabled={state.loading || state.data.reviews.length === 0} onClick={() => window.print()}><Printer size={15} /> Print</button>
                         <button className="icon-button" type="button" aria-label="Refresh report" title="Refresh report" disabled={state.loading} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw className={state.loading ? 'spin' : ''} size={15} /></button>
-                    </div>
+                    </ShellPageActions>
                 </form>
             </div>
 

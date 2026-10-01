@@ -73,7 +73,7 @@ class PayrollAdjustmentController extends Controller
 
     public function store(Request $request)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.adjustments.manage', 'office.payroll.manage']);
         $validated = $request->validate($this->rules());
         $validated['created_by'] = $request->user()?->id;
         $adjustment = PayrollAdjustment::create($validated);
@@ -85,7 +85,7 @@ class PayrollAdjustmentController extends Controller
 
     public function update(Request $request, PayrollAdjustment $payrollAdjustment)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.adjustments.manage', 'office.payroll.manage']);
         abort_if($this->isKpiBonus($payrollAdjustment->id), 409, 'KPI bonus adjustments are managed from KPI Reviews.');
         $payrollAdjustment->update($request->validate($this->rules()));
 
@@ -96,7 +96,7 @@ class PayrollAdjustmentController extends Controller
 
     public function destroy(Request $request, PayrollAdjustment $payrollAdjustment)
     {
-        $this->authorizePermission($request, 'office.payroll.manage');
+        $this->authorizePermission($request, ['office.payroll.adjustments.manage', 'office.payroll.manage']);
         abort_if($this->isKpiBonus($payrollAdjustment->id), 409, 'Posted KPI bonuses cannot be deleted.');
         $payrollAdjustment->delete();
 
@@ -164,8 +164,8 @@ class PayrollAdjustmentController extends Controller
         return DB::table('kpi_results')->where('payroll_adjustment_id', $adjustmentId)->exists();
     }
 
-    private function authorizePermission(Request $request, string $permission): void
+    private function authorizePermission(Request $request, string|array $permission): void
     {
-        abort_unless(in_array($permission, AppAccess::permissionsForRole($request->user()?->role), true), 403);
+        abort_unless(array_intersect((array) $permission, AppAccess::permissionsForRole($request->user()?->role)), 403);
     }
 }

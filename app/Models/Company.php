@@ -17,6 +17,8 @@ class Company extends Model
         'is_active' => 'boolean',
         'default_customer_credit_limit' => 'decimal:2',
         'delivery_credit_due_days' => 'integer',
+        'print_settings' => 'array',
+        'contact_channels' => 'array',
     ];
 
     public function getLogoUrlAttribute(): ?string

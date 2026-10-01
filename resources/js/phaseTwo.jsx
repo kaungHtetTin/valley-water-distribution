@@ -27,6 +27,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
+import { ShellPageActions } from './components/ShellPageActions';
 
 const copy = {
     en: {
@@ -269,7 +270,7 @@ export function PublicAttendanceScreen({ token, locale, setLocale }) {
     );
 }
 
-export function AttendanceLocationsScreen({ locale, canManage = false, detailId = null, onNavigate }) {
+export function AttendanceLocationsScreen({ locale, canManage = false, detailId = null, onNavigate, embedded = false, basePath = null }) {
     const [filters, setFilters] = useState({ search: '', is_active: '' });
     const [page, setPage] = useState(1);
     const [state, setState] = useState({ loading: true, items: [], warehouses: [], meta: {}, error: '' });
@@ -277,7 +278,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
     const [viewing, setViewing] = useState(null);
     const [message, setMessage] = useState('');
     const [refreshKey, setRefreshKey] = useState(0);
-    const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/attendance/locations`;
+    const listPath = basePath || `${window.ValleyRuntime?.routes?.office || '/office'}/attendance/locations`;
 
     useEffect(() => {
         if (!detailId) {
@@ -320,7 +321,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
         try {
             await window.axios.delete(`${apiBase('attendanceLocations')}/${location.id}`);
             setViewing(null);
-            setRefreshKey((key) => key + 1);
+            setState((current) => ({ ...current, items: current.items.filter((item) => item.id !== location.id), meta: { ...current.meta, total: Math.max(0, Number(current.meta.total || 1) - 1) } }));
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         }
@@ -332,24 +333,24 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
             const { data } = await window.axios.post(`${apiBase('attendanceLocations')}/${location.id}/rotate-token`);
             const updated = data.data.location;
             if (detailId) setViewing(updated);
-            setRefreshKey((key) => key + 1);
+            setState((current) => ({ ...current, items: current.items.map((item) => item.id === updated.id ? updated : item) }));
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         }
     };
 
-    if (detailId) return viewing ? <><LocationDetailPage location={viewing} locale={locale} canManage={canManage} onClose={() => onNavigate?.(listPath)} onCopy={() => setMessage(t(locale, 'copied'))} onEdit={() => setEditing({ mode: 'edit', values: { ...viewing } })} onRotate={() => rotate(viewing)} />{editing && <LocationDialog editing={editing} warehouses={state.warehouses} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setViewing(location); setRefreshKey((key) => key + 1); }} />}</> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
+    if (detailId) return viewing ? <><LocationDetailPage location={viewing} locale={locale} canManage={canManage} onClose={() => onNavigate?.(listPath)} onCopy={() => setMessage(t(locale, 'copied'))} onEdit={() => setEditing({ mode: 'edit', values: { ...viewing } })} onRotate={() => rotate(viewing)} />{editing && <LocationDialog editing={editing} warehouses={state.warehouses} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setViewing(location); setState((current) => ({ ...current, items: current.items.map((item) => item.id === location.id ? location : item) })); }} />}</> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
 
     return (
-        <section className="master-workspace attendance-workspace">
-            <div className="master-heading">
+        <section className={`master-workspace attendance-workspace ${embedded ? 'is-embedded' : ''}`}>
+            {!embedded && <div className="master-heading">
                 <div>
                     <p className="eyebrow">{t(locale, 'attendance')}</p>
                     <h1>{t(locale, 'attendanceLocations')}</h1>
                     <span className="muted">{t(locale, 'attendanceLocationsHint')}</span>
                 </div>
-                {canManage && <button className="button primary" type="button" onClick={openCreate}><Plus size={16} /> {t(locale, 'addLocation')}</button>}
-            </div>
+            </div>}
+            <ShellPageActions>{canManage && <button className="button primary" type="button" onClick={openCreate}><Plus size={16} /> {t(locale, 'addLocation')}</button>}</ShellPageActions>
 
             <div className="master-panel">
                 <div className="master-toolbar">
@@ -368,8 +369,8 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
                 {message && <div className="inline-success"><CheckCircle2 size={15} /> {message}</div>}
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <TableLoading columns={6 + (canManage ? 1 : 0)} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
-                    <div className="master-table-wrap">
-                        <table className="master-table attendance-table">
+                    <div className="master-table-wrap attendance-location-table-wrap">
+                        <table className="master-table attendance-table attendance-locations-table">
                             <thead>
                                 <tr>
                                     <th>{t(locale, 'location')}</th>
@@ -403,7 +404,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
                 <Pagination meta={state.meta} page={page} setPage={setPage} locale={locale} />
             </div>
 
-            {editing && <LocationDialog editing={editing} warehouses={state.warehouses} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setRefreshKey((key) => key + 1); onNavigate?.(`${listPath}/${location.id}`); }} />}
+            {editing && <LocationDialog editing={editing} warehouses={state.warehouses} locale={locale} onClose={() => setEditing(null)} onSaved={(location) => { setEditing(null); setState((current) => { const exists = current.items.some((item) => item.id === location.id); return { ...current, items: exists ? current.items.map((item) => item.id === location.id ? location : item) : [location, ...current.items], meta: { ...current.meta, total: Number(current.meta.total || 0) + (exists ? 0 : 1) } }; }); }} />}
         </section>
     );
 }
@@ -482,7 +483,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
                     <h1>{t(locale, 'attendanceRecords')}</h1>
                     <span className="muted">{t(locale, 'attendanceRecordsHint')}</span>
                 </div>
-                <button className="button" type="button" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /> {t(locale, 'refresh')}</button>
+                <ShellPageActions><button className="button" type="button" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /> {t(locale, 'refresh')}</button></ShellPageActions>
             </div>
 
             <div className="metrics attendance-metrics">
@@ -602,7 +603,7 @@ export function AttendanceSummaryScreen({ locale }) {
                     <h1>{t(locale, 'attendanceSummary')}</h1>
                     <span className="muted">{t(locale, 'attendanceSummaryHint')}</span>
                 </div>
-                <button className="button" type="button" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /> {t(locale, 'refresh')}</button>
+                <ShellPageActions><button className="button" type="button" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /> {t(locale, 'refresh')}</button></ShellPageActions>
             </div>
 
             <div className="metrics attendance-metrics">
@@ -618,7 +619,7 @@ export function AttendanceSummaryScreen({ locale }) {
                     <input className="summary-month" aria-label="Month" type="month" value={filters.month} onChange={(event) => { setFilters((current) => ({ ...current, month: event.target.value })); setPage(1); }} disabled={Boolean(filters.date_from || filters.date_to)} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => { setFilters((current) => ({ ...current, employee_type: event.target.value })); setPage(1); }}>
                         <option value="">{t(locale, 'showAll')}</option>
-                        {['office', 'sales', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
+                        {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
                     </select>
                     <label className="date-filter" title="From"><CalendarDays size={14} /><input type="date" value={filters.date_from} onChange={(event) => { setFilters((current) => ({ ...current, date_from: event.target.value })); setPage(1); }} /></label>
                     <label className="date-filter" title="To"><CalendarDays size={14} /><input type="date" value={filters.date_to} onChange={(event) => { setFilters((current) => ({ ...current, date_to: event.target.value })); setPage(1); }} /></label>
@@ -703,7 +704,7 @@ function MobileAttendanceCheckInDialog({ locale, onClose, onRecorded }) {
                 ...positionPayload,
             });
             setResult(data.data.result);
-            onRecorded();
+            onRecorded(data.data.result);
         } catch (error) {
             setState((current) => ({ ...current, error: requestMessage(error, locale) }));
         } finally {
@@ -833,10 +834,10 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                     <h1>{t(locale, 'attendanceHistory')}</h1>
                     <span className="muted">Monthly check-in calendar and history.</span>
                 </div>
-                <div className="mobile-attendance-heading-actions">
+                <ShellPageActions className="mobile-attendance-heading-actions">
                     <button className="button primary" type="button" onClick={() => setCheckInOpen(true)}><Crosshair size={16} />Check in</button>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={18} /></button>
-                </div>
+                </ShellPageActions>
             </div>
 
             <section className="mobile-attendance-summary" aria-label={t(locale, 'attendanceHistory')}>
@@ -879,7 +880,7 @@ export function MobileAttendanceHistoryScreen({ locale }) {
             </section>
 
             {selected && <MobileAttendanceDetailSheet record={selected} locale={locale} onClose={() => setSelected(null)} />}
-            {checkInOpen && <MobileAttendanceCheckInDialog locale={locale} onClose={() => setCheckInOpen(false)} onRecorded={() => setRefreshKey((key) => key + 1)} />}
+            {checkInOpen && <MobileAttendanceCheckInDialog locale={locale} onClose={() => setCheckInOpen(false)} onRecorded={(record) => setState((current) => { const exists = current.items.some((item) => item.id === record.id); const previous = current.items.find((item) => item.id === record.id); return { ...current, items: exists ? current.items.map((item) => item.id === record.id ? { ...item, ...record } : item) : [record, ...current.items], summary: { ...current.summary, total: Number(current.summary.total || 0) + (exists ? 0 : 1), accepted: Number(current.summary.accepted || 0) - (previous?.status === 'accepted' ? 1 : 0) + (record.status === 'accepted' ? 1 : 0), rejected: Number(current.summary.rejected || 0) - (previous?.status === 'rejected' ? 1 : 0) + (record.status === 'rejected' ? 1 : 0) } }; })} />}
         </div>
     );
 }
@@ -1048,36 +1049,48 @@ function LocationDetailPage({ location, locale, canManage, onClose, onEdit, onRo
     };
 
     return (
-        <DetailPage eyebrow={t(locale, 'attendanceLocations')} title={location.name} subtitle={location.code} onBack={onClose}
-            actions={<>
-                <button className="button" type="button" onClick={copyLink}><Copy size={15} /> {t(locale, 'copy')}</button>
-                <button className="button" type="button" onClick={() => downloadQrSvg(location, qrRef.current)}><Download size={15} /> {t(locale, 'download')}</button>
-                <button className="button" type="button" onClick={() => printQr(location, qrRef.current?.querySelector('svg')?.outerHTML || '', locale)}><Printer size={15} /> {t(locale, 'print')}</button>
-                <a className="button" href={location.public_url} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {t(locale, 'open')}</a>
-                {canManage && <button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {t(locale, 'edit')}</button>}
-                {canManage && <button className="button" type="button" onClick={onRotate}><RotateCcw size={15} /> {t(locale, 'rotate')}</button>}
-            </>}
-            aside={<DetailPanel eyebrow={t(locale, 'status')}><div className="record-page-summary"><span>{t(locale, 'status')}</span><strong><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></strong><small className="muted">{location.code}</small></div></DetailPanel>}
+        <DetailPage eyebrow={t(locale, 'attendanceLocations')} title={location.name} subtitle={<span className="qr-location-heading-meta"><span>{location.code}</span><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></span>} onBack={onClose}
         >
-            <DetailPanel eyebrow={t(locale, 'qrCode')} title={location.name}>
-                <div className="attendance-drawer-body">
-                    <section className="qr-preview record-page-qr">
-                        <div><QrCode size={18} /><strong>{location.code}</strong><StatusBadge status={location.is_active ? 'active' : 'inactive'} locale={locale} /></div>
-                        <span className="qr-art" ref={qrRef}>
-                            <QRCodeSVG value={location.public_url} size={220} level="M" marginSize={4} title={`${location.name} ${t(locale, 'qrCode')}`} />
-                        </span>
-                        <p>{location.public_url}</p>
-                    </section>
-                    <dl className="record-page-facts">
-                        <InfoRow label={t(locale, 'warehouse')} value={location.warehouse?.name || '-'} />
-                        <InfoRow label={t(locale, 'address')} value={location.address || '-'} />
-                        <InfoRow label={t(locale, 'latitude')} value={location.latitude} />
-                        <InfoRow label={t(locale, 'longitude')} value={location.longitude} />
-                        <InfoRow label={t(locale, 'allowedRadius')} value={meters(location.allowed_radius_m)} />
-                    </dl>
-                    <section className="attendance-location-detail-map"><div><p className="eyebrow">{t(locale, 'locationMap')}</p><strong>{location.address || location.name}</strong></div><AttendanceLocationMap latitude={location.latitude} longitude={location.longitude} name={location.name} /></section>
+            <div className="qr-location-page-grid">
+                <div className="qr-location-page-column">
+                    <DetailPanel eyebrow={t(locale, 'qrCode')} title={location.name} className="qr-location-qr-panel">
+                        <section className="qr-preview record-page-qr">
+                            <div><span className="qr-location-section-label"><QrCode size={18} /> {t(locale, 'qrCode')}</span><strong>{location.code}</strong></div>
+                            <span className="qr-art" ref={qrRef}>
+                                <QRCodeSVG value={location.public_url} size={220} level="M" marginSize={4} title={`${location.name} ${t(locale, 'qrCode')}`} />
+                            </span>
+                            <p>{location.public_url}</p>
+                        </section>
+                    </DetailPanel>
+
+                    <DetailPanel eyebrow={t(locale, 'details')} title={location.warehouse?.name || location.name} className="qr-location-info-panel">
+                        <dl className="record-page-facts">
+                            <InfoRow label={t(locale, 'warehouse')} value={location.warehouse?.name || '-'} />
+                            <InfoRow label={t(locale, 'allowedRadius')} value={meters(location.allowed_radius_m)} />
+                            <InfoRow label={t(locale, 'address')} value={location.address || '-'} />
+                            <InfoRow label={t(locale, 'latitude')} value={location.latitude} />
+                            <InfoRow label={t(locale, 'longitude')} value={location.longitude} />
+                        </dl>
+                    </DetailPanel>
                 </div>
-            </DetailPanel>
+
+                <div className="qr-location-page-column">
+                    <DetailPanel className="qr-location-map-panel">
+                        <section className="attendance-location-detail-map"><div><p className="eyebrow">{t(locale, 'locationMap')}</p><strong>{location.address || location.name}</strong></div><AttendanceLocationMap latitude={location.latitude} longitude={location.longitude} name={location.name} /></section>
+                    </DetailPanel>
+
+                    <DetailPanel eyebrow={t(locale, 'actions')} className="qr-location-action-panel">
+                        <div className="qr-location-actions">
+                            <button className="button" type="button" onClick={copyLink}><Copy size={15} /> {t(locale, 'copy')}</button>
+                            <button className="button" type="button" onClick={() => downloadQrSvg(location, qrRef.current)}><Download size={15} /> {t(locale, 'download')}</button>
+                            <button className="button" type="button" onClick={() => printQr(location, qrRef.current?.querySelector('svg')?.outerHTML || '', locale)}><Printer size={15} /> {t(locale, 'print')}</button>
+                            <a className="button" href={location.public_url} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {t(locale, 'open')}</a>
+                            {canManage && <button className="button primary" type="button" onClick={onEdit}><Pencil size={15} /> {t(locale, 'edit')}</button>}
+                            {canManage && <button className="button" type="button" onClick={onRotate}><RotateCcw size={15} /> {t(locale, 'rotate')}</button>}
+                        </div>
+                    </DetailPanel>
+                </div>
+            </div>
         </DetailPage>
     );
 }

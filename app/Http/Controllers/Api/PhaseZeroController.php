@@ -28,6 +28,7 @@ class PhaseZeroController extends Controller
                 ->groupBy('group'),
             'demo_users' => DB::table('users')
                 ->select('name', 'email', 'phone', 'role', 'locale')
+                ->where('email', 'like', '%@valley.test')
                 ->orderBy('id')
                 ->get(),
             'api_format' => [

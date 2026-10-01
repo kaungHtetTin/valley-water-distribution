@@ -1,4 +1,4 @@
-import './bootstrap';
+﻿import './bootstrap';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
@@ -26,6 +26,7 @@ import {
     ReceiptText,
     RotateCcw,
     Rows3,
+    Search,
     Settings,
     SlidersHorizontal,
     ShoppingCart,
@@ -39,6 +40,7 @@ import {
     X,
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ShellPageActions, ShellPageSearch } from './components/ShellPageActions';
 
 const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ default: module[name] })));
 const phaseOne = () => import('./phaseOne');
@@ -55,11 +57,13 @@ const phaseEleven = () => import('./phaseEleven');
 const phaseKpi = () => import('./phaseKpi');
 
 const ClientMasterScreen = lazyNamed(phaseOne, 'ClientMasterScreen');
+const BusinessSetupScreen = lazyNamed(phaseOne, 'BusinessSetupScreen');
 const CompanySettingsScreen = lazyNamed(phaseOne, 'CompanySettingsScreen');
 const DriverMasterScreen = lazyNamed(phaseOne, 'DriverMasterScreen');
 const MasterDataWorkspace = lazyNamed(phaseOne, 'MasterDataWorkspace');
 const SalesCustomerDetailPage = lazyNamed(phaseOne, 'SalesCustomerDetailPage');
 const SalesMasterScreen = lazyNamed(phaseOne, 'SalesMasterScreen');
+const SalesVisitsScreen = lazyNamed(phaseOne, 'SalesVisitsScreen');
 const AttendanceLocationsScreen = lazyNamed(phaseTwo, 'AttendanceLocationsScreen');
 const AttendanceRecordsScreen = lazyNamed(phaseTwo, 'AttendanceRecordsScreen');
 const AttendanceSummaryScreen = lazyNamed(phaseTwo, 'AttendanceSummaryScreen');
@@ -76,14 +80,12 @@ const OrdersScreen = lazyNamed(phaseFour, 'OrdersScreen');
 const SalesReturnScreen = lazyNamed(phaseFour, 'SalesReturnScreen');
 const ClosingStockScreen = lazyNamed(phaseFive, 'ClosingStockScreen');
 const StockAdjustmentScreen = lazyNamed(phaseFive, 'StockAdjustmentScreen');
-const StockBalanceScreen = lazyNamed(phaseFive, 'StockBalanceScreen');
+const StockOverviewScreen = lazyNamed(phaseFive, 'StockOverviewScreen');
 const StockCardScreen = lazyNamed(phaseFive, 'StockCardScreen');
 const StockReceiveScreen = lazyNamed(phaseFive, 'StockReceiveScreen');
 const StockTransferScreen = lazyNamed(phaseFive, 'StockTransferScreen');
-const StockValueScreen = lazyNamed(phaseFive, 'StockValueScreen');
 const DeliveryLiveMapScreen = lazyNamed(phaseSix, 'DeliveryLiveMapScreen');
 const DeliveryPlanningScreen = lazyNamed(phaseSix, 'DeliveryPlanningScreen');
-const MobileDeliveryStatusScreen = lazyNamed(phaseSix, 'MobileDeliveryStatusScreen');
 const MobileDriverExecutionScreen = lazyNamed(phaseSix, 'MobileDriverExecutionScreen');
 const MobileDriverGpsScreen = lazyNamed(phaseSix, 'MobileDriverGpsScreen');
 const TripEditPage = lazyNamed(phaseSix, 'TripEditPage');
@@ -126,7 +128,7 @@ const copy = {
         plannedPhase: 'This workflow is reserved for a later roadmap phase.',
         overview: 'Foundation and UI Shell',
         officeHint: 'Compact operations console for owner, admin, and office staff.',
-        clientHint: 'Customer app shell for orders, delivery status, and account balance.',
+        clientHint: 'Customer app shell for orders with delivery tracking and account balance.',
         salesHint: 'Sales performance, customer management, and field orders.',
         driverHint: 'Driver app shell for assigned loads, delivery route, and status updates.',
         newDemoOrder: 'New demo order',
@@ -141,7 +143,9 @@ const copy = {
         visibleMenus: 'Visible menus',
         signIn: 'Sign in',
         email: 'Email or phone',
+        emailHint: 'Enter your email address or phone number',
         password: 'Password',
+        passwordHint: 'Enter your password',
         status: 'Status',
         ready: 'Ready',
         currentRoute: 'Current route',
@@ -160,6 +164,7 @@ const copy = {
         profileMenu: 'Profile menu',
         route: 'Route',
         customers: 'Customers',
+        customerVisits: 'Visits',
         collections: 'Collections',
         expenses: 'Expenses',
         ledger: 'Ledger',
@@ -177,64 +182,78 @@ const copy = {
         signOut: 'Sign out',
         signedInAs: 'Signed in as',
         account: 'Account',
-        demoPassword: 'Demo password: password',
         authRequired: 'Sign in to continue',
+        createAccount: 'Create account',
+        createNewAccount: 'Create new account',
+        customerRegistration: 'Create your customer account',
+        customerRegistrationHint: 'Enter your delivery contact details. Area and route will be assigned by office staff.',
+        contactName: 'Contact name',
+        shopName: 'Shop or business name',
+        phone: 'Phone',
+        deliveryAddress: 'Delivery address',
+        confirmPassword: 'Confirm password',
+        continueWithGoogle: 'Continue with Google',
+        existingAccount: 'Already have an account?',
+        newCustomer: 'New customer?',
         wrongApp: 'This user belongs to another app.',
     },
     my: {
         brand: 'Valley Water',
-        office: 'ရုံးအက်ပ်',
-        client: 'ဖောက်သည်အက်ပ်',
-        sales: 'အရောင်းအက်ပ်',
-        driver: 'ယာဉ်မောင်းအက်ပ်',
-        dashboard: 'ဒက်ရှ်ဘုတ်',
-        login: 'ဝင်ရန်',
-        language: 'ဘာသာစကား',
-        theme: 'အပြင်အဆင်',
-        overview: 'အခြေခံနှင့် UI Shell',
-        officeHint: 'ပိုင်ရှင်၊ အက်ဒမင်နှင့် ရုံးဝန်ထမ်းများအတွက် console။',
-        clientHint: 'အော်ဒါ၊ ပို့ဆောင်မှုအခြေအနေ နှင့် ငွေလက်ကျန်အတွက် ဖောက်သည် app shell။',
-        salesHint: 'အရောင်းစွမ်းဆောင်ရည်၊ ဖောက်သည်စီမံမှုနှင့် အော်ဒါတင်ခြင်းအတွက် အရောင်း app။',
-        driverHint: 'သတ်မှတ်ထားသော load၊ route နှင့် status update များအတွက် driver app shell။',
-        newDemoOrder: 'Demo order အသစ်',
+        customerVisits: 'Visits',
+        office: 'á€›á€¯á€¶á€¸á€¡á€€á€ºá€•á€º',
+        client: 'á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€¡á€€á€ºá€•á€º',
+        sales: 'á€¡á€›á€±á€¬á€„á€ºá€¸á€¡á€€á€ºá€•á€º',
+        driver: 'á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸á€¡á€€á€ºá€•á€º',
+        dashboard: 'á€’á€€á€ºá€›á€¾á€ºá€˜á€¯á€á€º',
+        login: 'á€á€„á€ºá€›á€”á€º',
+        language: 'á€˜á€¬á€žá€¬á€…á€€á€¬á€¸',
+        theme: 'á€¡á€•á€¼á€„á€ºá€¡á€†á€„á€º',
+        overview: 'á€¡á€á€¼á€±á€á€¶á€”á€¾á€„á€ºá€· UI Shell',
+        officeHint: 'á€•á€­á€¯á€„á€ºá€›á€¾á€„á€ºáŠ á€¡á€€á€ºá€’á€™á€„á€ºá€”á€¾á€„á€ºá€· á€›á€¯á€¶á€¸á€á€”á€ºá€‘á€™á€ºá€¸á€™á€»á€¬á€¸á€¡á€á€½á€€á€º consoleá‹',
+        clientHint: 'á€¡á€±á€¬á€ºá€’á€«áŠ á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€¡á€á€¼á€±á€¡á€”á€± á€”á€¾á€„á€ºá€· á€„á€½á€±á€œá€€á€ºá€€á€»á€”á€ºá€¡á€á€½á€€á€º á€–á€±á€¬á€€á€ºá€žá€Šá€º app shellá‹',
+        salesHint: 'á€¡á€›á€±á€¬á€„á€ºá€¸á€…á€½á€™á€ºá€¸á€†á€±á€¬á€„á€ºá€›á€Šá€ºáŠ á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€…á€®á€™á€¶á€™á€¾á€¯á€”á€¾á€„á€·á€º á€¡á€±á€¬á€ºá€’á€«á€á€„á€ºá€á€¼á€„á€ºá€¸á€¡á€á€½á€€á€º á€¡á€›á€±á€¬á€„á€ºá€¸ appá‹',
+        driverHint: 'á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€±á€¬ loadáŠ route á€”á€¾á€„á€ºá€· status update á€™á€»á€¬á€¸á€¡á€á€½á€€á€º driver app shellá‹',
+        newDemoOrder: 'Demo order á€¡á€žá€…á€º',
         demoNav: 'Demo Menu',
-        visibleStates: 'မြင်နိုင်သော state များ',
-        loading: 'Route assignment တင်နေသည်',
-        empty: 'ဒီ demo shift တွင် alert မရှိပါ',
+        visibleStates: 'á€™á€¼á€„á€ºá€”á€­á€¯á€„á€ºá€žá€±á€¬ state á€™á€»á€¬á€¸',
+        loading: 'Route assignment á€á€„á€ºá€”á€±á€žá€Šá€º',
+        empty: 'á€’á€® demo shift á€á€½á€„á€º alert á€™á€›á€¾á€­á€•á€«',
         error: 'Sample API error state',
         roleNav: 'Role-aware access',
-        signIn: 'ဝင်ရန်',
-        email: 'Email သို့မဟုတ် ဖုန်း',
+        signIn: 'á€á€„á€ºá€›á€”á€º',
+        email: 'Email á€žá€­á€¯á€·á€™á€Ÿá€¯á€á€º á€–á€¯á€”á€ºá€¸',
+        emailHint: 'Email á€žá€­á€¯á€·á€™á€Ÿá€¯á€á€º á€–á€¯á€”á€ºá€¸á€”á€¶á€•á€«á€á€º á€‘á€Šá€·á€ºá€•á€«',
         password: 'Password',
-        status: 'အခြေအနေ',
-        ready: 'အသင့်',
-        currentRoute: 'လက်ရှိ route',
-        assignedToday: 'ယနေ့သတ်မှတ်ထားသည်',
-        nextAction: 'နောက်လုပ်ဆောင်ရန်',
-        home: 'မူလ',
-        kpiReport: 'KPI အစီရင်ခံစာ',
-        newOrder: 'အော်ဒါအသစ်',
-        orders: 'အော်ဒါများ',
-        deliveries: 'ပို့ဆောင်မှုများ',
-        profile: 'ပရိုဖိုင်',
+        passwordHint: 'Password á€‘á€Šá€·á€ºá€•á€«',
+        status: 'á€¡á€á€¼á€±á€¡á€”á€±',
+        ready: 'á€¡á€žá€„á€ºá€·',
+        currentRoute: 'á€œá€€á€ºá€›á€¾á€­ route',
+        assignedToday: 'á€šá€”á€±á€·á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€Šá€º',
+        nextAction: 'á€”á€±á€¬á€€á€ºá€œá€¯á€•á€ºá€†á€±á€¬á€„á€ºá€›á€”á€º',
+        home: 'á€™á€°á€œ',
+        kpiReport: 'KPI á€¡á€…á€®á€›á€„á€ºá€á€¶á€…á€¬',
+        newOrder: 'á€¡á€±á€¬á€ºá€’á€«á€¡á€žá€…á€º',
+        orders: 'á€¡á€±á€¬á€ºá€’á€«á€™á€»á€¬á€¸',
+        deliveries: 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€™á€»á€¬á€¸',
+        profile: 'á€•á€›á€­á€¯á€–á€­á€¯á€„á€º',
         profileMenu: 'Profile menu',
         route: 'Route',
-        customers: 'ဖောက်သည်များ',
-        collections: 'ငွေကောက်ခံမှုများ',
-        tasks: 'တာဝန်များ',
-        history: 'မှတ်တမ်း',
+        customers: 'á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€™á€»á€¬á€¸',
+        collections: 'á€„á€½á€±á€€á€±á€¬á€€á€ºá€á€¶á€™á€¾á€¯á€™á€»á€¬á€¸',
+        tasks: 'á€á€¬á€á€”á€ºá€™á€»á€¬á€¸',
+        history: 'á€™á€¾á€á€ºá€á€™á€ºá€¸',
         load: 'Load',
-        confirm: 'အတည်ပြု',
-        clientWelcome: 'Shwe Family Store အတွက် မနက်ပိုင်းပို့ဆောင်မှု ပြင်ဆင်နေသည်။',
-        salesWelcome: 'ယနေ့ဖောက်သည်လည်ပတ်မှုအစီအစဉ် အသင့်ဖြစ်သည်။',
-        driverWelcome: 'Warehouse load WY-204 ကို ပို့ဆောင်ရန် သတ်မှတ်ထားသည်။',
-        officeApiNote: 'API response format သည် app အားလုံးအတွက် error များကို တူညီစေသည်။',
+        confirm: 'á€¡á€á€Šá€ºá€•á€¼á€¯',
+        clientWelcome: 'Shwe Family Store á€¡á€á€½á€€á€º á€™á€”á€€á€ºá€•á€­á€¯á€„á€ºá€¸á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯ á€•á€¼á€„á€ºá€†á€„á€ºá€”á€±á€žá€Šá€ºá‹',
+        salesWelcome: 'á€šá€”á€±á€·á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€œá€Šá€ºá€•á€á€ºá€™á€¾á€¯á€¡á€…á€®á€¡á€…á€‰á€º á€¡á€žá€„á€ºá€·á€–á€¼á€…á€ºá€žá€Šá€ºá‹',
+        driverWelcome: 'Warehouse load WY-204 á€€á€­á€¯ á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€›á€”á€º á€žá€á€ºá€™á€¾á€á€ºá€‘á€¬á€¸á€žá€Šá€ºá‹',
+        officeApiNote: 'API response format á€žá€Šá€º app á€¡á€¬á€¸á€œá€¯á€¶á€¸á€¡á€á€½á€€á€º error á€™á€»á€¬á€¸á€€á€­á€¯ á€á€°á€Šá€®á€…á€±á€žá€Šá€ºá‹',
     },
 };
 
-copy.my.expenses = 'အသုံးစရိတ်';
-copy.my.ledger = 'စာရင်း';
-copy.my.vehicle = 'ယာဉ်';
+copy.my.expenses = 'á€¡á€žá€¯á€¶á€¸á€…á€›á€­á€á€º';
+copy.my.ledger = 'á€…á€¬á€›á€„á€ºá€¸';
+copy.my.vehicle = 'á€šá€¬á€‰á€º';
 
 const appConfig = {
     office: {
@@ -242,66 +261,59 @@ const appConfig = {
         path: runtimeRoute('office', '/office'),
         icon: Building2,
         accent: '#0b84a5',
-        email: 'office@valley.test',
     },
     client: {
         id: 'client',
         path: runtimeRoute('client', '/client'),
         icon: ShoppingCart,
         accent: '#168255',
-        email: 'client@valley.test',
     },
     sales: {
         id: 'sales',
         path: runtimeRoute('sales', '/sales'),
         icon: Users,
         accent: '#2874bc',
-        email: 'sales@valley.test',
     },
     driver: {
         id: 'driver',
         path: runtimeRoute('driver', '/driver'),
         icon: Truck,
         accent: '#b77700',
-        email: 'driver@valley.test',
     },
 };
 
 const appOrder = ['office', 'client', 'sales', 'driver'];
 
 const officeNavItems = [
-    { id: 'uat-readiness', label: 'UAT & Security', myLabel: 'UAT နှင့် လုံခြုံရေး', icon: CheckCircle2, permission: 'office.uat.view', view: 'uat-readiness', path: '/uat' },
-    { id: 'dashboard-sales', label: 'Sales KPI', myLabel: 'အရောင်း KPI', icon: CircleGauge, permission: 'office.dashboard.view', view: 'dashboard-sales', path: '/dashboards/sales' },
-    { id: 'dashboard-stock', label: 'Stock KPI', myLabel: 'စတော့ KPI', icon: Package, permission: 'office.dashboard.view', view: 'dashboard-stock', path: '/dashboards/stock' },
-    { id: 'dashboard-delivery', label: 'Delivery KPI', myLabel: 'ပို့ဆောင်ရေး KPI', icon: Truck, permission: 'office.dashboard.view', view: 'dashboard-delivery', path: '/dashboards/delivery' },
-    { id: 'dashboard-finance', label: 'Finance KPI', myLabel: 'ဘဏ္ဍာရေး KPI', icon: WalletCards, permission: 'office.dashboard.view', view: 'dashboard-finance', path: '/dashboards/finance' },
-    { id: 'dashboard', label: 'Dashboard', myLabel: 'ဒက်ရှ်ဘုတ်', icon: LayoutDashboard, permission: 'office.dashboard.view' },
-    { id: 'areas', label: 'Areas', myLabel: 'ဧရိယာများ', icon: MapPinned, permission: 'office.master-data.view', resource: 'areas' },
-    { id: 'routes', label: 'Routes', myLabel: 'Route များ', icon: MapPinned, permission: 'office.master-data.view', resource: 'routes' },
-    { id: 'warehouses', label: 'Warehouses', myLabel: 'ဂိုဒေါင်များ', icon: Package, permission: 'office.master-data.view', resource: 'warehouses' },
-    { id: 'brands', label: 'Brands', myLabel: 'Brand များ', icon: ShoppingCart, permission: 'office.master-data.view', resource: 'brands' },
-    { id: 'products', label: 'Products', myLabel: 'ကုန်ပစ္စည်းများ', icon: Package, permission: 'office.master-data.view', resource: 'products' },
-    { id: 'price-types', label: 'Price Types', myLabel: 'ဈေးနှုန်းအမျိုးအစား', icon: WalletCards, permission: 'office.master-data.view', resource: 'price-types' },
-    { id: 'product-prices', label: 'Product Prices', myLabel: 'ကုန်ပစ္စည်းဈေးနှုန်း', icon: ReceiptText, permission: 'office.master-data.view', resource: 'product-prices' },
-    { id: 'customers', label: 'Customers', myLabel: 'ဖောက်သည်များ', icon: User, permission: 'office.master-data.view', resource: 'customers' },
-    { id: 'employees', label: 'Employees', myLabel: 'ဝန်ထမ်းများ', icon: Users, permission: 'office.master-data.view', resource: 'employees' },
-    { id: 'vehicles', label: 'Vehicles', myLabel: 'ယာဉ်များ', icon: Truck, permission: 'office.master-data.view', resource: 'vehicles' },
-    { id: 'roles', label: 'Roles', myLabel: 'Role နှင့် Permission', icon: Settings, permission: 'office.master-data.view', resource: 'roles' },
-    { id: 'permissions', label: 'Permissions', myLabel: 'Permission များ', icon: CheckCircle2, permission: 'office.master-data.view', resource: 'permissions' },
-    { id: 'company-settings', label: 'Company', myLabel: 'ကုမ္ပဏီအချက်အလက်', icon: Building2, permission: 'office.master-data.view', view: 'company-settings' },
-    { id: 'orders', label: 'Orders', myLabel: 'အော်ဒါများ', icon: ShoppingCart, permission: 'office.orders.view', view: 'orders', path: '/orders' },
-    { id: 'invoices', label: 'Invoices', myLabel: 'Invoice များ', icon: ReceiptText, permission: 'office.invoices.view', view: 'invoices', path: '/invoices' },
+    { id: 'uat-readiness', label: 'UAT & Security', myLabel: 'UAT á€”á€¾á€„á€·á€º á€œá€¯á€¶á€á€¼á€¯á€¶á€›á€±á€¸', icon: CheckCircle2, permission: 'office.uat.view', view: 'uat-readiness', path: '/uat' },
+    { id: 'dashboard-kpis', label: 'KPI Dashboards', myLabel: 'KPI Dashboards', icon: CircleGauge, permission: 'office.dashboard.view', view: 'dashboard-kpis', path: '/dashboards/kpis' },
+    { id: 'dashboard', label: 'Dashboard', myLabel: 'á€’á€€á€ºá€›á€¾á€ºá€˜á€¯á€á€º', icon: LayoutDashboard, permission: 'office.dashboard.view' },
+    { id: 'business-setup', label: 'Business Setup', myLabel: 'á€œá€¯á€•á€ºá€„á€”á€ºá€¸á€¡á€á€¼á€±á€á€¶á€•á€¼á€„á€ºá€†á€„á€ºá€™á€¾á€¯', icon: Building2, permission: 'office.master-data.view', view: 'business-setup', path: '/setup' },
+    { id: 'areas', label: 'Areas', myLabel: 'á€§á€›á€­á€šá€¬á€™á€»á€¬á€¸', icon: MapPinned, permission: 'office.master-data.view', resource: 'areas' },
+    { id: 'routes', label: 'Routes', myLabel: 'Route á€™á€»á€¬á€¸', icon: MapPinned, permission: 'office.master-data.view', resource: 'routes' },
+    { id: 'warehouses', label: 'Warehouses', myLabel: 'á€‚á€­á€¯á€’á€±á€«á€„á€ºá€™á€»á€¬á€¸', icon: Package, permission: 'office.master-data.view', resource: 'warehouses' },
+    { id: 'brands', label: 'Brands', myLabel: 'Brand á€™á€»á€¬á€¸', icon: ShoppingCart, permission: 'office.master-data.view', resource: 'brands' },
+    { id: 'products', label: 'Products', myLabel: 'á€€á€¯á€”á€ºá€•á€…á€¹á€…á€Šá€ºá€¸á€™á€»á€¬á€¸', icon: Package, permission: 'office.master-data.view', resource: 'products' },
+    { id: 'price-types', label: 'Price Types', myLabel: 'á€ˆá€±á€¸á€”á€¾á€¯á€”á€ºá€¸á€¡á€™á€»á€­á€¯á€¸á€¡á€…á€¬á€¸', icon: WalletCards, permission: 'office.master-data.view', resource: 'price-types' },
+    { id: 'product-prices', label: 'Product Prices', myLabel: 'á€€á€¯á€”á€ºá€•á€…á€¹á€…á€Šá€ºá€¸á€ˆá€±á€¸á€”á€¾á€¯á€”á€ºá€¸', icon: ReceiptText, permission: 'office.master-data.view', resource: 'product-prices' },
+    { id: 'customers', label: 'Customers', myLabel: 'á€–á€±á€¬á€€á€ºá€žá€Šá€ºá€™á€»á€¬á€¸', icon: User, permission: 'office.master-data.view', resource: 'customers' },
+    { id: 'employees', label: 'Employees', myLabel: 'á€á€”á€ºá€‘á€™á€ºá€¸á€™á€»á€¬á€¸', icon: Users, permission: 'office.master-data.view', resource: 'employees' },
+    { id: 'suppliers', label: 'Suppliers', myLabel: 'á€•á€±á€¸á€žá€½á€„á€ºá€¸á€žá€°á€™á€»á€¬á€¸', icon: ClipboardList, permission: 'office.master-data.view', resource: 'suppliers' },
+    { id: 'vehicles', label: 'Vehicles', myLabel: 'á€šá€¬á€‰á€ºá€™á€»á€¬á€¸', icon: Truck, permission: 'office.master-data.view', resource: 'vehicles' },
+    { id: 'roles', label: 'Roles', myLabel: 'Role á€”á€¾á€„á€·á€º Permission', icon: Settings, permission: 'office.master-data.view', resource: 'roles' },
+    { id: 'permissions', label: 'Permissions', myLabel: 'Permission á€™á€»á€¬á€¸', icon: CheckCircle2, permission: 'office.master-data.view', resource: 'permissions' },
+    { id: 'company-settings', label: 'Company', myLabel: 'á€€á€¯á€™á€¹á€•á€á€®á€¡á€á€»á€€á€ºá€¡á€œá€€á€º', icon: Building2, permission: 'office.master-data.view', view: 'company-settings' },
+    { id: 'orders', label: 'Orders', myLabel: 'á€¡á€±á€¬á€ºá€’á€«á€™á€»á€¬á€¸', icon: ShoppingCart, permission: 'office.orders.view', view: 'orders', path: '/orders' },
+    { id: 'invoices', label: 'Invoices', myLabel: 'Invoice á€™á€»á€¬á€¸', icon: ReceiptText, permission: 'office.invoices.view', view: 'invoices', path: '/invoices' },
     { id: 'sales-returns', label: 'Sales Returns', myLabel: 'Sales Return', icon: RotateCcw, permission: 'office.orders.view', view: 'sales-returns', path: '/returns' },
     { id: 'stock-receive', label: 'Stock Receive', myLabel: 'Stock Receive', icon: PackageCheck, permission: 'office.inventory.view', view: 'stock-receive', path: '/stock/receive' },
     { id: 'stock-transfer', label: 'Stock Transfer', myLabel: 'Stock Transfer', icon: Truck, permission: 'office.inventory.view', view: 'stock-transfer', path: '/stock/transfers' },
     { id: 'stock-adjustments', label: 'Stock Adjustments', myLabel: 'Stock Adjustments', icon: SlidersHorizontal, permission: 'office.inventory.view', view: 'stock-adjustments', path: '/stock/adjustments' },
     { id: 'closing-stock', label: 'Closing Stock', myLabel: 'Closing Stock', icon: ClipboardList, permission: 'office.inventory.view', view: 'closing-stock', path: '/stock/closing' },
-    { id: 'stock-balance', label: 'Stock Balance', myLabel: 'Stock Balance', icon: Package, permission: 'office.inventory.view', view: 'stock-balance', path: '/stock/balances' },
-    { id: 'stock-value', label: 'Stock Value', myLabel: 'Stock Value', icon: WalletCards, permission: 'office.inventory.view', view: 'stock-value', path: '/stock/value' },
+    { id: 'stock-overview', label: 'Stock Overview', myLabel: 'Stock Overview', icon: Package, permission: 'office.inventory.view', view: 'stock-overview', path: '/stock/overview' },
     { id: 'stock-card', label: 'Stock Card', myLabel: 'Stock Card', icon: ClipboardList, permission: 'office.inventory.view', view: 'stock-card', path: '/stock/card' },
-    { id: 'delivery-planning', label: 'Trip Planning', myLabel: 'ပို့ဆောင်မှုစီစဉ်ခြင်း', icon: Truck, permission: 'office.deliveries.view', view: 'delivery-planning', path: '/deliveries' },
-    { id: 'delivery-live-map', label: 'Driver Live Map', myLabel: 'ယာဉ်မောင်း တိုက်ရိုက်မြေပုံ', icon: MapPinned, permission: 'office.deliveries.view', view: 'delivery-live-map', path: '/deliveries/live-map' },
-    { id: 'delivery-history', label: 'Delivery History', myLabel: 'ပို့ဆောင်မှုမှတ်တမ်း', icon: ClipboardList, permission: 'office.deliveries.view', view: 'delivery-history', path: '/deliveries/history' },
+    { id: 'delivery-planning', label: 'Trip Planning', myLabel: 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€™á€¾á€¯á€…á€®á€…á€‰á€ºá€á€¼á€„á€ºá€¸', icon: Truck, permission: 'office.deliveries.view', view: 'delivery-planning', path: '/deliveries' },
+    { id: 'delivery-live-map', label: 'Driver Live Map', myLabel: 'á€šá€¬á€‰á€ºá€™á€±á€¬á€„á€ºá€¸ á€á€­á€¯á€€á€ºá€›á€­á€¯á€€á€ºá€™á€¼á€±á€•á€¯á€¶', icon: MapPinned, permission: 'office.deliveries.view', view: 'delivery-live-map', path: '/deliveries/live-map' },
     { id: 'attendance-locations', label: 'QR Locations', myLabel: 'QR Locations', icon: QrCode, permission: 'office.attendance.view', view: 'attendance-locations', path: '/attendance/locations' },
     { id: 'attendance-records', label: 'Attendance Records', myLabel: 'Attendance Records', icon: CalendarDays, permission: 'office.attendance.view', view: 'attendance-records', path: '/attendance/records' },
     { id: 'attendance-summary', label: 'Attendance Summary', myLabel: 'Attendance Summary', icon: ClipboardList, permission: 'office.attendance.view', view: 'attendance-summary', path: '/attendance/summary' },
@@ -311,118 +323,106 @@ const officeNavItems = [
     { id: 'kpi-targets', label: 'KPI Targets', myLabel: 'KPI Targets', icon: Target, permission: 'office.payroll.view', view: 'kpi-targets', path: '/payroll/kpi-targets' },
     { id: 'kpi-reviews', label: 'KPI Reviews', myLabel: 'KPI Reviews', icon: CircleGauge, permission: 'office.payroll.view', view: 'kpi-reviews', path: '/payroll/kpi-reviews' },
     { id: 'kpi-reports', label: 'KPI Reports', myLabel: 'KPI Reports', icon: Rows3, permission: 'office.payroll.view', view: 'kpi-reports', path: '/payroll/kpi-reports' },
-    { id: 'finance-collections', label: 'Payments', myLabel: 'ငွေပေးချေမှုများ', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
-    { id: 'finance-outdoor-collections', label: 'Outdoor Collections', myLabel: 'ပြင်ပ ငွေကောက်ခံမှုများ', icon: Users, permission: 'office.finance.view', view: 'finance-outdoor-collections', path: '/finance/outdoor-collections' },
-    { id: 'finance-receivables', label: 'Customer Credit', myLabel: 'ဖောက်သည် အကြွေးစာရင်း', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
-    { id: 'finance-suppliers', label: 'Supplier Ledger', myLabel: 'ပေးသွင်းသူ စာရင်း', icon: ClipboardList, permission: 'office.finance.view', view: 'finance-suppliers', path: '/finance/suppliers' },
-    { id: 'finance-cash-book', label: 'Cash Book', myLabel: 'ငွေသားစာရင်း', icon: WalletCards, permission: 'office.finance.view', view: 'finance-cash-book', path: '/finance/cash-book' },
-    { id: 'finance-bank-book', label: 'Bank Book', myLabel: 'ဘဏ်စာရင်း', icon: CreditCard, permission: 'office.finance.view', view: 'finance-bank-book', path: '/finance/bank-book' },
-    { id: 'finance-daily-expenses', label: 'Daily Expense', myLabel: 'နေ့စဉ်အသုံးစရိတ်', icon: ReceiptText, permission: 'office.finance.view', view: 'finance-daily-expenses', path: '/finance/daily-expenses' },
-    { id: 'finance-outdoor-expenses', label: 'Outdoor Expense', myLabel: 'ပြင်ပအသုံးစရိတ်', icon: MapPinned, permission: 'office.finance.view', view: 'finance-outdoor-expenses', path: '/finance/outdoor-expenses' },
-    { id: 'finance-profit-loss', label: 'Profit / Loss', myLabel: 'အမြတ် / အရှုံး', icon: Rows3, permission: 'office.finance.view', view: 'finance-profit-loss', path: '/finance/profit-loss' },
-    { id: 'vehicle-fuel', label: 'Fuel', myLabel: 'ဆီဖြည့်မှတ်တမ်း', icon: Truck, permission: 'office.vehicle-costs.view', view: 'vehicle-fuel', path: '/vehicle-costs/fuel' },
-    { id: 'vehicle-maintenance', label: 'Maintenance', myLabel: 'ပြုပြင်ထိန်းသိမ်းမှု', icon: Settings, permission: 'office.vehicle-costs.view', view: 'vehicle-maintenance', path: '/vehicle-costs/maintenance' },
-    { id: 'vehicle-insurance', label: 'Insurance', myLabel: 'အာမခံ', icon: CheckCircle2, permission: 'office.vehicle-costs.view', view: 'vehicle-insurance', path: '/vehicle-costs/insurance' },
-    { id: 'vehicle-license', label: 'License', myLabel: 'ယာဉ်လိုင်စင်', icon: ClipboardList, permission: 'office.vehicle-costs.view', view: 'vehicle-license', path: '/vehicle-costs/license' },
-    { id: 'vehicle-engine-oil', label: 'Engine Oil', myLabel: 'အင်ဂျင်ဝိုင်', icon: Droplets, permission: 'office.vehicle-costs.view', view: 'vehicle-engine-oil', path: '/vehicle-costs/engine-oil' },
-    { id: 'vehicle-tyre', label: 'Tyres', myLabel: 'တာယာ', icon: CircleGauge, permission: 'office.vehicle-costs.view', view: 'vehicle-tyre', path: '/vehicle-costs/tyre' },
-    { id: 'vehicle-monthly-cost', label: 'Monthly Cost', myLabel: 'လစဉ်ယာဉ်ကုန်ကျစရိတ်', icon: CreditCard, permission: 'office.vehicle-costs.view', view: 'vehicle-monthly-cost', path: '/vehicle-reports/monthly-cost' },
-    { id: 'vehicle-route-history', label: 'Route History', myLabel: 'လမ်းကြောင်းမှတ်တမ်း', icon: MapPinned, permission: 'office.vehicle-costs.view', view: 'vehicle-route-history', path: '/vehicle-reports/route-history' },
-    { id: 'vehicle-cost-per-km', label: 'Cost / KM', myLabel: 'တစ်ကီလိုမီတာကုန်ကျစရိတ်', icon: WalletCards, permission: 'office.vehicle-costs.view', view: 'vehicle-cost-per-km', path: '/vehicle-reports/cost-per-km' },
-    { id: 'vehicle-performance', label: 'Performance', myLabel: 'ယာဉ်စွမ်းဆောင်ရည်', icon: Rows3, permission: 'office.vehicle-costs.view', view: 'vehicle-performance', path: '/vehicle-reports/performance' },
-    { id: 'operations-report', label: 'Operations Report', myLabel: 'လုပ်ငန်းအစီရင်ခံစာ', icon: Rows3, permission: 'office.dashboard.view', view: 'operations-report', path: '/reports/operations' },
+    { id: 'finance-collections', label: 'Payments', myLabel: 'á€„á€½á€±á€•á€±á€¸á€á€»á€±á€™á€¾á€¯á€™á€»á€¬á€¸', icon: WalletCards, permission: 'office.finance.view', view: 'finance-collections', path: '/finance/collections' },
+    { id: 'finance-outdoor-collections', label: 'Outdoor Collections', myLabel: 'á€•á€¼á€„á€ºá€• á€„á€½á€±á€€á€±á€¬á€€á€ºá€á€¶á€™á€¾á€¯á€™á€»á€¬á€¸', icon: Users, permission: 'office.finance.view', view: 'finance-outdoor-collections', path: '/finance/outdoor-collections' },
+    { id: 'finance-receivables', label: 'Customer Credit', myLabel: 'á€–á€±á€¬á€€á€ºá€žá€Šá€º á€¡á€€á€¼á€½á€±á€¸á€…á€¬á€›á€„á€ºá€¸', icon: WalletCards, permission: 'office.finance.view', view: 'finance-receivables', path: '/finance/receivables' },
+    { id: 'finance-suppliers', label: 'Supplier Ledger', myLabel: 'á€•á€±á€¸á€žá€½á€„á€ºá€¸á€žá€° á€…á€¬á€›á€„á€ºá€¸', icon: ClipboardList, permission: 'office.finance.view', view: 'finance-suppliers', path: '/finance/suppliers' },
+    { id: 'finance-books', label: 'Finance Books', myLabel: 'á€„á€½á€±á€…á€¬á€›á€„á€ºá€¸á€™á€»á€¬á€¸', icon: WalletCards, permission: 'office.finance.view', view: 'finance-books', path: '/finance/books' },
+    { id: 'finance-expenses', label: 'Expenses', myLabel: 'Expenses', icon: ReceiptText, permission: 'office.finance.view', view: 'finance-expenses', path: '/finance/expenses' },
+    { id: 'finance-profit-loss', label: 'Profit / Loss', myLabel: 'á€¡á€™á€¼á€á€º / á€¡á€›á€¾á€¯á€¶á€¸', icon: Rows3, permission: 'office.finance.view', view: 'finance-profit-loss', path: '/finance/profit-loss' },
+    { id: 'vehicle-costs', label: 'Vehicle Costs', myLabel: 'á€šá€¬á€‰á€ºá€€á€¯á€”á€ºá€€á€»á€…á€›á€­á€á€º', icon: Truck, permission: 'office.vehicle-costs.view', view: 'vehicle-costs', path: '/vehicle-costs' },
+    { id: 'vehicle-monthly-cost', label: 'Monthly Cost', myLabel: 'á€œá€…á€‰á€ºá€šá€¬á€‰á€ºá€€á€¯á€”á€ºá€€á€»á€…á€›á€­á€á€º', icon: CreditCard, permission: 'office.vehicle-costs.view', view: 'vehicle-monthly-cost', path: '/vehicle-reports/monthly-cost' },
+    { id: 'vehicle-route-history', label: 'Route History', myLabel: 'á€œá€™á€ºá€¸á€€á€¼á€±á€¬á€„á€ºá€¸á€™á€¾á€á€ºá€á€™á€ºá€¸', icon: MapPinned, permission: 'office.vehicle-costs.view', view: 'vehicle-route-history', path: '/vehicle-reports/route-history' },
+    { id: 'vehicle-cost-per-km', label: 'Cost / KM', myLabel: 'á€á€…á€ºá€€á€®á€œá€­á€¯á€™á€®á€á€¬á€€á€¯á€”á€ºá€€á€»á€…á€›á€­á€á€º', icon: WalletCards, permission: 'office.vehicle-costs.view', view: 'vehicle-cost-per-km', path: '/vehicle-reports/cost-per-km' },
+    { id: 'vehicle-performance', label: 'Performance', myLabel: 'á€šá€¬á€‰á€ºá€…á€½á€™á€ºá€¸á€†á€±á€¬á€„á€ºá€›á€Šá€º', icon: Rows3, permission: 'office.vehicle-costs.view', view: 'vehicle-performance', path: '/vehicle-reports/performance' },
+    { id: 'operations-report', label: 'Operations Report', myLabel: 'á€œá€¯á€•á€ºá€„á€”á€ºá€¸á€¡á€…á€®á€›á€„á€ºá€á€¶á€…á€¬', icon: Rows3, permission: 'office.dashboard.view', view: 'operations-report', path: '/reports/operations' },
 ];
+
+const officeRolePermissions = {
+    customers: 'office.customers.view',
+    employees: 'office.employees.view',
+    suppliers: 'office.suppliers.view',
+    roles: 'office.access.roles.manage',
+    permissions: 'office.access.roles.manage',
+    'kpi-targets': 'office.kpi.view',
+    'kpi-reviews': 'office.kpi.view',
+    'kpi-reports': 'office.kpi.view',
+    'finance-collections': 'office.finance.collections.view',
+    'finance-outdoor-collections': 'office.finance.collections.view',
+    'finance-receivables': 'office.finance.receivables.view',
+    'finance-suppliers': 'office.finance.suppliers.view',
+    'finance-books': 'office.finance.books.view',
+    'finance-expenses': 'office.finance.expenses.view',
+    'finance-profit-loss': 'office.finance.profit-loss.view',
+    'operations-report': 'office.reports.operations.view',
+};
 
 const officeNavGroups = [
     {
         id: 'overview',
         label: 'Overview',
-        myLabel: 'အနှစ်ချုပ်',
-        items: ['dashboard', 'dashboard-sales', 'dashboard-stock', 'dashboard-delivery', 'dashboard-finance'],
+        myLabel: 'á€¡á€”á€¾á€…á€ºá€á€»á€¯á€•á€º',
+        items: ['dashboard', 'dashboard-kpis', 'operations-report'],
     },
     {
         id: 'business-setup',
         label: 'Business Setup',
-        myLabel: 'လုပ်ငန်းအခြေခံ',
-        items: ['areas', 'routes', 'warehouses'],
-    },
-    {
-        id: 'catalog-pricing',
-        label: 'Catalog & Pricing',
-        myLabel: 'ကုန်ပစ္စည်းနှင့် ဈေးနှုန်း',
-        items: ['brands', 'products', 'price-types', 'product-prices'],
+        myLabel: 'á€œá€¯á€•á€ºá€„á€”á€ºá€¸á€¡á€á€¼á€±á€á€¶',
+        items: ['business-setup'],
     },
     {
         id: 'people-assets',
         label: 'People & Assets',
-        myLabel: 'လူနှင့် ပိုင်ဆိုင်မှု',
-        items: ['customers', 'employees', 'vehicles'],
+        myLabel: 'á€œá€°á€”á€¾á€„á€·á€º á€•á€­á€¯á€„á€ºá€†á€­á€¯á€„á€ºá€™á€¾á€¯',
+        items: ['customers', 'suppliers', 'employees'],
     },
     {
         id: 'sales-ops',
         label: 'Sales Ops',
-        myLabel: 'အရောင်းလုပ်ငန်း',
+        myLabel: 'á€¡á€›á€±á€¬á€„á€ºá€¸á€œá€¯á€•á€ºá€„á€”á€ºá€¸',
         items: ['orders', 'sales-returns'],
     },
     {
         id: 'warehouse-stock',
         label: 'Warehouse Stock',
         myLabel: 'Warehouse Stock',
-        items: ['stock-receive', 'stock-transfer', 'stock-adjustments', 'closing-stock', 'stock-balance', 'stock-value', 'stock-card'],
+        items: ['stock-receive', 'stock-transfer', 'stock-adjustments', 'closing-stock', 'stock-overview', 'stock-card'],
     },
     {
         id: 'delivery-operations',
         label: 'Delivery Operations',
-        myLabel: 'ပို့ဆောင်ရေးလုပ်ငန်း',
-        items: ['delivery-planning', 'delivery-live-map', 'delivery-history'],
+        myLabel: 'á€•á€­á€¯á€·á€†á€±á€¬á€„á€ºá€›á€±á€¸á€œá€¯á€•á€ºá€„á€”á€ºá€¸',
+        items: ['delivery-planning', 'delivery-live-map'],
     },
     {
         id: 'attendance',
         label: 'Attendance',
         myLabel: 'Attendance',
-        items: ['attendance-locations', 'attendance-records', 'attendance-summary'],
+        items: ['attendance-records', 'attendance-summary'],
     },
     {
         id: 'payroll',
         label: 'Payroll',
         myLabel: 'Payroll',
-        items: ['kpi-targets', 'kpi-reviews', 'kpi-reports', 'payroll-drafts', 'payroll-adjustments', 'salary-history'],
+        items: ['kpi-reviews', 'kpi-reports', 'payroll-drafts', 'payroll-adjustments', 'salary-history'],
     },
     {
         id: 'finance',
         label: 'Finance & Accounts',
-        myLabel: 'ဘဏ္ဍာရေးနှင့် စာရင်းများ',
-        items: ['finance-collections', 'finance-outdoor-collections', 'finance-receivables', 'finance-suppliers', 'finance-cash-book', 'finance-bank-book', 'finance-daily-expenses', 'finance-outdoor-expenses', 'finance-profit-loss'],
+        myLabel: 'á€˜á€á€¹á€á€¬á€›á€±á€¸á€”á€¾á€„á€·á€º á€…á€¬á€›á€„á€ºá€¸á€™á€»á€¬á€¸',
+        items: ['finance-collections', 'finance-outdoor-collections', 'finance-receivables', 'finance-suppliers', 'finance-books', 'finance-expenses', 'finance-profit-loss'],
     },
     {
         id: 'vehicle-operations',
         label: 'Vehicle Operations',
-        myLabel: 'ယာဉ်လုပ်ငန်း',
-        items: ['vehicle-fuel', 'vehicle-maintenance', 'vehicle-insurance', 'vehicle-license', 'vehicle-engine-oil', 'vehicle-tyre', 'vehicle-monthly-cost', 'vehicle-route-history', 'vehicle-cost-per-km', 'vehicle-performance'],
-    },
-    {
-        id: 'reports',
-        label: 'Reports',
-        myLabel: 'အစီရင်ခံစာများ',
-        items: ['operations-report'],
-    },
-    {
-        id: 'access-control',
-        label: 'Access Control',
-        myLabel: 'အသုံးပြုခွင့်',
-        items: ['roles', 'permissions'],
+        myLabel: 'á€šá€¬á€‰á€ºá€œá€¯á€•á€ºá€„á€”á€ºá€¸',
+        items: ['vehicle-costs', 'vehicle-monthly-cost', 'vehicle-route-history', 'vehicle-cost-per-km', 'vehicle-performance'],
     },
     {
         id: 'launch-readiness',
         label: 'Launch Readiness',
-        myLabel: 'စတင်အသုံးပြုရန် အသင့်',
+        myLabel: 'á€…á€á€„á€ºá€¡á€žá€¯á€¶á€¸á€•á€¼á€¯á€›á€”á€º á€¡á€žá€„á€·á€º',
         items: ['uat-readiness'],
-    },
-    {
-        id: 'settings',
-        label: 'Settings',
-        myLabel: 'ဆက်တင်များ',
-        items: ['company-settings'],
     },
 ];
 
@@ -430,22 +430,21 @@ const mobileNav = {
     client: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'client.home.view' },
         { labelKey: 'orders', view: 'orders', icon: ReceiptText, permission: 'client.orders.view' },
-        { labelKey: 'deliveries', view: 'deliveries', icon: Truck, permission: 'client.deliveries.view' },
         { labelKey: 'ledger', view: 'ledger', icon: WalletCards, permission: 'client.finance.view' },
-        { labelKey: 'profile', view: 'profile', icon: User, permission: 'client.profile.view' },
     ],
     sales: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'sales.home.view' },
         { labelKey: 'orders', view: 'orders', icon: ReceiptText, permission: 'sales.orders.view' },
         { labelKey: 'newOrder', view: 'new-order', icon: ClipboardList, permission: 'sales.orders.create' },
         { labelKey: 'customers', view: 'customers', icon: Users, permission: 'sales.customers.view' },
+        { labelKey: 'customerVisits', view: 'visits', icon: MapPinned, permission: 'sales.customers.view' },
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'sales.attendance.view' },
         { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'sales.payroll.view' },
         { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'sales.payroll.view' },
+        { labelKey: 'expenses', view: 'expenses', icon: CreditCard, permission: 'sales.expenses.view' },
     ],
     driver: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'driver.home.view' },
-        { labelKey: 'profile', view: 'profile', icon: User, permission: 'driver.profile.view' },
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'driver.attendance.view' },
         { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'driver.payroll.view' },
         { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'driver.payroll.view' },
@@ -512,11 +511,57 @@ const mobileData = {
 };
 
 function App() {
+    const callbackAuthError = new URLSearchParams(window.location.search).get('auth_error') || '';
     const [pathname, setPathname] = useState(() => window.location.pathname);
     const [online, setOnline] = useState(() => window.navigator.onLine);
+
+    useEffect(() => {
+        const numericInput = (target) => target instanceof HTMLInputElement && target.type === 'number' ? target : null;
+        const allowsDecimal = (input) => {
+            const step = input.getAttribute('step');
+            return step === 'any' || (step !== null && Number.isFinite(Number(step)) && !Number.isInteger(Number(step)));
+        };
+        const validValue = (input, value) => allowsDecimal(input) ? /^\d*(?:\.\d*)?$/.test(value) : /^\d*$/.test(value);
+
+        const blockInvalidNumericKey = (event) => {
+            const input = numericInput(event.target);
+            if (!input || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                event.preventDefault();
+                return;
+            }
+            if (event.key.length !== 1) return;
+            if (/\d/.test(event.key)) return;
+            if (allowsDecimal(input) && event.key === '.' && !input.value.includes('.')) return;
+            event.preventDefault();
+        };
+
+        const blockInvalidNumericPaste = (event) => {
+            const input = numericInput(event.target);
+            if (!input) return;
+            const pasted = event.clipboardData?.getData('text') ?? '';
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? start;
+            const candidate = `${input.value.slice(0, start)}${pasted.trim()}${input.value.slice(end)}`;
+            if (!validValue(input, candidate)) event.preventDefault();
+        };
+
+        const preventNumericWheelStep = (event) => {
+            if (numericInput(event.target) && document.activeElement === event.target) event.preventDefault();
+        };
+
+        document.addEventListener('keydown', blockInvalidNumericKey, true);
+        document.addEventListener('paste', blockInvalidNumericPaste, true);
+        document.addEventListener('wheel', preventNumericWheelStep, { capture: true, passive: false });
+        return () => {
+            document.removeEventListener('keydown', blockInvalidNumericKey, true);
+            document.removeEventListener('paste', blockInvalidNumericPaste, true);
+            document.removeEventListener('wheel', preventNumericWheelStep, true);
+        };
+    }, []);
     const [theme, setTheme] = useState(() => window.localStorage.getItem('valley-theme') || 'light');
     const [locale, setLocale] = useState(() => window.localStorage.getItem('valley-locale') || 'en');
-    const [auth, setAuth] = useState({ loading: true, user: null, errors: {}, message: '' });
+    const [auth, setAuth] = useState({ loading: true, user: null, errors: {}, message: callbackAuthError });
     const [branding, setBranding] = useState({ name: 'Valley Water', logo_url: null, primary_color: '#0b84a5', default_theme: 'light' });
     const t = { ...copy.en, ...copy[locale] };
     const activeApp = resolveAppFromPath(pathname);
@@ -531,6 +576,18 @@ function App() {
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
     }, []);
+
+    useEffect(() => {
+        const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
+        const legacyHistoryPath = normalizePath(`${officePath}/deliveries/history`);
+        const currentPath = normalizePath(pathname);
+        if (currentPath !== legacyHistoryPath && !currentPath.startsWith(`${legacyHistoryPath}/`)) return;
+
+        const suffix = currentPath.slice(legacyHistoryPath.length);
+        const destination = `${officePath}/deliveries${suffix}`;
+        window.history.replaceState({}, '', `${destination}${window.location.search}${window.location.hash}`);
+        setPathname(destination);
+    }, [pathname]);
 
     useEffect(() => {
         if (!auth.user || activeApp !== 'office' || !auth.user.permissions.includes('office.master-data.view')) return undefined;
@@ -570,12 +627,12 @@ function App() {
                     if (!window.localStorage.getItem('valley-locale') && currentUser?.locale) {
                         setLocale(currentUser.locale);
                     }
-                    setAuth({ loading: false, user: currentUser, errors: {}, message: '' });
+                    setAuth({ loading: false, user: currentUser, errors: {}, message: currentUser ? '' : callbackAuthError });
                 }
             })
             .catch(() => {
                 if (isMounted) {
-                    setAuth({ loading: false, user: null, errors: {}, message: '' });
+                    setAuth({ loading: false, user: null, errors: {}, message: callbackAuthError });
                 }
             });
 
@@ -613,6 +670,24 @@ function App() {
                 user: null,
                 errors: error.response?.data?.errors || {},
                 message: error.response?.data?.message || 'Unable to sign in.',
+                submitting: false,
+            });
+        }
+    };
+
+    const handleRegister = async (payload) => {
+        setAuth((current) => ({ ...current, errors: {}, message: '', submitting: true }));
+
+        try {
+            const response = await window.axios.post(authRoute('register', '/api/auth/register'), payload);
+            setAuth({ loading: false, user: response.data.data.user, errors: {}, message: '', submitting: false });
+            window.location.assign(response.data.data.redirect_to || appConfig.client.path);
+        } catch (error) {
+            setAuth({
+                loading: false,
+                user: null,
+                errors: error.response?.data?.errors || {},
+                message: error.response?.data?.message || 'Unable to create the customer account.',
                 submitting: false,
             });
         }
@@ -669,6 +744,7 @@ function App() {
                     setTheme={setTheme}
                     auth={auth}
                     onLogin={handleLogin}
+                    onRegister={handleRegister}
                 />
             ) : activeApp === 'office' ? (
                 <OfficeApp
@@ -748,22 +824,43 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
     const visibleOfficeNavGroups = officeNavGroups
         .map((group) => ({
             ...group,
-            items: group.items.map((id) => officeNavItems.find((item) => item.id === id)).filter((item) => item && hasPermission(user, item.permission)),
+            items: group.items.map((id) => officeNavItems.find((item) => item.id === id)).filter((item) => item && (hasPermission(user, officeRolePermissions[item.id] || item.permission) || (['Owner', 'Office Staff'].includes(user.role) && hasPermission(user, item.permission) && !['roles', 'permissions', 'employees', 'suppliers', 'operations-report'].includes(item.id)))),
         }))
         .filter((group) => group.items.length > 0);
     const visibleOfficeNav = visibleOfficeNavGroups.flatMap((group) => group.items);
     const activeResource = resolveOfficeResource(pathname);
     const activeView = resolveOfficeView(pathname);
-    const canManageMasterData = hasPermission(user, 'office.master-data.manage');
+    const canManageMasterData = ['employees', 'suppliers', 'roles', 'permissions'].includes(activeResource)
+        ? hasPermission(user, activeResource === 'employees' ? 'office.employees.manage' : activeResource === 'suppliers' ? 'office.suppliers.manage' : 'office.access.roles.manage')
+        : hasPermission(user, 'office.master-data.manage');
     const canManageAttendance = hasPermission(user, 'office.attendance.manage');
     const canManagePayroll = hasPermission(user, 'office.payroll.manage');
+    const canPreparePayroll = canManagePayroll || hasPermission(user, 'office.payroll.drafts.prepare');
+    const canApprovePayroll = canManagePayroll || hasPermission(user, 'office.payroll.drafts.approve');
+    const canPayPayroll = canManagePayroll || hasPermission(user, 'office.payroll.drafts.pay');
+    const canManageAdjustments = canManagePayroll || hasPermission(user, 'office.payroll.adjustments.manage');
+    const canManageKpi = canManagePayroll || hasPermission(user, 'office.kpi.manage');
     const canManageOrders = hasPermission(user, 'office.orders.manage');
     const canManageInvoices = hasPermission(user, 'office.invoices.manage');
     const canManageInventory = hasPermission(user, 'office.inventory.manage');
     const canManageDeliveries = hasPermission(user, 'office.deliveries.manage');
     const canManageFinance = hasPermission(user, 'office.finance.manage');
+    const canCreateCollections = canManageFinance || hasPermission(user, 'office.finance.collections.create');
+    const canReviewCollections = canManageFinance || hasPermission(user, 'office.finance.collections.review');
+    const canReceiveCollections = canManageFinance || hasPermission(user, 'office.finance.collections.receive');
+    const canCreateExpenses = canManageFinance || hasPermission(user, 'office.finance.expenses.create');
+    const canReviewExpenses = canManageFinance || hasPermission(user, 'office.finance.expenses.review');
+    const canPaySuppliers = canManageFinance || hasPermission(user, 'office.finance.suppliers.pay');
+    const canAdjustSuppliers = canManageFinance || hasPermission(user, 'office.finance.suppliers.adjust');
     const canManageVehicleCosts = hasPermission(user, 'office.vehicle-costs.manage');
     const canManageUat = hasPermission(user, 'office.uat.manage');
+
+    useEffect(() => {
+        if (activeResource || activeView || hasPermission(user, 'office.dashboard.view')) return;
+        const first = visibleOfficeNav[0];
+        if (!first || first.id === 'dashboard') return;
+        navigate(first.resource ? `${appConfig.office.path}/master/${first.resource}` : `${appConfig.office.path}${first.path || ''}`);
+    }, [activeResource, activeView, pathname, user]);
 
     return (
         <>
@@ -817,6 +914,8 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     <button className="icon-button mobile-only" type="button" aria-label="Open navigation" title="Open navigation" onClick={() => setDrawerOpen(true)}>
                         <Menu size={18} />
                     </button>
+                    <div id="shell-page-search" className="shell-page-search" aria-live="polite" />
+                    <div id="shell-page-actions" className="shell-page-actions" aria-live="polite" />
                     <ShellFilterControl pathname={pathname} />
                     <AppearanceControls
                         appId="office"
@@ -837,16 +936,27 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     <MasterDataWorkspace resourceKey={activeResource} locale={locale} canManage={canManageMasterData} detailId={resolveOfficeMasterDetailId(pathname, activeResource)} onNavigate={navigate} />
                 ) : activeView === 'profile-settings' ? (
                     <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />
-                ) : activeView === 'dashboard-sales' ? (
-                    <OfficeKpiDashboard kind="sales" locale={locale} />
-                ) : activeView === 'dashboard-stock' ? (
-                    <OfficeKpiDashboard kind="stock" locale={locale} />
-                ) : activeView === 'dashboard-delivery' ? (
-                    <OfficeKpiDashboard kind="delivery" locale={locale} />
-                ) : activeView === 'dashboard-finance' ? (
-                    <OfficeKpiDashboard kind="finance" locale={locale} />
+                ) : activeView === 'dashboard-kpis' ? (
+                    <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? resolveKpiDashboardKind(pathname) : user.role === 'Sales Supervisor' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
                 ) : activeView === 'uat-readiness' ? (
                     <UatReadinessScreen locale={locale} canManage={canManageUat} />
+                ) : activeView === 'business-setup' ? (
+                    <BusinessSetupScreen
+                        locale={locale}
+                        canManage={canManageMasterData}
+                        section={resolveBusinessSetupSection(pathname)}
+                        onNavigate={navigate}
+                        onBrandingUpdated={onBrandingUpdated}
+                        qrLocationsContent={<AttendanceLocationsScreen
+                            locale={locale}
+                            canManage={canManageAttendance}
+                            detailId={resolveOfficeDetailId(pathname, '/setup/qr-locations')}
+                            onNavigate={navigate}
+                            embedded
+                            basePath={`${appConfig.office.path}/setup/qr-locations`}
+                        />}
+                        kpiTargetsContent={<KpiTargetsScreen locale={locale} canManage={canManageKpi} embedded />}
+                    />
                 ) : activeView === 'company-settings' ? (
                     <CompanySettingsScreen locale={locale} canManage={canManageMasterData} onBrandingUpdated={onBrandingUpdated} />
                 ) : activeView === 'orders' ? (
@@ -891,10 +1001,8 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                         detailId={resolveOfficeDetailId(pathname, '/stock/closing')}
                         onNavigate={navigate}
                     />
-                ) : activeView === 'stock-balance' ? (
-                    <StockBalanceScreen locale={locale} />
-                ) : activeView === 'stock-value' ? (
-                    <StockValueScreen locale={locale} />
+                ) : activeView === 'stock-overview' ? (
+                    <StockOverviewScreen view={resolveStockOverviewView(pathname)} locale={locale} onNavigate={navigate} />
                 ) : activeView === 'stock-card' ? (
                     <StockCardScreen locale={locale} />
                 ) : activeView === 'delivery-planning' ? (
@@ -905,8 +1013,6 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                         : <DeliveryPlanningScreen canManage={canManageDeliveries} locale={locale} navigate={navigate} detailId={resolveOfficeDetailId(pathname, '/deliveries')} />
                 ) : activeView === 'delivery-live-map' ? (
                     <DeliveryLiveMapScreen locale={locale} />
-                ) : activeView === 'delivery-history' ? (
-                    <DeliveryPlanningScreen historyOnly locale={locale} navigate={navigate} detailId={resolveOfficeDetailId(pathname, '/deliveries/history')} />
                 ) : activeView === 'attendance-locations' ? (
                     <AttendanceLocationsScreen locale={locale} canManage={canManageAttendance} detailId={resolveOfficeDetailId(pathname, '/attendance/locations')} onNavigate={navigate} />
                 ) : activeView === 'attendance-records' ? (
@@ -914,47 +1020,33 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'attendance-summary' ? (
                     <AttendanceSummaryScreen locale={locale} />
                 ) : activeView === 'payroll-drafts' ? (
-                    <PayrollDraftsScreen locale={locale} canManage={canManagePayroll} detailId={resolveOfficeDetailId(pathname, '/payroll/drafts')} onNavigate={navigate} />
+                    <PayrollDraftsScreen locale={locale} canPrepare={canPreparePayroll} canApprove={canApprovePayroll} canPay={canPayPayroll} detailId={resolveOfficeDetailId(pathname, '/payroll/drafts')} onNavigate={navigate} />
                 ) : activeView === 'payroll-adjustments' ? (
-                    <PayrollAdjustmentsScreen locale={locale} canManage={canManagePayroll} />
+                    <PayrollAdjustmentsScreen locale={locale} canManage={canManageAdjustments} />
                 ) : activeView === 'salary-history' ? (
                     <SalaryHistoryScreen locale={locale} detailId={resolveOfficeDetailId(pathname, '/payroll/salary-history')} onNavigate={navigate} />
                 ) : activeView === 'kpi-targets' ? (
-                    <KpiTargetsScreen locale={locale} canManage={canManagePayroll} />
+                    <KpiTargetsScreen locale={locale} canManage={canManageKpi} />
                 ) : activeView === 'kpi-reviews' ? (
-                    <KpiReviewsScreen locale={locale} canManage={canManagePayroll} />
+                    <KpiReviewsScreen locale={locale} canManage={canManageKpi} canApprove={canManagePayroll || hasPermission(user, 'office.kpi.approve')} />
                 ) : activeView === 'kpi-reports' ? (
                     <KpiReportsScreen locale={locale} />
                 ) : activeView === 'finance-collections' ? (
-                    <FinanceCollectionsScreen canManage={canManageFinance} locale={locale} />
+                    <FinanceCollectionsScreen canCreate={canCreateCollections} canReview={canReviewCollections} locale={locale} />
                 ) : activeView === 'finance-outdoor-collections' ? (
-                    <FinanceCollectionsScreen outdoor canManage={canManageFinance} locale={locale} />
+                    <FinanceCollectionsScreen outdoor canCreate={canCreateCollections} canReview={canReviewCollections} canReceive={canReceiveCollections} locale={locale} />
                 ) : activeView === 'finance-receivables' ? (
-                    <FinanceReceivablesScreen locale={locale} canManage={canManageFinance} detailId={resolveOfficeDetailId(pathname, '/finance/receivables')} onNavigate={navigate} />
+                    <FinanceReceivablesScreen locale={locale} canManage={canCreateCollections} detailId={resolveOfficeDetailId(pathname, '/finance/receivables')} onNavigate={navigate} />
                 ) : activeView === 'finance-suppliers' ? (
-                    <SupplierLedgerScreen canManage={canManageFinance} locale={locale} />
-                ) : activeView === 'finance-cash-book' ? (
-                    <FinanceBookScreen book="cash" locale={locale} />
-                ) : activeView === 'finance-bank-book' ? (
-                    <FinanceBookScreen book="bank" locale={locale} />
-                ) : activeView === 'finance-daily-expenses' ? (
-                    <FinanceExpensesScreen canManage={canManageFinance} locale={locale} />
-                ) : activeView === 'finance-outdoor-expenses' ? (
-                    <FinanceExpensesScreen outdoor canManage={canManageFinance} locale={locale} />
+                    <SupplierLedgerScreen canPay={canPaySuppliers} canAdjust={canAdjustSuppliers} canViewSuppliers={hasPermission(user, 'office.suppliers.view')} locale={locale} onNavigate={navigate} />
+                ) : activeView === 'finance-books' ? (
+                    <FinanceBookScreen book={resolveFinanceBook(pathname)} locale={locale} onNavigate={navigate} />
+                ) : activeView === 'finance-expenses' ? (
+                    <FinanceExpensesScreen expenseType={resolveFinanceExpenseType(pathname)} canCreate={canCreateExpenses} canReview={canReviewExpenses} locale={locale} onNavigate={navigate} />
                 ) : activeView === 'finance-profit-loss' ? (
                     <ProfitLossScreen locale={locale} />
-                ) : activeView === 'vehicle-fuel' ? (
-                    <VehicleCostsScreen type="fuel" locale={locale} canManage={canManageVehicleCosts} />
-                ) : activeView === 'vehicle-maintenance' ? (
-                    <VehicleCostsScreen type="maintenance" locale={locale} canManage={canManageVehicleCosts} />
-                ) : activeView === 'vehicle-insurance' ? (
-                    <VehicleCostsScreen type="insurance" locale={locale} canManage={canManageVehicleCosts} />
-                ) : activeView === 'vehicle-license' ? (
-                    <VehicleCostsScreen type="license" locale={locale} canManage={canManageVehicleCosts} />
-                ) : activeView === 'vehicle-engine-oil' ? (
-                    <VehicleCostsScreen type="engine_oil" locale={locale} canManage={canManageVehicleCosts} />
-                ) : activeView === 'vehicle-tyre' ? (
-                    <VehicleCostsScreen type="tyre" locale={locale} canManage={canManageVehicleCosts} />
+                ) : activeView === 'vehicle-costs' ? (
+                    <VehicleCostsScreen type={resolveVehicleCostCategory(pathname)} locale={locale} canManage={canManageVehicleCosts} onNavigate={navigate} />
                 ) : activeView === 'vehicle-monthly-cost' ? (
                     <VehicleMonthlyCostScreen locale={locale} />
                 ) : activeView === 'vehicle-route-history' ? (
@@ -966,7 +1058,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'operations-report' ? (
                     <OperationsReportScreen locale={locale} />
                 ) : (
-                    <OfficeKpiDashboard kind="owner" locale={locale} />
+                    <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? 'owner' : user.role === 'Sales Supervisor' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
                 )}
             </main>
         </>
@@ -980,14 +1072,17 @@ const shellFilterSelector = [
     '.mobile-attendance-filters',
     '.mobile-payroll-filters',
     '.trip-order-toolbar',
-    '.phase10-filter',
+    '.report-filter-panel > form',
+    '.kpi-report-filters',
+    '.mobile-kpi-toolbar',
     '.status-tabs',
 ].join(', ');
 
 function ShellFilterControl({ pathname }) {
     const [available, setAvailable] = useState(false);
     const [open, setOpen] = useState(false);
-    const [triggerHost, setTriggerHost] = useState(null);
+    const [refreshSources, setRefreshSources] = useState([]);
+    const [searchSources, setSearchSources] = useState([]);
     const triggerRef = useRef(null);
     const closeRef = useRef(null);
     const wasOpen = useRef(false);
@@ -1002,28 +1097,88 @@ function ShellFilterControl({ pathname }) {
 
         const sync = () => {
             const toolbars = [...workspace.querySelectorAll(shellFilterSelector)];
-            const pageHeading = workspace.querySelector('.page > .master-heading, .page > .mobile-master-heading, .mobile-master-stack > .mobile-master-heading');
+            const nextRefreshSources = [];
+            const nextSearchSources = [];
+            let filterIndex = 0;
             workspace.querySelectorAll('.master-heading > button, .mobile-master-heading > button').forEach((button) => {
                 if (!button.querySelector('.lucide-plus')) return;
                 const label = button.textContent.trim() || button.getAttribute('aria-label') || 'Add';
                 if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', label);
                 if (!button.getAttribute('title')) button.setAttribute('title', label);
             });
-            toolbars.forEach((toolbar, index) => {
-                toolbar.dataset.shellFilter = 'true';
-                toolbar.id = `shell-filter-drawer-${index + 1}`;
-                toolbar.setAttribute('aria-hidden', open ? 'false' : 'true');
-                toolbar.inert = !open;
+            toolbars.forEach((toolbar) => {
+                toolbar.querySelectorAll([
+                    'input[type="search"]',
+                    '.master-search input',
+                    '.mobile-search input',
+                    '.transfer-filter-search input',
+                    'input[aria-label*="search" i]',
+                    'input[placeholder*="search" i]',
+                ].join(', ')).forEach((input) => {
+                    if (nextSearchSources.includes(input)) return;
+                    const container = input.closest('.transfer-filter-search-field, .master-search, .mobile-search') || input;
+                    container.dataset.shellSearchSource = 'true';
+                    nextSearchSources.push(input);
+                });
+                toolbar.querySelectorAll('button').forEach((button) => {
+                    const label = [button.getAttribute('aria-label'), button.getAttribute('title'), button.textContent]
+                        .filter(Boolean)
+                        .join(' ')
+                        .trim();
+                    const normalizedLabel = label.toLowerCase();
+                    const hasRefreshIcon = Boolean(button.querySelector('.lucide-refresh-cw'));
+                    const isFilterSubmit = /\b(apply|run report|search)\b/i.test(normalizedLabel);
+                    const isRefresh = !isFilterSubmit && (hasRefreshIcon || /\b(refresh|reload|retry)\b/i.test(normalizedLabel));
+
+                    if (!isRefresh || nextRefreshSources.includes(button)) return;
+                    button.dataset.shellRefreshSource = 'true';
+                    nextRefreshSources.push(button);
+                });
+
+                const remainingControls = [...toolbar.querySelectorAll('input, select, textarea, button')].filter((control) => (
+                    !control.closest('[data-shell-search-source="true"]')
+                    && !control.matches('[data-shell-refresh-source="true"]')
+                ));
+
+                if (remainingControls.length > 0) {
+                    filterIndex += 1;
+                    toolbar.dataset.shellFilter = 'true';
+                    delete toolbar.dataset.shellToolbarEmpty;
+                    toolbar.id = `shell-filter-drawer-${filterIndex}`;
+                    toolbar.setAttribute('aria-hidden', open ? 'false' : 'true');
+                    toolbar.inert = !open;
+                } else {
+                    delete toolbar.dataset.shellFilter;
+                    toolbar.dataset.shellToolbarEmpty = 'true';
+                    if (toolbar.id.startsWith('shell-filter-drawer-')) toolbar.removeAttribute('id');
+                    toolbar.removeAttribute('aria-hidden');
+                    toolbar.inert = false;
+                }
             });
-            setAvailable(toolbars.length > 0);
-            setTriggerHost((current) => current === pageHeading ? current : pageHeading);
-            if (toolbars.length === 0) setOpen(false);
+            setSearchSources((current) => (
+                current.length === nextSearchSources.length && current.every((source, index) => source === nextSearchSources[index])
+                    ? current
+                    : nextSearchSources
+            ));
+            setRefreshSources((current) => (
+                current.length === nextRefreshSources.length && current.every((source, index) => source === nextRefreshSources[index])
+                    ? current
+                    : nextRefreshSources
+            ));
+            const filterToolbars = toolbars.filter((toolbar) => toolbar.dataset.shellFilter === 'true');
+            setAvailable(filterToolbars.length > 0);
+            if (filterToolbars.length === 0) setOpen(false);
         };
 
         sync();
         const observer = new MutationObserver(sync);
         observer.observe(workspace, { childList: true, subtree: true });
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            workspace.querySelectorAll('[data-shell-refresh-source="true"]').forEach((button) => delete button.dataset.shellRefreshSource);
+            workspace.querySelectorAll('[data-shell-search-source="true"]').forEach((container) => delete container.dataset.shellSearchSource);
+            workspace.querySelectorAll('[data-shell-toolbar-empty="true"]').forEach((toolbar) => delete toolbar.dataset.shellToolbarEmpty);
+        };
     }, [pathname, open]);
 
     useEffect(() => {
@@ -1044,27 +1199,100 @@ function ShellFilterControl({ pathname }) {
         wasOpen.current = open;
     }, [open]);
 
-    if (!available || !triggerHost) return null;
-
     return (
         <>
-            {createPortal(
-                <button ref={triggerRef} className={`icon-button shell-filter-trigger ${open ? 'is-active' : ''}`} type="button" aria-label="Filters" title="Filters" aria-expanded={open} aria-controls="shell-filter-drawer-1" onClick={() => setOpen((value) => !value)}>
-                    <ListFilter size={16} />
-                </button>,
-                triggerHost,
+            {searchSources.length > 0 && (
+                <ShellPageSearch>
+                    <ShellSearchControl source={searchSources[0]} pathname={pathname} />
+                </ShellPageSearch>
             )}
-            {open && <button className="filter-drawer-scrim" type="button" aria-label="Close filters" onClick={() => setOpen(false)} />}
-            <div className="filter-drawer-header" aria-hidden={!open}>
-                <div>
-                    <span>View options</span>
-                    <strong>Filters</strong>
+            {refreshSources.length > 0 && (
+                <ShellPageActions className="shell-filter-refresh-actions">
+                    {refreshSources.map((source, index) => {
+                        const label = source.getAttribute('aria-label') || source.getAttribute('title') || source.textContent.trim() || 'Refresh';
+                        return (
+                            <button
+                                className="icon-button"
+                                type="button"
+                                aria-label={label}
+                                title={label}
+                                disabled={source.disabled}
+                                key={`${pathname}-refresh-${index}`}
+                                onClick={() => source.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))}
+                            >
+                                <RotateCcw size={16} />
+                            </button>
+                        );
+                    })}
+                </ShellPageActions>
+            )}
+            {available && <button ref={triggerRef} className={`icon-button shell-filter-trigger ${open ? 'is-active' : ''}`} type="button" aria-label="Filters" title="Filters" aria-expanded={open} aria-controls="shell-filter-drawer-1" onPointerDown={(event) => { if (event.currentTarget.closest('.mobile-app-topbar')?.querySelector('.shell-search-control:focus-within')) event.preventDefault(); }} onClick={() => setOpen((value) => !value)}>
+                <ListFilter size={16} />
+            </button>}
+            {available && document.querySelector('.app-root') && createPortal(<>
+                {open && <button className="filter-drawer-scrim" type="button" aria-label="Close filters" onClick={() => setOpen(false)} />}
+                <div className="filter-drawer-header" aria-hidden={!open}>
+                    <div>
+                        <span>View options</span>
+                        <strong>Filters</strong>
+                    </div>
+                    <button ref={closeRef} className="icon-button" type="button" aria-label="Close filters" title="Close filters" onClick={() => setOpen(false)}>
+                        <X size={18} />
+                    </button>
                 </div>
-                <button ref={closeRef} className="icon-button" type="button" aria-label="Close filters" title="Close filters" onClick={() => setOpen(false)}>
-                    <X size={18} />
-                </button>
-            </div>
+            </>, document.querySelector('.app-root'))}
         </>
+    );
+}
+
+function ShellSearchControl({ source, pathname }) {
+    const [value, setValue] = useState(() => source?.value || '');
+    const [disabled, setDisabled] = useState(() => Boolean(source?.disabled));
+
+    useEffect(() => {
+        if (!source) return undefined;
+        const sync = () => {
+            setValue((current) => current === source.value ? current : source.value);
+            setDisabled(Boolean(source.disabled));
+        };
+        sync();
+        source.addEventListener('input', sync);
+        source.addEventListener('change', sync);
+        const interval = window.setInterval(sync, 200);
+        return () => {
+            source.removeEventListener('input', sync);
+            source.removeEventListener('change', sync);
+            window.clearInterval(interval);
+        };
+    }, [source, pathname]);
+
+    const update = (nextValue) => {
+        setValue(nextValue);
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(source, nextValue);
+        source.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    const label = source.getAttribute('aria-label') || source.placeholder || 'Search';
+
+    return (
+        <label className="shell-search-control">
+            <Search size={15} aria-hidden="true" />
+            <input
+                type="search"
+                aria-label={label}
+                placeholder={source.placeholder || label}
+                value={value}
+                disabled={disabled}
+                onChange={(event) => update(event.target.value)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' && source.form) {
+                        event.preventDefault();
+                        source.form.requestSubmit();
+                    }
+                }}
+            />
+        </label>
     );
 }
 
@@ -1072,18 +1300,19 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const visibleNav = mobileNav[app.id].filter((item) => hasPermission(user, item.permission));
     const activeView = resolveMobileView(app.id, pathname);
     const compactPrimaryViews = {
+        client: ['home', 'orders'],
         sales: ['home', 'orders', 'new-order', 'customers'],
         driver: ['home', 'tasks', 'gps', 'history'],
     };
     const supportsMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
     const primaryViews = compactPrimaryViews[app.id] || [];
     const menuNav = supportsMenuNav ? visibleNav.filter((item) => !primaryViews.includes(item.view)) : [];
-    const usesMenuNav = supportsMenuNav && menuNav.length > 0;
+    const usesMenuNav = supportsMenuNav;
     const primaryNav = supportsMenuNav ? visibleNav.filter((item) => primaryViews.includes(item.view)) : visibleNav;
     const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
     const mobileOrderId = ['client', 'sales'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
     const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
-    const orderActionParams = app.id === 'sales' && activeView === 'new-order' ? new URLSearchParams(window.location.search) : null;
+    const orderActionParams = ['client', 'sales'].includes(app.id) && ['orders', 'new-order'].includes(activeView) ? new URLSearchParams(window.location.search) : null;
 
     return (
         <main className="mobile-app-shell">
@@ -1092,7 +1321,9 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     <div id="shell-back-slot" className="shell-back-slot" aria-live="polite" />
                     <Brand t={t} compact />
                 </div>
+                <div id="shell-page-search" className="shell-page-search" aria-live="polite" />
                 <div className="mobile-top-actions">
+                    <div id="shell-page-actions" className="shell-page-actions" aria-live="polite" />
                     <ShellFilterControl pathname={pathname} />
                     <ActionAlerts appId={app.id} user={user} navigate={navigate} pathname={pathname} />
                     <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
@@ -1112,7 +1343,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
 
             <section className="mobile-page">
                 {['client', 'sales'].includes(app.id) && ['orders', 'new-order'].includes(activeView) && (mobileOrderId
-                    ? <MobileOrderDetailPage orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} onEdit={(orderId) => navigate(`${app.path}/new-order?edit=${orderId}`)} onRepeat={(orderId) => navigate(`${app.path}/new-order?repeat=${orderId}`)} />
+                    ? <MobileOrderDetailPage appId={app.id} orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} onEdit={(orderId) => navigate(`${app.path}/new-order?edit=${orderId}`)} onRepeat={(orderId) => navigate(`${app.path}/${app.id === 'sales' ? 'new-order' : 'orders'}?repeat=${orderId}`)} />
                     : <MobileOrdersScreen
                         appId={app.id}
                         locale={locale}
@@ -1123,11 +1354,11 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                         onShowList={app.id === 'sales' ? () => navigate(`${app.path}/orders`) : undefined}
                         onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)}
                     />)}
-                {app.id === 'client' && activeView === 'deliveries' && <MobileDeliveryStatusScreen appId={app.id} locale={locale} />}
                 {app.id === 'client' && activeView === 'profile' && <ClientMasterScreen locale={locale} />}
                 {app.id === 'sales' && activeView === 'customers' && (salesCustomerId
                     ? <SalesCustomerDetailPage customerId={salesCustomerId} locale={locale} onBack={() => navigate(`${app.path}/customers`)} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />
                     : <SalesMasterScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />)}
+                {app.id === 'sales' && activeView === 'visits' && <SalesVisitsScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />}
                 {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} user={user} onLogout={onLogout} locale={locale} setLocale={setLocale} theme={theme} setTheme={setTheme} />}
                 {activeView === 'account' && <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
@@ -1151,8 +1382,9 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     onViewTasks={() => navigate(`${app.path}/tasks`)}
                     onViewGps={() => navigate(`${app.path}/gps`)}
                     onViewAttendance={() => navigate(`${app.path}/attendance`)}
+                    onViewKpi={() => navigate(`${app.path}/kpi`)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'deliveries', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'attendance', 'kpi', 'salary'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
@@ -1195,7 +1427,7 @@ function MobileMenuScreen({ app, items, t, navigate, user, onLogout, locale, set
                     <span><Settings size={18} /></span><strong>Profile & settings<small>Edit profile, photo and password</small></strong><ChevronRight size={17} />
                 </a>
                 <button type="button" onClick={() => setLocale(locale === 'en' ? 'my' : 'en')}>
-                    <span><Languages size={18} /></span><strong>Language<small>{locale === 'en' ? 'English' : 'မြန်မာ'}</small></strong><span className="mobile-menu-value">{locale === 'en' ? 'EN' : 'MY'}</span>
+                    <span><Languages size={18} /></span><strong>Language<small>{locale === 'en' ? 'English' : 'á€™á€¼á€”á€ºá€™á€¬'}</small></strong><span className="mobile-menu-value">{locale === 'en' ? 'EN' : 'MY'}</span>
                 </button>
                 <button type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
                     <span>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</span><strong>Appearance<small>{theme === 'light' ? 'Light theme' : 'Dark theme'}</small></strong><span className="mobile-menu-value">{theme === 'light' ? 'Light' : 'Dark'}</span>
@@ -1238,7 +1470,9 @@ function resolveMobileView(appId, pathname = window.location.pathname) {
         requestedView = { load: 'tasks', route: 'tasks', confirm: 'history' }[requestedView] || requestedView;
     }
 
-    if (requestedView === 'account' || (['sales', 'driver'].includes(appId) && requestedView === 'menu')) return requestedView;
+    if (appId === 'client' && requestedView === 'deliveries') requestedView = 'orders';
+
+    if (requestedView === 'account' || (['client', 'sales', 'driver'].includes(appId) && requestedView === 'menu')) return requestedView;
     return mobileNav[appId].some((item) => item.view === requestedView) ? requestedView : defaultViews[appId];
 }
 
@@ -1291,6 +1525,32 @@ function resolveOfficeView(pathname = window.location.pathname) {
     if (legacyAdjustmentPaths.some((path) => currentPath === path || currentPath.startsWith(`${path}/`))) {
         return 'stock-adjustments';
     }
+    const legacyKpiDashboardPaths = ['sales', 'stock', 'delivery', 'finance']
+        .map((kind) => normalizePath(`${officePath}/dashboards/${kind}`));
+    if (legacyKpiDashboardPaths.some((path) => currentPath === path || currentPath.startsWith(`${path}/`))) {
+        return 'dashboard-kpis';
+    }
+    const legacyStockOverviewPaths = [
+        normalizePath(`${officePath}/stock/balances`),
+        normalizePath(`${officePath}/stock/value`),
+    ];
+    if (legacyStockOverviewPaths.some((path) => currentPath === path || currentPath.startsWith(`${path}/`))) {
+        return 'stock-overview';
+    }
+    const legacyBookPaths = [
+        normalizePath(`${officePath}/finance/cash-book`),
+        normalizePath(`${officePath}/finance/bank-book`),
+    ];
+    if (legacyBookPaths.some((path) => currentPath === path || currentPath.startsWith(`${path}/`))) {
+        return 'finance-books';
+    }
+    const legacyExpensePaths = [
+        normalizePath(`${officePath}/finance/daily-expenses`),
+        normalizePath(`${officePath}/finance/outdoor-expenses`),
+    ];
+    if (legacyExpensePaths.some((path) => currentPath === path || currentPath.startsWith(`${path}/`))) {
+        return 'finance-expenses';
+    }
     const configuredViews = officeNavItems
         .filter((item) => item.view && item.path)
         .map((item) => ({ ...item, routePath: normalizePath(`${officePath}${item.path}`) }))
@@ -1303,6 +1563,56 @@ function resolveOfficeView(pathname = window.location.pathname) {
     if (currentPath === normalizePath(`${officePath}/profile`)) return 'profile-settings';
     if (currentPath === normalizePath(`${officePath}/settings/company`)) return 'company-settings';
     return null;
+}
+
+function resolveKpiDashboardKind(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
+    const kind = currentPath.split('/').filter(Boolean).at(-1);
+
+    return ['sales', 'stock', 'delivery', 'finance'].includes(kind) ? kind : 'sales';
+}
+
+function resolveStockOverviewView(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
+
+    return currentPath.endsWith('/value') ? 'value' : 'balance';
+}
+
+function resolveFinanceBook(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
+
+    return currentPath.endsWith('/bank') || currentPath.includes('/finance/bank-book') ? 'bank' : 'cash';
+}
+
+function resolveFinanceExpenseType(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
+
+    return currentPath.endsWith('/outdoor') || currentPath.includes('/finance/outdoor-expenses') ? 'outdoor' : 'daily';
+}
+
+function resolveVehicleCostCategory(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
+    const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
+    const costPath = normalizePath(`${officePath}/vehicle-costs`);
+    const category = currentPath.startsWith(`${costPath}/`) ? currentPath.slice(costPath.length + 1).split('/')[0] : '';
+
+    return {
+        fuel: 'fuel',
+        maintenance: 'maintenance',
+        insurance: 'insurance',
+        license: 'license',
+        'engine-oil': 'engine_oil',
+        tyre: 'tyre',
+        other: 'other',
+    }[category] || '';
+}
+
+function resolveBusinessSetupSection(pathname = window.location.pathname) {
+    const currentPath = normalizePath(pathname);
+    const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
+    const setupPath = normalizePath(`${officePath}/setup`);
+    const section = currentPath.startsWith(`${setupPath}/`) ? currentPath.slice(setupPath.length).split('/').filter(Boolean)[0] : '';
+    return ['company', 'contact-channels', 'branding', 'delivery', 'printing', 'brands', 'products', 'price-types', 'product-prices', 'areas', 'routes', 'warehouses', 'vehicles', 'roles', 'permissions', 'qr-locations', 'kpi-targets'].includes(section) ? section : 'company';
 }
 
 function resolveOfficeDetailId(pathname, routeSuffix) {
@@ -1417,7 +1727,7 @@ function ActionAlerts({ appId, user, navigate, pathname }) {
             {open && (
                 <section className="action-alert-popover" aria-label="Action notifications">
                     <header><div><span>Notifications</span><strong>Action required</strong></div>{state.total > 0 && <b>{state.total}</b>}</header>
-                    {state.loading ? <p className="action-alert-empty">Loading notifications…</p> : state.items.length === 0 ? <p className="action-alert-empty">You’re all caught up.</p> : (
+                    {state.loading ? <p className="action-alert-empty">Loading notificationsâ€¦</p> : state.items.length === 0 ? <p className="action-alert-empty">Youâ€™re all caught up.</p> : (
                         <div className="action-alert-list">
                             {state.items.map((item) => (
                                 <button type="button" key={item.id} onClick={() => openItem(item.path)}>
@@ -1575,7 +1885,9 @@ function AppLoading({ t }) {
     );
 }
 
-function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin }) {
+function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin, onRegister }) {
+    const registering = app.id === 'client' && normalizePath(window.location.pathname).endsWith('/register');
+
     return (
         <main className="auth-screen">
             <header className="auth-header">
@@ -1598,10 +1910,10 @@ function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin 
             </header>
             <section className="auth-card-wrap">
                 <div>
-                    <h1>{t[app.id]}</h1>
-                    <span className="muted">{t[`${app.id}Hint`]}</span>
+                    <h1>{registering ? t.createNewAccount : t[app.id]}</h1>
+                    <span className="muted">{registering ? t.customerRegistrationHint : t[`${app.id}Hint`]}</span>
                 </div>
-                <LoginPanel app={app} t={t} auth={auth} onLogin={onLogin} />
+                <LoginPanel app={app} t={t} auth={auth} onLogin={onLogin} onRegister={onRegister} />
             </section>
         </main>
     );
@@ -1694,41 +2006,54 @@ function ProfileMenu({ user, t, locale, setLocale, onLogout, onProfile, compact 
     );
 }
 
-function LoginPanel({ app, t, auth, onLogin }) {
-    const [email, setEmail] = useState(app.email);
-    const [password, setPassword] = useState('password');
+function LoginPanel({ app, t, auth, onLogin, onRegister }) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [registration, setRegistration] = useState({ name: '', shop_name: '', phone: '', email: '', address: '', password: '', password_confirmation: '' });
 
     const submit = (event) => {
         event.preventDefault();
-        onLogin({ email, password });
+        if (registering) onRegister(registration);
+        else onLogin({ email, password });
     };
 
+    const updateRegistration = (field, value) => setRegistration((current) => ({ ...current, [field]: value }));
+    const errorFor = (field) => auth.errors[field] && <span className="field-error">{auth.errors[field][0]}</span>;
+    const canRegister = app.id === 'client';
+    const registering = canRegister && normalizePath(window.location.pathname).endsWith('/register');
+    const googleEnabled = canRegister && Boolean(window.ValleyRuntime?.auth?.googleEnabled);
+    const clientBase = String(app.path).replace(/\/$/, '');
+
     return (
-        <form className="login-card auth-card" onSubmit={submit}>
-            <strong>{t.authRequired}</strong>
+        <form className="login-card auth-card" autoComplete="off" onSubmit={submit}>
+            <strong>{registering ? t.customerRegistration : t.authRequired}</strong>
+            {registering && <span className="muted auth-form-hint">{t.customerRegistrationHint}</span>}
             {auth.message && <p className="form-alert">{auth.message}</p>}
-            <label>
-                {t.email}
-                <input value={email} onChange={(event) => setEmail(event.target.value)} />
-                {auth.errors.email && <span className="field-error">{auth.errors.email[0]}</span>}
-            </label>
-            <label>
-                {t.password}
-                <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" />
-                {auth.errors.password && <span className="field-error">{auth.errors.password[0]}</span>}
-            </label>
+            {!registering ? <>
+                <label>{t.email}<input name="login-identifier" autoComplete="email" placeholder={t.emailHint} value={email} onChange={(event) => setEmail(event.target.value)} />{errorFor('email')}</label>
+                <label>{t.password}<input name="login-secret" autoComplete="current-password" placeholder={t.passwordHint} value={password} onChange={(event) => setPassword(event.target.value)} type="password" />{errorFor('password')}</label>
+            </> : <div className="customer-registration-fields">
+                <label>{t.contactName}<input required autoComplete="name" value={registration.name} onChange={(event) => updateRegistration('name', event.target.value)} />{errorFor('name')}</label>
+                <label>{t.shopName}<input required autoComplete="organization" value={registration.shop_name} onChange={(event) => updateRegistration('shop_name', event.target.value)} />{errorFor('shop_name')}</label>
+                <label>{t.phone}<input required type="tel" autoComplete="tel" value={registration.phone} onChange={(event) => updateRegistration('phone', event.target.value)} />{errorFor('phone')}</label>
+                <label>{t.email}<input required type="email" autoComplete="email" value={registration.email} onChange={(event) => updateRegistration('email', event.target.value)} />{errorFor('email')}</label>
+                <label className="wide">{t.deliveryAddress}<textarea required rows="3" autoComplete="street-address" value={registration.address} onChange={(event) => updateRegistration('address', event.target.value)} />{errorFor('address')}</label>
+                <label>{t.password}<input required minLength="8" type="password" autoComplete="new-password" value={registration.password} onChange={(event) => updateRegistration('password', event.target.value)} />{errorFor('password')}</label>
+                <label>{t.confirmPassword}<input required minLength="8" type="password" autoComplete="new-password" value={registration.password_confirmation} onChange={(event) => updateRegistration('password_confirmation', event.target.value)} /></label>
+            </div>}
             {auth.errors.app && <p className="form-alert">{auth.errors.app[0]}</p>}
-            <small className="muted">{t.demoPassword}</small>
             <button className="button primary" type="submit" disabled={auth.submitting}>
-                <CreditCard size={16} />
-                {t.signIn}
+                <User size={16} />
+                {registering ? t.createAccount : t.signIn}
             </button>
+            {googleEnabled && <><div className="auth-divider"><span>or</span></div><a className="button auth-google-button" href={authRoute('googleRedirect', '/api/auth/google/redirect')}><b aria-hidden="true">G</b>{t.continueWithGoogle}</a></>}
+            {canRegister && <a className="auth-text-action" href={registering ? clientBase : `${clientBase}/register`}>{registering ? `${t.existingAccount} ${t.signIn}` : t.createNewAccount}</a>}
         </form>
     );
 }
 
 createRoot(document.getElementById('root')).render(
-    <Suspense fallback={<div className="app-loading"><span className="spinner" />Loading workspace…</div>}>
+    <Suspense fallback={<div className="app-loading"><span className="spinner" />Loading workspaceâ€¦</div>}>
         <App />
     </Suspense>,
 );

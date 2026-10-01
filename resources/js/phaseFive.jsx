@@ -1,7 +1,9 @@
-import { Archive, CalendarDays, Check, Package, Plus, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Archive, CalendarDays, Check, Package, Plus, Printer, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
 import { ShellBackButton } from './components/ShellBackButton';
+import { ShellPageActions } from './components/ShellPageActions';
+import { printConfiguredDocument } from './printDocuments';
 
 const copy = {
     en: {
@@ -90,6 +92,7 @@ const copy = {
         searchTransfers: 'Search transfer or reference code, warehouse, product',
         searchValues: 'Search warehouse, SKU, product',
         source: 'Source',
+        supplier: 'Supplier',
         stockValue: 'Stock value',
         stockValueHint: 'Current inventory valuation by warehouse and product using weighted average cost.',
         stockValueReport: 'Stock value report',
@@ -156,7 +159,7 @@ const copy = {
     my: {},
 };
 
-const blankForm = { movement_type: 'receive', warehouse_id: '', product_id: '', movement_date: new Date().toISOString().slice(0, 10), quantity: 1, unit_cost: '', reference_code: '', notes: '', items: [] };
+const blankForm = { movement_type: 'receive', supplier_id: '', warehouse_id: '', product_id: '', movement_date: new Date().toISOString().slice(0, 10), quantity: 1, unit_cost: '', settlement_method: 'credit', payment_terms_days: 30, due_date: '', reference_code: '', notes: '', items: [] };
 const blankTransferForm = { from_warehouse_id: '', to_warehouse_id: '', movement_date: new Date().toISOString().slice(0, 10), reference_code: '', notes: '', items: [] };
 const blankClosingForm = { warehouse_id: '', movement_date: new Date().toISOString().slice(0, 10), reference_code: '', notes: '', items: [] };
 const movementTypes = ['opening', 'receive', 'issue', 'damage'];
@@ -181,10 +184,108 @@ function requestMessage(error) {
     return error.response?.data?.message || 'The stock request could not be completed.';
 }
 
+function SupplierCombobox({ suppliers, value, onChange }) {
+    const selected = suppliers.find((supplier) => String(supplier.id) === String(value));
+    const [query, setQuery] = useState(selected?.label || '');
+    const [open, setOpen] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(0);
+    const rootRef = useRef(null);
+    const inputRef = useRef(null);
+    const optionsId = useId();
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const filtered = suppliers
+        .filter((supplier) => !normalizedQuery || `${supplier.code} ${supplier.name} ${supplier.label}`.toLocaleLowerCase().includes(normalizedQuery))
+        .slice(0, 20);
+
+    useEffect(() => {
+        const close = (event) => {
+            if (!rootRef.current?.contains(event.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, []);
+
+    const choose = (supplier) => {
+        onChange(String(supplier.id));
+        setQuery(supplier.label || `${supplier.code} - ${supplier.name}`);
+        inputRef.current?.setCustomValidity('');
+        setOpen(false);
+    };
+
+    const keyDown = (event) => {
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) => Math.min(index + 1, Math.max(filtered.length - 1, 0)));
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setActiveIndex((index) => Math.max(index - 1, 0));
+        } else if (event.key === 'Enter' && open && filtered[activeIndex]) {
+            event.preventDefault();
+            choose(filtered[activeIndex]);
+        } else if (event.key === 'Escape') {
+            setOpen(false);
+        }
+    };
+
+    return <div className="customer-combobox supplier-combobox" ref={rootRef}>
+        <div className="customer-combobox-input">
+            <Search size={15} />
+            <input
+                ref={inputRef}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls={optionsId}
+                aria-expanded={open}
+                required
+                value={query}
+                placeholder="Search supplier code or name"
+                onFocus={() => setOpen(true)}
+                onKeyDown={keyDown}
+                onInvalid={(event) => event.currentTarget.setCustomValidity(value ? '' : 'Select a supplier from the results.')}
+                onChange={(event) => {
+                    event.currentTarget.setCustomValidity('');
+                    setQuery(event.target.value);
+                    onChange('');
+                    setActiveIndex(0);
+                    setOpen(true);
+                }}
+            />
+        </div>
+        {open && <div className="customer-combobox-options" id={optionsId} role="listbox">
+            {filtered.length ? filtered.map((supplier, index) => <button className={index === activeIndex ? 'is-active' : ''} type="button" role="option" aria-selected={String(supplier.id) === String(value)} key={supplier.id} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(supplier)}><span><strong>{supplier.name}</strong><small>{supplier.code}</small></span>{String(supplier.id) === String(value) && <Check size={16} />}</button>) : <p>No suppliers match “{query}”.</p>}
+            {suppliers.length > 20 && !normalizedQuery && <small className="customer-combobox-hint">Type to search {suppliers.length} suppliers</small>}
+        </div>}
+    </div>;
+}
+
+function printStockDocument(type, documentCode) {
+    return printConfiguredDocument(type, async () => {
+        const { data } = await window.axios.get(`${apiBase()}/documents/${encodeURIComponent(documentCode)}`);
+        const document = data.data.document;
+        return {
+            reference: document.code,
+            facts: [
+                ['Date', document.movement_date],
+                ['Movement', String(document.movement_type || '').replaceAll('_', ' ')],
+                ...(document.supplier_name ? [['Supplier', `${document.supplier_code || '-'} · ${document.supplier_name}`]] : []),
+                ['From warehouse', `${document.warehouse_code || '-'} · ${document.warehouse_name || '-'}`],
+                ...(document.destination_warehouse_code ? [['To warehouse', `${document.destination_warehouse_code} · ${document.destination_warehouse_name}`]] : []),
+                ['Reference', document.reference_code || '-'],
+                ['Products / quantity', `${document.products_count} / ${number(document.total_quantity)}`],
+            ],
+            columns: ['Product', 'Qty', 'Unit cost', 'Value'],
+            rows: data.data.items.map((item) => [`${item.product_name} · ${item.product_sku}`, number(Math.abs(item.signed_quantity)), money(item.unit_cost), money(item.total_cost)]),
+            total: ['Total value', money(document.total_value)],
+            notes: document.notes,
+        };
+    });
+}
+
 export function StockReceiveScreen({ locale, canManage = false, mode = 'receive', receiveForm = false, onNavigate }) {
     const movementConfig = movementModeConfig[mode] || movementModeConfig.receive;
-    const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
-    const [filters, setFilters] = useState({ search: '', warehouse_id: '', product_id: '', type: movementConfig.fixedType || '', date: '' });
+    const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], suppliers: [], error: '' });
+    const [filters, setFilters] = useState({ search: '', warehouse_id: '', product_id: '', supplier_id: '', type: movementConfig.fixedType || '', date: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
     const [page, setPage] = useState(1);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -199,8 +300,8 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     useEffect(() => {
         let mounted = true;
         window.axios.get(`${apiBase()}/meta`)
-            .then(({ data }) => mounted && setMeta({ loading: false, warehouses: data.data.warehouses, products: data.data.products, error: '' }))
-            .catch((error) => mounted && setMeta({ loading: false, warehouses: [], products: [], error: requestMessage(error) }));
+            .then(({ data }) => mounted && setMeta({ loading: false, warehouses: data.data.warehouses, products: data.data.products, suppliers: data.data.suppliers || [], error: '' }))
+            .catch((error) => mounted && setMeta({ loading: false, warehouses: [], products: [], suppliers: [], error: requestMessage(error) }));
 
         return () => { mounted = false; };
     }, []);
@@ -214,6 +315,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                     search: filters.search || undefined,
                     warehouse_id: filters.warehouse_id || undefined,
                     product_id: filters.product_id || undefined,
+                    supplier_id: filters.supplier_id || undefined,
                     type: movementConfig.fixedType || filters.type || undefined,
                     type_group: !filters.type ? movementConfig.typeGroup || undefined : undefined,
                     date: filters.date || undefined,
@@ -231,7 +333,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
 
     useEffect(() => {
         setPage(1);
-    }, [filters.search, filters.warehouse_id, filters.product_id, filters.type, filters.date]);
+    }, [filters.search, filters.warehouse_id, filters.product_id, filters.supplier_id, filters.type, filters.date]);
 
     const openForm = () => {
         if (mode === 'receive' && !isSeparateReceiveForm && onNavigate) {
@@ -298,9 +400,12 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
         setFormError('');
         const endpoint = mode === 'receive' ? 'receipts' : 'movements';
         window.axios.post(`${apiBase()}/${endpoint}`, form)
-            .then(() => {
+            .then(({ data }) => {
+                const saved = mode === 'receive'
+                    ? { ...data.data.receipt, document_code: data.data.receipt.document_code, warehouse_code: selectedWarehouse?.code, warehouse_name: selectedWarehouse?.name }
+                    : data.data.movement;
+                setState((current) => ({ ...current, items: [saved, ...current.items], summary: { ...current.summary, records_count: Number(current.summary.records_count || 0) + 1, total_quantity: Number(current.summary.total_quantity || 0) + Math.abs(Number(saved.total_quantity ?? saved.signed_quantity ?? 0)), total_value: Number(current.summary.total_value || 0) + Math.abs(Number(saved.total_value ?? saved.total_cost ?? 0)) }, pageMeta: { ...current.pageMeta, total: Number(current.pageMeta.total || 0) + 1 } }));
                 closeForm();
-                setRefreshKey((value) => value + 1);
             })
             .catch((error) => {
                 setSaving(false);
@@ -311,6 +416,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     const isReceiveWizard = mode === 'receive';
     const selectedProducts = form.items.map((item) => ({ ...meta.products.find((product) => Number(product.id) === Number(item.product_id)), ...item }));
     const selectedWarehouse = meta.warehouses.find((warehouse) => Number(warehouse.id) === Number(form.warehouse_id));
+    const selectedSupplier = meta.suppliers.find((supplier) => Number(supplier.id) === Number(form.supplier_id));
     const filteredProducts = meta.products.filter((product) => {
         const query = productSearch.trim().toLocaleLowerCase();
         return !query || [product.sku, product.name, product.label, product.unit].some((value) => String(value || '').toLocaleLowerCase().includes(query));
@@ -357,8 +463,14 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     };
     const receiptTotalQuantity = form.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const receiptTotalValue = form.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_cost || 0), 0);
+    const calculatedDueDate = (() => {
+        if (form.due_date) return form.due_date;
+        const value = new Date(`${form.movement_date}T00:00:00`);
+        value.setDate(value.getDate() + Number(form.payment_terms_days || 0));
+        return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+    })();
     const wizardSteps = [['basic', 'basicHint'], ['selectProduct', 'productHint'], ['quantities', 'quantityHint'], ['review', 'reviewHint']];
-    const basicComplete = Boolean(form.movement_type && form.warehouse_id && form.movement_date);
+    const basicComplete = Boolean(form.movement_type && form.warehouse_id && form.movement_date && (form.movement_type !== 'receive' || form.supplier_id));
     const productComplete = basicComplete && form.items.length > 0;
     const quantityComplete = productComplete && form.items.every((item) => Number(item.quantity) > 0 && (item.unit_cost === '' || Number(item.unit_cost) >= 0));
     const canOpenStep = (index) => index === 0 || (index === 1 && basicComplete) || (index === 2 && productComplete) || (index === 3 && quantityComplete);
@@ -381,7 +493,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                     <h1>{t(locale, movementConfig.title)}</h1>
                     <span className="muted">{t(locale, movementConfig.hint)}</span>
                 </div>
-                {canManage && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || meta.error}><Plus size={16} />{t(locale, movementConfig.action)}</button>}
+                <ShellPageActions>{canManage && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || meta.error}><Plus size={16} />{t(locale, movementConfig.action)}</button>}</ShellPageActions>
             </div>
 
             <div className="metrics stock-metrics">
@@ -408,6 +520,10 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                         <option value="">{t(locale, 'allProducts')}</option>
                         {meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}
                     </select>
+                    {isReceiveWizard && <select value={filters.supplier_id} onChange={(event) => setFilters((current) => ({ ...current, supplier_id: event.target.value }))}>
+                        <option value="">All suppliers</option>
+                        {meta.suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.label}</option>)}
+                    </select>}
                     <select value={filters.type} onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}>
                         <option value="">{t(locale, 'movementType')}</option>
                         {movementConfig.filterTypes.map((type) => <option value={type} key={type}>{t(locale, type)}</option>)}
@@ -437,18 +553,20 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                         <th>{t(locale, 'cost')}</th>
                                         <th>{t(locale, 'stockValue')}</th>
                                     </tr>}
-                                    {isReceiveWizard && <tr><th>{t(locale, 'reference')}</th><th>{t(locale, 'warehouse')}</th><th>{t(locale, 'movementType')}</th><th>{t(locale, 'date')}</th><th>{t(locale, 'products')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'stockValue')}</th></tr>}
+                                    {isReceiveWizard && <tr><th>{t(locale, 'reference')}</th><th>{t(locale, 'supplier')}</th><th>{t(locale, 'warehouse')}</th><th>{t(locale, 'movementType')}</th><th>{t(locale, 'date')}</th><th>{t(locale, 'products')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'stockValue')}</th><th className="table-actions-header">{t(locale, 'actions')}</th></tr>}
                                 </thead>
                                 <tbody>
                                     {state.items.map((movement) => isReceiveWizard ? (
                                         <tr key={movement.document_code}>
                                             <td><strong>{movement.document_code}</strong><span className="muted">{movement.reference_code || '-'}</span></td>
+                                            <td><strong>{movement.supplier_name || '-'}</strong><span className="muted">{movement.supplier_code || (movement.movement_type === 'opening' ? t(locale, 'openingBalance') : '-')}</span></td>
                                             <td><strong>{movement.warehouse_code}</strong><span className="muted">{movement.warehouse_name}</span></td>
                                             <td><StatusBadge status={movement.movement_type} locale={locale} /></td>
                                             <td>{formatDate(movement.movement_date)}</td>
                                             <td><strong>{number(movement.products_count)}</strong><span className="muted">{t(locale, 'products')}</span></td>
                                             <td className="numeric">{number(movement.total_quantity)}</td>
                                             <td className="numeric"><strong>{money(movement.total_value)}</strong></td>
+                                            <td className="table-actions-cell"><div className="row-actions"><button className="icon-button" type="button" title="Print stock receipt" aria-label={`Print ${movement.document_code}`} onClick={() => printStockDocument('stock_receipt', movement.document_code)}><Printer size={16} /></button></div></td>
                                         </tr>
                                     ) : (
                                         <tr key={movement.id}>
@@ -501,9 +619,13 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                     <div className="stock-wizard-stage-heading"><p className="eyebrow">1 / 4</p><h3>{t(locale, 'receiptDetails')}</h3><span>{t(locale, 'receiptDetailsHint')}</span></div>
                                     <div className="master-form-grid stock-wizard-basic">
                                         <label><span className="stock-field-label">{t(locale, 'movementType')}</span><select value={form.movement_type} onChange={(event) => setForm((current) => ({ ...current, movement_type: event.target.value }))}>{movementConfig.formTypes.map((type) => <option value={type} key={type}>{t(locale, type)}</option>)}</select></label>
+                                        {form.movement_type === 'receive' && <label><span className="stock-field-label">{t(locale, 'supplier')}</span><SupplierCombobox suppliers={meta.suppliers} value={form.supplier_id} onChange={(supplierId) => setForm((current) => ({ ...current, supplier_id: supplierId }))} /></label>}
                                         <label><span className="stock-field-label">{t(locale, 'warehouse')}</span><select required value={form.warehouse_id} onChange={(event) => setForm((current) => ({ ...current, warehouse_id: event.target.value }))}>{meta.warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.label}</option>)}</select></label>
                                         <label><span className="stock-field-label">{t(locale, 'date')}</span><input required type="date" value={form.movement_date} onChange={(event) => setForm((current) => ({ ...current, movement_date: event.target.value }))} /></label>
-                                        <label><span className="stock-field-label">{t(locale, 'reference')} <small>{t(locale, 'optional')}</small></span><input value={form.reference_code} onChange={(event) => setForm((current) => ({ ...current, reference_code: event.target.value }))} /></label>
+                                        <label><span className="stock-field-label">{form.movement_type === 'receive' ? 'Supplier invoice number' : t(locale, 'reference')} <small>{t(locale, 'optional')}</small></span><input value={form.reference_code} onChange={(event) => setForm((current) => ({ ...current, reference_code: event.target.value }))} /></label>
+                                        {form.movement_type === 'receive' && <label><span className="stock-field-label">Settlement</span><select value={form.settlement_method} onChange={(event) => setForm((current) => ({ ...current, settlement_method: event.target.value }))}><option value="credit">Supplier credit</option><option value="cash">Paid from cash book</option><option value="bank">Paid from bank book</option></select></label>}
+                                        {form.movement_type === 'receive' && form.settlement_method === 'credit' && <label><span className="stock-field-label">Payment terms <small>days</small></span><input min="0" max="3650" step="1" type="number" inputMode="numeric" value={form.payment_terms_days} onChange={(event) => setForm((current) => ({ ...current, payment_terms_days: event.target.value, due_date: '' }))} /></label>}
+                                        {form.movement_type === 'receive' && form.settlement_method === 'credit' && <label><span className="stock-field-label">Due date <small>{calculatedDueDate && !form.due_date ? `Calculated ${calculatedDueDate}` : t(locale, 'optional')}</small></span><input min={form.movement_date} type="date" value={form.due_date} onChange={(event) => setForm((current) => ({ ...current, due_date: event.target.value }))} /></label>}
                                         <label className="span-2"><span className="stock-field-label">{t(locale, 'notes')} <small>{t(locale, 'optional')}</small></span><textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                                     </div>
                                 </section>}
@@ -526,22 +648,26 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                 {wizardStep === 2 && <section className="stock-wizard-stage">
                                     <div className="stock-wizard-stage-heading"><p className="eyebrow">3 / 4</p><h3>{t(locale, 'quantityAndCost')}</h3><span>{t(locale, 'quantityAndCostHint')}</span></div>
                                     <div className="stock-line-summary"><span>{form.items.length} {t(locale, 'products')}</span><span>{t(locale, 'totalQuantity')}: <strong>{number(receiptTotalQuantity)}</strong></span><span>{t(locale, 'estimatedValue')}: <strong>{money(receiptTotalValue)}</strong></span><button className="button" type="button" onClick={() => setWizardStep(1)}>{t(locale, 'selectProduct')}</button></div>
-                                    <div className="master-table-wrap stock-receive-line-wrap"><table className="master-table price-matrix-table stock-receive-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'cost')}<small>MMK</small></th><th>{t(locale, 'estimatedValue')}<small>MMK</small></th><th>{t(locale, 'actions')}</th></tr></thead><tbody>{selectedProducts.map((product, rowIndex) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="price-matrix-cell"><input aria-label={`${product.name} ${t(locale, 'quantity')}`} data-grid-column="0" data-grid-row={rowIndex} required min="0.01" step="0.01" type="number" value={product.quantity} onFocus={(event) => event.currentTarget.select()} onKeyDown={(event) => moveReceiptGrid(event, rowIndex, 0)} onPaste={(event) => pasteReceiptGrid(event, rowIndex, 0)} onChange={(event) => updateReceiptItem(product.product_id, { quantity: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${product.name} ${t(locale, 'cost')}`} data-grid-column="1" data-grid-row={rowIndex} min="0" step="0.01" type="number" value={product.unit_cost} onFocus={(event) => event.currentTarget.select()} onKeyDown={(event) => moveReceiptGrid(event, rowIndex, 1)} onPaste={(event) => pasteReceiptGrid(event, rowIndex, 1)} onChange={(event) => updateReceiptItem(product.product_id, { unit_cost: event.target.value })} /></td><td className="numeric stock-calculated-cell">{money(Number(product.quantity || 0) * Number(product.unit_cost || 0))}</td><td className="stock-entry-actions"><button className="icon-button danger" type="button" aria-label={`${t(locale, 'cancel')} ${product.name}`} onClick={() => toggleReceiptProduct(product)}><X size={14} /></button></td></tr>)}</tbody></table></div>
+                                    <div className="master-table-wrap stock-receive-line-wrap"><table className="master-table price-matrix-table stock-receive-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'cost')}<small>MMK</small></th><th>{t(locale, 'estimatedValue')}<small>MMK</small></th><th>{t(locale, 'actions')}</th></tr></thead><tbody>{selectedProducts.map((product, rowIndex) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="price-matrix-cell"><input aria-label={`${product.name} ${t(locale, 'quantity')}`} data-grid-column="0" data-grid-row={rowIndex} required min="1" step="1" type="number" inputMode="numeric" value={product.quantity} onFocus={(event) => event.currentTarget.select()} onKeyDown={(event) => moveReceiptGrid(event, rowIndex, 0)} onPaste={(event) => pasteReceiptGrid(event, rowIndex, 0)} onChange={(event) => updateReceiptItem(product.product_id, { quantity: event.target.value })} /></td><td className="price-matrix-cell"><input aria-label={`${product.name} ${t(locale, 'cost')}`} data-grid-column="1" data-grid-row={rowIndex} min="0" step="0.01" type="number" value={product.unit_cost} onFocus={(event) => event.currentTarget.select()} onKeyDown={(event) => moveReceiptGrid(event, rowIndex, 1)} onPaste={(event) => pasteReceiptGrid(event, rowIndex, 1)} onChange={(event) => updateReceiptItem(product.product_id, { unit_cost: event.target.value })} /></td><td className="numeric stock-calculated-cell">{money(Number(product.quantity || 0) * Number(product.unit_cost || 0))}</td><td className="stock-entry-actions"><button className="icon-button danger" type="button" aria-label={`${t(locale, 'cancel')} ${product.name}`} onClick={() => toggleReceiptProduct(product)}><X size={14} /></button></td></tr>)}</tbody></table></div>
                                 </section>}
 
                                 {wizardStep === 3 && <section className="stock-wizard-stage">
                                     <div className="stock-wizard-stage-heading"><p className="eyebrow">4 / 4</p><h3>{t(locale, 'receiptReview')}</h3><span>{t(locale, 'receiptReviewHint')}</span></div>
-                                    <dl className="stock-receive-review stock-receive-document-review">
+                                    <dl className="stock-receive-review stock-receive-document-review stock-receipt-review-summary">
                                         <div><dt>{t(locale, 'movementType')}</dt><dd>{t(locale, form.movement_type)}</dd></div>
+                                        <div><dt>{t(locale, 'supplier')}</dt><dd>{selectedSupplier?.label || (form.movement_type === 'opening' ? '-' : 'Not selected')}</dd></div>
                                         <div><dt>{t(locale, 'warehouse')}</dt><dd>{selectedWarehouse?.label || '-'}</dd></div>
                                         <div><dt>{t(locale, 'date')}</dt><dd>{formatDate(form.movement_date)}</dd></div>
+                                        {form.movement_type === 'receive' && <div><dt>Settlement</dt><dd>{form.settlement_method === 'credit' ? 'Supplier credit' : `Paid from ${form.settlement_method} book`}</dd></div>}
+                                        {form.movement_type === 'receive' && form.settlement_method === 'credit' && <div><dt>Payment terms</dt><dd>{number(form.payment_terms_days || 0)} days</dd></div>}
+                                        {form.movement_type === 'receive' && form.settlement_method === 'credit' && <div><dt>Due date</dt><dd>{formatDate(calculatedDueDate)}</dd></div>}
                                         <div><dt>{t(locale, 'reference')}</dt><dd>{form.reference_code || '-'}</dd></div>
                                         <div><dt>{t(locale, 'products')}</dt><dd>{number(form.items.length)}</dd></div>
                                         <div><dt>{t(locale, 'totalQuantity')}</dt><dd>{number(receiptTotalQuantity)}</dd></div>
                                         <div><dt>{t(locale, 'estimatedValue')}</dt><dd>{money(receiptTotalValue)}</dd></div>
                                         {form.notes && <div className="stock-review-notes"><dt>{t(locale, 'notes')}</dt><dd>{form.notes}</dd></div>}
                                     </dl>
-                                    <div className="master-table-wrap stock-receive-review-lines"><table className="master-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'cost')}</th><th>{t(locale, 'stockValue')}</th></tr></thead><tbody>{selectedProducts.map((product) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="numeric">{number(product.quantity)}</td><td className="numeric">{money(product.unit_cost || 0)}</td><td className="numeric"><strong>{money(Number(product.quantity || 0) * Number(product.unit_cost || 0))}</strong></td></tr>)}</tbody></table></div>
+                                    <div className="master-table-wrap stock-receive-review-lines"><table className="master-table stock-receipt-review-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'cost')}</th><th>{t(locale, 'stockValue')}</th></tr></thead><tbody>{selectedProducts.map((product) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="numeric">{number(product.quantity)}</td><td className="numeric">{money(product.unit_cost || 0)}</td><td className="numeric"><strong>{money(Number(product.quantity || 0) * Number(product.unit_cost || 0))}</strong></td></tr>)}</tbody></table></div>
                                 </section>}
                             </div>
                             <footer className="stock-wizard-footer">
@@ -559,7 +685,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                     <label>{t(locale, 'date')}<input type="date" value={form.movement_date} onChange={(event) => setForm((current) => ({ ...current, movement_date: event.target.value }))} /></label>
                                     <label>{t(locale, 'warehouse')}<select required value={form.warehouse_id} onChange={(event) => setForm((current) => ({ ...current, warehouse_id: event.target.value }))}>{meta.warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.label}</option>)}</select></label>
                                     <label>{t(locale, 'product')}<select required value={form.product_id} onChange={(event) => setForm((current) => ({ ...current, product_id: event.target.value, unit_cost: meta.products.find((product) => Number(product.id) === Number(event.target.value))?.latest_cost || current.unit_cost }))}>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select></label>
-                                    <label>{t(locale, 'quantity')}<input required min="0.01" step="0.01" type="number" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
+                                    <label>{t(locale, 'quantity')}<input required min="1" step="1" type="number" inputMode="numeric" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
                                     <label>{t(locale, 'cost')}<input min="0" step="0.01" type="number" value={form.unit_cost} onChange={(event) => setForm((current) => ({ ...current, unit_cost: event.target.value }))} /></label>
                                     <label>{t(locale, 'reference')}<input value={form.reference_code} onChange={(event) => setForm((current) => ({ ...current, reference_code: event.target.value }))} /></label>
                                     <label className="span-2">{t(locale, 'notes')}<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
@@ -621,14 +747,14 @@ export function StockAdjustmentScreen({ locale, canManage = false, creating = fa
     useEffect(() => setPage(1), [filters.search, filters.warehouse_id, filters.product_id, filters.adjustment_reason, filters.date]);
 
     if (creating) {
-        return <StockAdjustmentFormPage locale={locale} canManage={canManage} meta={meta} onBack={() => onNavigate?.(listPath)} onSaved={() => onNavigate?.(listPath)} />;
+        return <StockAdjustmentFormPage locale={locale} canManage={canManage} meta={meta} onBack={() => onNavigate?.(listPath)} onSaved={(movement) => { setState((current) => ({ ...current, items: [movement, ...current.items], summary: { ...current.summary, records_count: Number(current.summary.records_count || 0) + 1, in_quantity: Number(current.summary.in_quantity || 0) + Math.max(Number(movement.signed_quantity || 0), 0), out_quantity: Number(current.summary.out_quantity || 0) + Math.abs(Math.min(Number(movement.signed_quantity || 0), 0)), stock_value: Number(current.summary.stock_value || 0) + Number(movement.total_cost || 0) }, pageMeta: { ...current.pageMeta, total: Number(current.pageMeta.total || 0) + 1 } })); onNavigate?.(listPath); }} />;
     }
 
     return (
         <section className="page stock-workspace stock-adjustment-workspace">
             <div className="master-heading">
                 <div><p className="eyebrow">Warehouse Stock</p><h1>{t(locale, 'adjustments')}</h1><span className="muted">{t(locale, 'adjustmentHint')}</span></div>
-                {canManage && <button className="button primary" type="button" disabled={meta.loading || Boolean(meta.error)} onClick={() => onNavigate?.(`${listPath}/new`)}><Plus size={16} />{t(locale, 'newAdjustment')}</button>}
+                <ShellPageActions>{canManage && <button className="button primary" type="button" disabled={meta.loading || Boolean(meta.error)} onClick={() => onNavigate?.(`${listPath}/new`)}><Plus size={16} />{t(locale, 'newAdjustment')}</button>}</ShellPageActions>
             </div>
 
             {(meta.error || state.error) && <div className="inline-error">{meta.error || state.error}</div>}
@@ -654,8 +780,8 @@ export function StockAdjustmentScreen({ locale, canManage = false, creating = fa
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingAdjustments')} loading /> : state.items.length === 0 ? <WorkspaceState icon={SlidersHorizontal} title={t(locale, 'emptyAdjustments')} /> : <>
                     <div className="master-table-wrap stock-adjustment-table-wrap">
                         <table className="master-table stock-adjustment-table">
-                            <colgroup><col className="adjustment-reference-column" /><col className="adjustment-warehouse-column" /><col className="adjustment-product-column" /><col className="adjustment-reason-column" /><col className="adjustment-direction-column" /><col className="adjustment-date-column" /><col className="adjustment-quantity-column" /><col className="adjustment-value-column" /></colgroup>
-                            <thead><tr><th>{t(locale, 'reference')}</th><th>{t(locale, 'warehouse')}</th><th>{t(locale, 'product')}</th><th>{t(locale, 'adjustmentReason')}</th><th>{t(locale, 'adjustmentDirection')}</th><th>{t(locale, 'date')}</th><th className="numeric">{t(locale, 'quantity')}</th><th className="numeric">{t(locale, 'adjustedValue')}</th></tr></thead>
+                            <colgroup><col className="adjustment-reference-column" /><col className="adjustment-warehouse-column" /><col className="adjustment-product-column" /><col className="adjustment-reason-column" /><col className="adjustment-direction-column" /><col className="adjustment-date-column" /><col className="adjustment-quantity-column" /><col className="adjustment-value-column" /><col className="table-actions-column" /></colgroup>
+                            <thead><tr><th>{t(locale, 'reference')}</th><th>{t(locale, 'warehouse')}</th><th>{t(locale, 'product')}</th><th>{t(locale, 'adjustmentReason')}</th><th>{t(locale, 'adjustmentDirection')}</th><th>{t(locale, 'date')}</th><th className="numeric">{t(locale, 'quantity')}</th><th className="numeric">{t(locale, 'adjustedValue')}</th><th className="table-actions-header">Actions</th></tr></thead>
                             <tbody>{state.items.map((movement) => {
                                 const reason = movement.adjustment_reason || (movement.movement_type === 'damage' ? 'damage' : 'other');
                                 const isIncrease = Number(movement.signed_quantity) > 0;
@@ -668,6 +794,7 @@ export function StockAdjustmentScreen({ locale, canManage = false, creating = fa
                                     <td>{formatDate(movement.movement_date)}</td>
                                     <td className="numeric">{number(Math.abs(Number(movement.signed_quantity)))}</td>
                                     <td className="numeric"><strong>{money(movement.total_cost)}</strong></td>
+                                    <td className="table-actions-cell"><div className="row-actions"><button className="icon-button" type="button" title="Print stock adjustment" aria-label={`Print ${movement.code}`} onClick={() => printConfiguredDocument('stock_adjustment', { reference: movement.code, facts: [['Warehouse', `${movement.warehouse_code} · ${movement.warehouse_name}`], ['Date', movement.movement_date], ['Reason', t(locale, reason)], ['Direction', isIncrease ? t(locale, 'addStock') : t(locale, 'removeStock')], ['Reference', movement.reference_code || '-']], columns: ['Product', 'Qty', 'Unit cost', 'Value'], rows: [[`${movement.product_name} · ${movement.product_sku}`, number(Math.abs(Number(movement.signed_quantity))), money(movement.unit_cost), money(movement.total_cost)]], total: ['Adjusted value', money(movement.total_cost)], notes: movement.notes })}><Printer size={14} /></button></div></td>
                                 </tr>;
                             })}</tbody>
                         </table>
@@ -707,8 +834,8 @@ function StockAdjustmentFormPage({ locale, canManage, meta, onBack, onSaved }) {
         setError('');
         try {
             const quantity = Math.abs(Number(form.quantity || 0)) * (form.adjustment_direction === 'decrease' ? -1 : 1);
-            await window.axios.post(`${apiBase()}/movements`, { ...form, quantity });
-            onSaved();
+            const { data } = await window.axios.post(`${apiBase()}/movements`, { ...form, quantity });
+            onSaved(data.data.movement);
         } catch (requestError) {
             setSaving(false);
             setError(requestMessage(requestError));
@@ -732,7 +859,7 @@ function StockAdjustmentFormPage({ locale, canManage, meta, onBack, onSaved }) {
                             <label><span className="stock-field-label">{t(locale, 'product')}</span><select required value={form.product_id} onChange={(event) => { const product = meta.products.find((item) => Number(item.id) === Number(event.target.value)); setForm((current) => ({ ...current, product_id: event.target.value, unit_cost: product?.latest_cost || '' })); }}><option value="">Select product</option>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select></label>
                             <label><span className="stock-field-label">{t(locale, 'adjustmentReason')}</span><select required value={form.adjustment_reason} onChange={(event) => selectReason(event.target.value)}>{adjustmentReasons.map((reason) => <option value={reason} key={reason}>{t(locale, reason)}</option>)}</select></label>
                             <label><span className="stock-field-label">{t(locale, 'adjustmentDirection')}</span><select required value={form.adjustment_direction} onChange={(event) => setForm((current) => ({ ...current, adjustment_direction: event.target.value }))}><option value="decrease">{t(locale, 'removeStock')}</option><option value="increase">{t(locale, 'addStock')}</option></select></label>
-                            <label><span className="stock-field-label">{t(locale, 'quantity')}</span><input required type="number" min="0.01" step="0.01" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
+                            <label><span className="stock-field-label">{t(locale, 'quantity')}</span><input required type="number" inputMode="numeric" min="1" step="1" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
                             <label><span className="stock-field-label">{t(locale, 'cost')} <small>{t(locale, 'optional')}</small></span><input type="number" min="0" step="0.01" value={form.unit_cost} onChange={(event) => setForm((current) => ({ ...current, unit_cost: event.target.value }))} /></label>
                             <label><span className="stock-field-label">{t(locale, 'date')}</span><input required type="date" value={form.movement_date} onChange={(event) => setForm((current) => ({ ...current, movement_date: event.target.value }))} /></label>
                             <label><span className="stock-field-label">{t(locale, 'reference')} <small>{t(locale, 'optional')}</small></span><input maxLength="80" value={form.reference_code} onChange={(event) => setForm((current) => ({ ...current, reference_code: event.target.value }))} /></label>
@@ -838,7 +965,9 @@ export function ClosingStockScreen({ locale, canManage = false, closingForm = fa
         setSaving(true);
         setFormError('');
         try {
-            await window.axios.post(`${apiBase()}/closing-counts`, form);
+            const { data } = await window.axios.post(`${apiBase()}/closing-counts`, form);
+            const count = data.data.count;
+            setState((current) => ({ ...current, items: [count, ...current.items], summary: { ...current.summary, records_count: Number(current.summary.records_count || 0) + 1, in_quantity: Number(current.summary.in_quantity || 0) + Number(count.quantity_added || 0), out_quantity: Number(current.summary.out_quantity || 0) + Number(count.quantity_removed || 0), stock_value: Number(current.summary.stock_value || 0) + Number(count.variance_value || 0) }, pageMeta: { ...current.pageMeta, total: Number(current.pageMeta.total || 0) + 1 } }));
             closeForm();
         } catch (error) {
             setSaving(false);
@@ -861,7 +990,7 @@ export function ClosingStockScreen({ locale, canManage = false, closingForm = fa
                 <div className="master-form-body stock-wizard-body">
                     {(formError || meta.error) && <p className="form-alert" role="alert">{formError || meta.error}</p>}
                     {wizardStep === 0 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">1 / 4</p><h3>Count details</h3><span>Choose the warehouse and document information for this physical count.</span></div><div className="master-form-grid stock-wizard-basic"><label><span className="stock-field-label">{t(locale, 'warehouse')}</span><select required value={form.warehouse_id} onChange={(event) => setForm((current) => ({ ...current, warehouse_id: event.target.value, items: [] }))}><option value="">Select warehouse</option>{meta.warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.label}</option>)}</select></label><label><span className="stock-field-label">Count date</span><input required type="date" value={form.movement_date} onChange={(event) => setForm((current) => ({ ...current, movement_date: event.target.value }))} /></label><label><span className="stock-field-label">{t(locale, 'reference')} <small>{t(locale, 'optional')}</small></span><input maxLength="80" value={form.reference_code} onChange={(event) => setForm((current) => ({ ...current, reference_code: event.target.value }))} /></label><label className="span-2"><span className="stock-field-label">{t(locale, 'notes')} <small>{t(locale, 'optional')}</small></span><textarea rows="3" maxLength="500" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label></div></section>}
-                    {wizardStep === 1 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">2 / 4</p><h3>Physical count</h3><span>Enter the quantity physically found for every active product.</span></div><div className="stock-line-summary closing-count-progress"><span><strong>{completedItems.length} / {form.items.length}</strong> products counted</span><button className="button" type="button" onClick={fillSystemCounts}>Use system quantities</button></div><label className="master-search stock-product-search"><Search size={14} /><input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Search products in this count" /></label><div className="master-table-wrap closing-count-entry-wrap"><table className="master-table price-matrix-table closing-count-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>System qty</th><th>Counted qty</th><th>Variance</th><th>Unit cost<small>MMK</small></th></tr></thead><tbody>{visibleItems.map((item) => { const variance = item.counted_quantity === '' ? null : Number(item.counted_quantity) - Number(item.system_quantity); return <tr key={item.product_id}><td><strong>{item.name}</strong><span className="muted">{item.sku} · {item.unit}</span></td><td className="numeric">{number(item.system_quantity)}</td><td className="price-matrix-cell"><input aria-label={`${item.name} counted quantity`} min="0" step="0.01" type="number" value={item.counted_quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateCount(item.product_id, 'counted_quantity', event.target.value)} /></td><td className={`numeric ${variance < 0 ? 'text-danger' : variance > 0 ? 'text-success' : ''}`}>{variance === null ? '—' : `${variance > 0 ? '+' : ''}${number(variance)}`}</td><td className="price-matrix-cell"><input aria-label={`${item.name} unit cost`} min="0" step="0.01" type="number" readOnly={Number(item.unit_cost) > 0 && Number(item.system_quantity) > 0} value={item.unit_cost || ''} onChange={(event) => updateCount(item.product_id, 'unit_cost', event.target.value)} /></td></tr>; })}</tbody></table></div></section>}
+                    {wizardStep === 1 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">2 / 4</p><h3>Physical count</h3><span>Enter the quantity physically found for every active product.</span></div><div className="stock-line-summary closing-count-progress"><span><strong>{completedItems.length} / {form.items.length}</strong> products counted</span><button className="button" type="button" onClick={fillSystemCounts}>Use system quantities</button></div><label className="master-search stock-product-search"><Search size={14} /><input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Search products in this count" /></label><div className="master-table-wrap closing-count-entry-wrap"><table className="master-table price-matrix-table closing-count-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>System qty</th><th>Counted qty</th><th>Variance</th><th>Unit cost<small>MMK</small></th></tr></thead><tbody>{visibleItems.map((item) => { const variance = item.counted_quantity === '' ? null : Number(item.counted_quantity) - Number(item.system_quantity); return <tr key={item.product_id}><td><strong>{item.name}</strong><span className="muted">{item.sku} · {item.unit}</span></td><td className="numeric">{number(item.system_quantity)}</td><td className="price-matrix-cell"><input aria-label={`${item.name} counted quantity`} min="0" step="1" type="number" inputMode="numeric" value={item.counted_quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateCount(item.product_id, 'counted_quantity', event.target.value)} /></td><td className={`numeric ${variance < 0 ? 'text-danger' : variance > 0 ? 'text-success' : ''}`}>{variance === null ? '—' : `${variance > 0 ? '+' : ''}${number(variance)}`}</td><td className="price-matrix-cell"><input aria-label={`${item.name} unit cost`} min="0" step="0.01" type="number" readOnly={Number(item.unit_cost) > 0 && Number(item.system_quantity) > 0} value={item.unit_cost || ''} onChange={(event) => updateCount(item.product_id, 'unit_cost', event.target.value)} /></td></tr>; })}</tbody></table></div></section>}
                     {wizardStep === 2 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">3 / 4</p><h3>Variance review</h3><span>Review differences before the stock balance is updated.</span></div><div className="closing-count-summary"><div><span>Products counted</span><strong>{number(form.items.length)}</strong></div><div><span>Changed products</span><strong>{number(changedItems.length)}</strong></div><div><span>Quantity added</span><strong className="text-success">+{number(quantityAdded)}</strong></div><div><span>Quantity removed</span><strong className="text-danger">-{number(quantityRemoved)}</strong></div><div><span>Net variance value</span><strong>{money(varianceValue)}</strong></div></div><div className="master-table-wrap closing-count-review-wrap"><table className="master-table closing-count-review-table"><thead><tr><th>{t(locale, 'product')}</th><th>System qty</th><th>Counted qty</th><th>Variance</th><th>Variance value</th></tr></thead><tbody>{changedItems.length === 0 ? <tr><td colSpan="5" className="closing-count-no-variance"><Check size={16} />All counted quantities match the system balance.</td></tr> : changedItems.map((item) => { const variance = Number(item.counted_quantity) - Number(item.system_quantity); return <tr key={item.product_id}><td><strong>{item.name}</strong><span className="muted">{item.sku} · {item.unit}</span></td><td className="numeric">{number(item.system_quantity)}</td><td className="numeric">{number(item.counted_quantity)}</td><td className={`numeric ${variance < 0 ? 'text-danger' : 'text-success'}`}>{variance > 0 ? '+' : ''}{number(variance)}</td><td className="numeric">{money(variance * Number(item.unit_cost || 0))}</td></tr>; })}</tbody></table></div></section>}
                     {wizardStep === 3 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">4 / 4</p><h3>Confirm stock count</h3><span>This saves every product line and adjusts only the recorded variances.</span></div><dl className="stock-receive-review stock-receive-document-review"><div><dt>{t(locale, 'warehouse')}</dt><dd>{selectedWarehouse?.label || '—'}</dd></div><div><dt>Count date</dt><dd>{formatDate(form.movement_date)}</dd></div><div><dt>{t(locale, 'products')}</dt><dd>{number(form.items.length)}</dd></div><div><dt>Changed products</dt><dd>{number(changedItems.length)}</dd></div><div><dt>Quantity added</dt><dd className="text-success">+{number(quantityAdded)}</dd></div><div><dt>Quantity removed</dt><dd className="text-danger">-{number(quantityRemoved)}</dd></div><div><dt>Net variance value</dt><dd>{money(varianceValue)}</dd></div><div><dt>{t(locale, 'reference')}</dt><dd>{form.reference_code || '—'}</dd></div>{form.notes && <div className="stock-review-notes"><dt>{t(locale, 'notes')}</dt><dd>{form.notes}</dd></div>}</dl><div className="closing-count-confirm-note"><Archive size={18} /><div><strong>One complete warehouse snapshot</strong><span>All {form.items.length} active products will be stored, including {form.items.length - changedItems.length} products with no variance.</span></div></div></section>}
                 </div>
@@ -871,7 +1000,7 @@ export function ClosingStockScreen({ locale, canManage = false, closingForm = fa
     }
 
     return <section className="page stock-workspace">
-        <div className="master-heading"><div><p className="eyebrow">Phase 5 · Warehouse Stock</p><h1>{t(locale, 'closingStock')}</h1><span className="muted">Warehouse-level physical count snapshots and their resulting variances.</span></div>{canManage && <button className="button primary" type="button" onClick={() => navigate(`${listPath}/new`)} disabled={meta.loading || Boolean(meta.error)}><Plus size={16} />New stock count</button>}</div>
+        <div className="master-heading"><div><p className="eyebrow">Phase 5 · Warehouse Stock</p><h1>{t(locale, 'closingStock')}</h1><span className="muted">Warehouse-level physical count snapshots and their resulting variances.</span></div><ShellPageActions>{canManage && <button className="button primary" type="button" onClick={() => navigate(`${listPath}/new`)} disabled={meta.loading || Boolean(meta.error)}><Plus size={16} />New stock count</button>}</ShellPageActions></div>
         <div className="metrics stock-metrics"><Metric label="Stock counts" value={number(state.summary.records_count)} hint="Completed sessions" icon={Archive} /><Metric label={t(locale, 'increaseQuantity')} value={number(state.summary.in_quantity)} hint={t(locale, 'quantity')} icon={Package} /><Metric label={t(locale, 'decreaseQuantity')} value={number(state.summary.out_quantity)} hint={t(locale, 'quantity')} icon={Package} /><Metric label="Net variance value" value={money(state.summary.stock_value)} hint="MMK" icon={Archive} /></div>
         <section className="master-panel"><div className="master-panel-heading"><div><p className="eyebrow">Physical counts</p><h2>Stock count history</h2></div></div><div className="master-toolbar stock-toolbar"><label className="master-search"><Search size={14} /><input value={filters.search} placeholder="Search count, warehouse or product" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label><select value={filters.warehouse_id} onChange={(event) => setFilters((current) => ({ ...current, warehouse_id: event.target.value }))}><option value="">{t(locale, 'allWarehouses')}</option>{meta.warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.label}</option>)}</select><select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}><option value="">{t(locale, 'allProducts')}</option>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select><label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label><button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button></div>
             {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingClosing')} loading /> : state.error || meta.error ? <WorkspaceState icon={RefreshCw} title={state.error || meta.error} action={() => setRefreshKey((value) => value + 1)} actionLabel={t(locale, 'retry')} /> : state.items.length === 0 ? <WorkspaceState icon={Package} title={t(locale, 'emptyClosing')} /> : <><div className="master-table-wrap"><table className="master-table closing-stock-table"><thead><tr><th>Count</th><th>{t(locale, 'warehouse')}</th><th>{t(locale, 'date')}</th><th>{t(locale, 'products')}</th><th>System qty</th><th>Counted qty</th><th>Added</th><th>Removed</th><th>Variance value</th></tr></thead><tbody>{state.items.map((count) => <tr className="clickable-row" key={count.id} tabIndex={0} onClick={() => navigate(`${listPath}/${count.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); navigate(`${listPath}/${count.id}`); } }}><td><strong>{count.code}</strong><span className="muted">{count.reference_code || '—'}</span></td><td><strong>{count.warehouse_code}</strong><span className="muted">{count.warehouse_name}</span></td><td>{formatDate(count.count_date)}</td><td className="numeric">{number(count.products_count)}</td><td className="numeric">{number(count.system_quantity)}</td><td className="numeric">{number(count.counted_quantity)}</td><td className="numeric text-success">{number(count.quantity_added)}</td><td className="numeric text-danger">{number(count.quantity_removed)}</td><td className="numeric"><strong>{money(count.variance_value)}</strong></td></tr>)}</tbody></table></div><Pagination meta={state.pageMeta} page={page} setPage={setPage} /></>}
@@ -974,7 +1103,8 @@ function ClosingStockDetailPage({ id, locale, onBack }) {
     );
 }
 
-export function StockBalanceScreen({ locale }) {
+export function StockOverviewScreen({ view = 'balance', locale, onNavigate }) {
+    const showingValue = view === 'value';
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
     const [filters, setFilters] = useState({ search: '', product_id: '' });
     const [state, setState] = useState({ loading: true, items: [], warehouses: [], summary: {}, pageMeta: {}, error: '' });
@@ -986,199 +1116,90 @@ export function StockBalanceScreen({ locale }) {
         window.axios.get(`${apiBase()}/meta`)
             .then(({ data }) => mounted && setMeta({ loading: false, warehouses: data.data.warehouses, products: data.data.products, error: '' }))
             .catch((error) => mounted && setMeta({ loading: false, warehouses: [], products: [], error: requestMessage(error) }));
-
         return () => { mounted = false; };
     }, []);
+
+    useEffect(() => { setPage(1); }, [view, filters.search, filters.product_id]);
 
     useEffect(() => {
         let mounted = true;
         setState((current) => ({ ...current, loading: true, error: '' }));
         const timer = window.setTimeout(() => {
-            window.axios.get(`${apiBase()}/balances`, {
-                params: {
-                    search: filters.search || undefined,
-                    product_id: filters.product_id || undefined,
-                    page,
-                    per_page: 20,
-                },
+            window.axios.get(`${apiBase()}/${showingValue ? 'value' : 'balances'}`, {
+                params: { search: filters.search || undefined, product_id: filters.product_id || undefined, page, per_page: 20 },
             }).then(({ data }) => {
                 if (!mounted) return;
                 setState({ loading: false, items: data.data.items, warehouses: data.data.warehouses, summary: data.data.summary, pageMeta: data.data.meta, error: '' });
             }).catch((error) => mounted && setState({ loading: false, items: [], warehouses: [], summary: {}, pageMeta: {}, error: requestMessage(error) }));
         }, 220);
-
         return () => { mounted = false; window.clearTimeout(timer); };
-    }, [filters, page, refreshKey]);
+    }, [showingValue, filters, page, refreshKey]);
 
-    useEffect(() => {
-        setPage(1);
-    }, [filters.search, filters.product_id]);
+    const openView = (nextView) => {
+        const officePath = window.location.pathname.split('/stock/')[0];
+        const path = `${officePath}/stock/overview/${nextView}`;
+        if (onNavigate) onNavigate(path);
+        else window.location.assign(path);
+    };
+    const totalValue = Number(state.summary.stock_value || 0);
+    const loadingTitle = showingValue ? t(locale, 'loadingValues') : t(locale, 'loadingBalances');
+    const emptyTitle = showingValue ? t(locale, 'emptyValues') : t(locale, 'emptyBalances');
 
     return (
         <section className="page stock-workspace">
             <div className="master-heading">
                 <div>
-                    <p className="eyebrow">Phase 5 · Warehouse Stock</p>
-                    <h1>{t(locale, 'balances')}</h1>
-                    <span className="muted">{t(locale, 'balanceHint')}</span>
+                    <p className="eyebrow">Phase 5 {'\u00b7'} Warehouse Stock</p>
+                    <h1>Stock overview</h1>
+                    <span className="muted">Review current quantities and inventory value by product and warehouse.</span>
                 </div>
-                <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
+                <ShellPageActions><button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button></ShellPageActions>
             </div>
 
             <div className="metrics stock-metrics">
-                <Metric label={t(locale, 'products')} value={number(state.summary.products_count)} hint={t(locale, 'balances')} icon={Package} />
-                <Metric label={t(locale, 'warehouses')} value={number(state.summary.warehouses_count)} hint="Visible locations" icon={Archive} />
-                <Metric label={t(locale, 'totalQuantity')} value={number(state.summary.total_quantity)} hint={t(locale, 'unit')} icon={Archive} />
+                {showingValue && <Metric label={t(locale, 'stockValue')} value={money(totalValue)} hint="MMK" icon={Archive} />}
+                <Metric label={t(locale, 'products')} value={number(state.summary.products_count)} hint={showingValue ? t(locale, 'rankedValue') : t(locale, 'balances')} icon={Package} />
+                <Metric label={t(locale, 'warehouses')} value={number(state.summary.warehouses_count)} hint={showingValue ? t(locale, 'warehouseValue') : 'Visible locations'} icon={Archive} />
+                <Metric label={t(locale, 'totalQuantity')} value={number(state.summary.total_quantity)} hint={t(locale, 'unit')} icon={Package} />
             </div>
 
-            <section className="master-panel">
+            <section className="master-panel stock-overview-panel">
+                <nav className="customer-history-tabs stock-overview-tabs" aria-label="Stock overview measure">
+                    <button className={!showingValue ? 'is-active' : ''} type="button" onClick={() => openView('balance')} aria-current={!showingValue ? 'page' : undefined}><Package size={15} />Stock balance</button>
+                    <button className={showingValue ? 'is-active' : ''} type="button" onClick={() => openView('value')} aria-current={showingValue ? 'page' : undefined}><Archive size={15} />Stock value</button>
+                </nav>
                 <div className="master-panel-heading">
-                    <div>
-                        <p className="eyebrow">{t(locale, 'balances')}</p>
-                        <h2>Stock by warehouse</h2>
-                    </div>
+                    <div><p className="eyebrow">{showingValue ? t(locale, 'stockValue') : t(locale, 'balances')}</p><h2>{showingValue ? 'Value by warehouse' : 'Stock by warehouse'}</h2></div>
+                    {showingValue && <span className="muted">{number(state.summary.balance_lines)} {t(locale, 'balanceLines')}</span>}
                 </div>
                 <div className="master-toolbar stock-toolbar">
-                    <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchBalances')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
+                    <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={showingValue ? t(locale, 'searchValues') : t(locale, 'searchBalances')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}>
                         <option value="">{t(locale, 'allProducts')}</option>
                         {meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}
                     </select>
-                    <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
                 </div>
 
                 {state.loading ? (
-                    <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingBalances')} loading />
-                ) : state.error ? (
-                    <WorkspaceState icon={RefreshCw} title={state.error} action={() => setRefreshKey((value) => value + 1)} actionLabel={t(locale, 'retry')} />
+                    <WorkspaceState icon={RefreshCw} title={loadingTitle} loading />
+                ) : state.error || meta.error ? (
+                    <WorkspaceState icon={RefreshCw} title={state.error || meta.error} action={() => setRefreshKey((value) => value + 1)} actionLabel={t(locale, 'retry')} />
                 ) : state.items.length === 0 ? (
-                    <WorkspaceState icon={Package} title={t(locale, 'emptyBalances')} />
+                    <WorkspaceState icon={Package} title={emptyTitle} />
                 ) : (
                     <>
                         <div className="master-table-wrap">
-                            <table className="master-table stock-balance-matrix" style={{ minWidth: `${Math.max(680, 320 + ((state.warehouses.length + 1) * 150))}px` }}>
+                            <table className={`master-table stock-balance-matrix ${showingValue ? 'stock-value-matrix' : ''}`} style={{ minWidth: `${Math.max(680, 320 + ((state.warehouses.length + 1) * (showingValue ? 160 : 150)))}px` }}>
                                 <colgroup><col style={{ width: '32%' }} />{state.warehouses.map((warehouse) => <col key={warehouse.id} style={{ width: `${68 / (state.warehouses.length + 1)}%` }} />)}<col style={{ width: `${68 / (state.warehouses.length + 1)}%` }} /></colgroup>
-                                <thead>
-                                    <tr>
-                                        <th>{t(locale, 'product')}</th>
-                                        {state.warehouses.map((warehouse) => <th className="numeric" key={warehouse.id}><strong>{warehouse.code}</strong><span className="muted">{warehouse.name}</span></th>)}
-                                        <th className="numeric">{t(locale, 'total')}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {state.items.map((balance) => (
-                                        <tr key={balance.product_id}>
-                                            <td><strong>{balance.product_name}</strong><span className="muted">{balance.product_sku} · {balance.unit}</span></td>
-                                            {state.warehouses.map((warehouse) => { const quantity = Number(balance.quantities?.[warehouse.id] || 0); return <td className={`numeric ${quantity === 0 ? 'stock-balance-zero' : ''}`} key={warehouse.id}>{number(quantity)}</td>; })}
-                                            <td className="numeric stock-balance-total"><strong>{number(balance.quantity)}</strong></td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot><tr><th>Total</th>{state.warehouses.map((warehouse) => <td className="numeric" key={warehouse.id}><strong>{number(warehouse.total_quantity)}</strong></td>)}<td className="numeric stock-balance-total"><strong>{number(state.summary.total_quantity)}</strong></td></tr></tfoot>
+                                <thead><tr><th>{t(locale, 'product')}</th>{state.warehouses.map((warehouse) => <th className="numeric" key={warehouse.id}><strong>{warehouse.code}</strong><span className="muted">{warehouse.name}</span>{showingValue && <small>MMK</small>}</th>)}<th className="numeric"><strong>{t(locale, 'total')}</strong>{showingValue && <small>MMK</small>}</th></tr></thead>
+                                <tbody>{state.items.map((product) => <tr key={product.product_id}><td><strong>{product.product_name}</strong><span className="muted">{product.product_sku}{' \u00b7 '}{product.unit}</span></td>{state.warehouses.map((warehouse) => { const measure = Number((showingValue ? product.values : product.quantities)?.[warehouse.id] || 0); return <td className={`numeric ${measure === 0 ? 'stock-balance-zero' : ''}`} key={warehouse.id}>{number(measure)}</td>; })}<td className="numeric stock-balance-total"><strong>{number(showingValue ? product.stock_value : product.quantity)}</strong></td></tr>)}</tbody>
+                                <tfoot><tr><th>{showingValue ? 'Total value' : 'Total'}</th>{state.warehouses.map((warehouse) => <td className="numeric" key={warehouse.id}><strong>{number(showingValue ? warehouse.stock_value : warehouse.total_quantity)}</strong></td>)}<td className="numeric stock-balance-total"><strong>{number(showingValue ? totalValue : state.summary.total_quantity)}</strong></td></tr></tfoot>
                             </table>
                         </div>
                         <Pagination meta={state.pageMeta} page={page} setPage={setPage} />
                     </>
                 )}
             </section>
-        </section>
-    );
-}
-
-export function StockValueScreen({ locale }) {
-    const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
-    const [filters, setFilters] = useState({ search: '', product_id: '' });
-    const [state, setState] = useState({ loading: true, items: [], warehouses: [], summary: {}, pageMeta: {}, error: '' });
-    const [page, setPage] = useState(1);
-    const [refreshKey, setRefreshKey] = useState(0);
-
-    useEffect(() => {
-        let mounted = true;
-        window.axios.get(`${apiBase()}/meta`)
-            .then(({ data }) => mounted && setMeta({ loading: false, warehouses: data.data.warehouses, products: data.data.products, error: '' }))
-            .catch((error) => mounted && setMeta({ loading: false, warehouses: [], products: [], error: requestMessage(error) }));
-
-        return () => { mounted = false; };
-    }, []);
-
-    useEffect(() => {
-        let mounted = true;
-        setState((current) => ({ ...current, loading: true, error: '' }));
-        const timer = window.setTimeout(() => {
-            window.axios.get(`${apiBase()}/value`, {
-                params: {
-                    search: filters.search || undefined,
-                    product_id: filters.product_id || undefined,
-                    page,
-                    per_page: 20,
-                },
-            }).then(({ data }) => {
-                if (!mounted) return;
-                setState({ loading: false, items: data.data.items, warehouses: data.data.warehouses, summary: data.data.summary, pageMeta: data.data.meta, error: '' });
-            }).catch((error) => mounted && setState({ loading: false, items: [], warehouses: [], summary: {}, pageMeta: {}, error: requestMessage(error) }));
-        }, 220);
-
-        return () => { mounted = false; window.clearTimeout(timer); };
-    }, [filters, page, refreshKey]);
-
-    useEffect(() => {
-        setPage(1);
-    }, [filters.search, filters.product_id]);
-
-    const totalValue = Number(state.summary.stock_value || 0);
-
-    return (
-        <section className="page stock-workspace">
-            <div className="master-heading">
-                <div>
-                    <p className="eyebrow">Phase 5 · Warehouse Stock</p>
-                    <h1>{t(locale, 'stockValueReport')}</h1>
-                    <span className="muted">{t(locale, 'stockValueHint')}</span>
-                </div>
-                <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
-            </div>
-
-            <div className="metrics stock-metrics">
-                <Metric label={t(locale, 'stockValue')} value={money(totalValue)} hint="MMK" icon={Archive} />
-                <Metric label={t(locale, 'warehouses')} value={number(state.summary.warehouses_count)} hint={t(locale, 'warehouseValue')} icon={Archive} />
-                <Metric label={t(locale, 'products')} value={number(state.summary.products_count)} hint={t(locale, 'rankedValue')} icon={Package} />
-                <Metric label={t(locale, 'totalQuantity')} value={number(state.summary.total_quantity)} hint={t(locale, 'unit')} icon={Package} />
-            </div>
-
-            <section className="master-panel stock-value-filter-panel">
-                <div className="master-toolbar stock-toolbar">
-                    <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchValues')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
-                    <select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}>
-                        <option value="">{t(locale, 'allProducts')}</option>
-                        {meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}
-                    </select>
-                    <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
-                </div>
-            </section>
-
-            {state.loading ? (
-                <section className="master-panel"><WorkspaceState icon={RefreshCw} title={t(locale, 'loadingValues')} loading /></section>
-            ) : state.error || meta.error ? (
-                <section className="master-panel"><WorkspaceState icon={RefreshCw} title={state.error || meta.error} action={() => setRefreshKey((value) => value + 1)} actionLabel={t(locale, 'retry')} /></section>
-            ) : state.items.length === 0 ? (
-                <section className="master-panel"><WorkspaceState icon={Package} title={t(locale, 'emptyValues')} /></section>
-            ) : (
-                <section className="master-panel stock-value-matrix-panel">
-                    <div className="master-panel-heading">
-                        <div><p className="eyebrow">{t(locale, 'stockValue')}</p><h2>Value by warehouse</h2></div>
-                        <span className="muted">{number(state.summary.balance_lines)} {t(locale, 'balanceLines')}</span>
-                    </div>
-                    <div className="master-table-wrap">
-                        <table className="master-table stock-balance-matrix stock-value-matrix" style={{ minWidth: `${Math.max(680, 320 + ((state.warehouses.length + 1) * 160))}px` }}>
-                            <colgroup><col style={{ width: '32%' }} />{state.warehouses.map((warehouse) => <col key={warehouse.id} style={{ width: `${68 / (state.warehouses.length + 1)}%` }} />)}<col style={{ width: `${68 / (state.warehouses.length + 1)}%` }} /></colgroup>
-                            <thead><tr><th>{t(locale, 'product')}</th>{state.warehouses.map((warehouse) => <th className="numeric" key={warehouse.id}><strong>{warehouse.code}</strong><span className="muted">{warehouse.name}</span><small>MMK</small></th>)}<th className="numeric"><strong>{t(locale, 'total')}</strong><small>MMK</small></th></tr></thead>
-                            <tbody>{state.items.map((product) => <tr key={product.product_id}><td><strong>{product.product_name}</strong><span className="muted">{product.product_sku} · {product.unit}</span></td>{state.warehouses.map((warehouse) => { const value = Number(product.values?.[warehouse.id] || 0); return <td className={`numeric ${value === 0 ? 'stock-balance-zero' : ''}`} key={warehouse.id}>{number(value)}</td>; })}<td className="numeric stock-balance-total"><strong>{number(product.stock_value)}</strong></td></tr>)}</tbody>
-                            <tfoot><tr><th>Total value</th>{state.warehouses.map((warehouse) => <td className="numeric" key={warehouse.id}><strong>{number(warehouse.stock_value)}</strong></td>)}<td className="numeric stock-balance-total"><strong>{number(totalValue)}</strong></td></tr></tfoot>
-                        </table>
-                    </div>
-                    <Pagination meta={state.pageMeta} page={page} setPage={setPage} />
-                </section>
-            )}
         </section>
     );
 }
@@ -1287,9 +1308,14 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
         setSaving(true);
         setFormError('');
         window.axios.post(`${apiBase()}/transfers`, form)
-            .then(() => {
+            .then(({ data }) => {
+                const result = data.data;
+                const lines = result.items || [];
+                const totalQuantity = lines.reduce((sum, line) => sum + Math.abs(Number(line.out_movement?.signed_quantity || 0)), 0);
+                const totalValue = lines.reduce((sum, line) => sum + Math.abs(Number(line.out_movement?.total_cost || 0)), 0);
+                const transfer = { document_code: result.transfer_code, reference_code: form.reference_code || result.transfer_code, from_warehouse_code: fromWarehouse?.code, from_warehouse_name: fromWarehouse?.name, to_warehouse_code: toWarehouse?.code, to_warehouse_name: toWarehouse?.name, movement_date: form.movement_date, products_count: result.products_count, total_quantity: totalQuantity, total_value: totalValue };
+                setState((current) => ({ ...current, items: [transfer, ...current.items], summary: { ...current.summary, records_count: Number(current.summary.records_count || 0) + 1, total_quantity: Number(current.summary.total_quantity || 0) + totalQuantity, stock_value: Number(current.summary.stock_value || 0) + totalValue }, pageMeta: { ...current.pageMeta, total: Number(current.pageMeta.total || 0) + 1 } }));
                 closeForm();
-                setRefreshKey((value) => value + 1);
             })
             .catch((error) => {
                 setSaving(false);
@@ -1328,7 +1354,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
                     <h1>{t(locale, 'transfer')}</h1>
                     <span className="muted">{t(locale, 'transferHint')}</span>
                 </div>
-                {canManage && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || meta.warehouses.length < 2 || meta.error}><Plus size={16} />{t(locale, 'newTransfer')}</button>}
+                <ShellPageActions>{canManage && <button className="button primary" type="button" onClick={openForm} disabled={meta.loading || meta.warehouses.length < 2 || meta.error}><Plus size={16} />{t(locale, 'newTransfer')}</button>}</ShellPageActions>
             </div>
 
             <div className="metrics stock-metrics">
@@ -1406,6 +1432,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
                                         <th>{t(locale, 'products')}</th>
                                         <th>{t(locale, 'quantity')}</th>
                                         <th>{t(locale, 'stockValue')}</th>
+                                        <th className="table-actions-header">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1418,6 +1445,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
                                             <td><strong>{number(transfer.products_count)}</strong><span className="muted">{t(locale, 'products')}</span></td>
                                             <td className="numeric">{number(transfer.total_quantity)}</td>
                                             <td className="numeric"><strong>{money(transfer.total_value)}</strong></td>
+                                            <td className="table-actions-cell"><div className="row-actions"><button className="icon-button" type="button" title="Print stock transfer" aria-label={`Print ${transfer.document_code}`} onClick={() => printStockDocument('stock_transfer', transfer.document_code)}><Printer size={14} /></button></div></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1448,7 +1476,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
                                 <label className="span-2"><span className="stock-field-label">{t(locale, 'notes')} <small>{t(locale, 'optional')}</small></span><textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                             </div>{form.from_warehouse_id && form.to_warehouse_id && Number(form.from_warehouse_id) === Number(form.to_warehouse_id) && <p className="form-alert">Source and destination warehouses must be different.</p>}</section>}
                             {wizardStep === 1 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">2 / 4</p><h3>{t(locale, 'productSelection')}</h3><span>Search and choose every product included in this transfer.</span></div><label className="master-search stock-product-search"><Search size={14} /><input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder={t(locale, 'searchProducts')} autoFocus /></label><div className="stock-product-picker">{filteredProducts.map((product) => <button type="button" key={product.id} className={form.items.some((item) => Number(item.product_id) === Number(product.id)) ? 'is-selected' : ''} onClick={() => toggleTransferProduct(product)}><span className="stock-product-icon"><Package size={16} /></span><span><strong>{product.name}</strong><small>{product.sku} · {product.unit}</small></span><span className="stock-product-cost"><small>{t(locale, 'cost')}</small><strong>{money(product.latest_cost || 0)}</strong></span><span className="stock-product-check">{form.items.some((item) => Number(item.product_id) === Number(product.id)) && <Check size={14} />}</span></button>)}</div></section>}
-                            {wizardStep === 2 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">3 / 4</p><h3>Transfer quantities</h3><span>Enter the quantity to move for every selected product.</span></div><div className="stock-line-summary"><span>{form.items.length} {t(locale, 'products')}</span><span>{t(locale, 'totalQuantity')}: <strong>{number(transferTotalQuantity)}</strong></span><span>{t(locale, 'estimatedValue')}: <strong>{money(transferTotalValue)}</strong></span><button className="button" type="button" onClick={() => setWizardStep(1)}>{t(locale, 'selectProduct')}</button></div><div className="master-table-wrap stock-receive-line-wrap"><table className="master-table price-matrix-table stock-receive-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'estimatedValue')}<small>MMK</small></th><th>{t(locale, 'actions')}</th></tr></thead><tbody>{selectedProducts.map((product) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="price-matrix-cell"><input aria-label={`${product.name} ${t(locale, 'quantity')}`} required min="0.01" step="0.01" type="number" value={product.quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateTransferItem(product.product_id, event.target.value)} /></td><td className="numeric stock-calculated-cell">{money(Number(product.quantity || 0) * Number(product.latest_cost || 0))}</td><td className="stock-entry-actions"><button className="icon-button danger" type="button" aria-label={`Remove ${product.name}`} onClick={() => toggleTransferProduct(product)}><X size={14} /></button></td></tr>)}</tbody></table></div></section>}
+                            {wizardStep === 2 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">3 / 4</p><h3>Transfer quantities</h3><span>Enter the quantity to move for every selected product.</span></div><div className="stock-line-summary"><span>{form.items.length} {t(locale, 'products')}</span><span>{t(locale, 'totalQuantity')}: <strong>{number(transferTotalQuantity)}</strong></span><span>{t(locale, 'estimatedValue')}: <strong>{money(transferTotalValue)}</strong></span><button className="button" type="button" onClick={() => setWizardStep(1)}>{t(locale, 'selectProduct')}</button></div><div className="master-table-wrap stock-receive-line-wrap"><table className="master-table price-matrix-table stock-receive-entry-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'estimatedValue')}<small>MMK</small></th><th>{t(locale, 'actions')}</th></tr></thead><tbody>{selectedProducts.map((product) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="price-matrix-cell"><input aria-label={`${product.name} ${t(locale, 'quantity')}`} required min="1" step="1" type="number" inputMode="numeric" value={product.quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateTransferItem(product.product_id, event.target.value)} /></td><td className="numeric stock-calculated-cell">{money(Number(product.quantity || 0) * Number(product.latest_cost || 0))}</td><td className="stock-entry-actions"><button className="icon-button danger" type="button" aria-label={`Remove ${product.name}`} onClick={() => toggleTransferProduct(product)}><X size={14} /></button></td></tr>)}</tbody></table></div></section>}
                             {wizardStep === 3 && <section className="stock-wizard-stage"><div className="stock-wizard-stage-heading"><p className="eyebrow">4 / 4</p><h3>Transfer review</h3><span>Confirm the stock movement before recording it.</span></div><dl className="stock-receive-review"><div><dt>{t(locale, 'fromWarehouse')}</dt><dd>{fromWarehouse?.label || '-'}</dd></div><div><dt>{t(locale, 'toWarehouse')}</dt><dd>{toWarehouse?.label || '-'}</dd></div><div><dt>{t(locale, 'products')}</dt><dd>{number(form.items.length)}</dd></div><div><dt>{t(locale, 'totalQuantity')}</dt><dd>{number(transferTotalQuantity)}</dd></div><div><dt>{t(locale, 'date')}</dt><dd>{formatDate(form.movement_date)}</dd></div><div><dt>{t(locale, 'reference')}</dt><dd>{form.reference_code || '-'}</dd></div>{form.notes && <div className="stock-review-notes"><dt>{t(locale, 'notes')}</dt><dd>{form.notes}</dd></div>}</dl><div className="master-table-wrap stock-receive-review-lines"><table className="master-table"><thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'stockValue')}</th></tr></thead><tbody>{selectedProducts.map((product) => <tr key={product.product_id}><td><strong>{product.name}</strong><span className="muted">{product.sku} · {product.unit}</span></td><td className="numeric">{number(product.quantity)}</td><td className="numeric">{money(Number(product.quantity || 0) * Number(product.latest_cost || 0))}</td></tr>)}</tbody></table></div></section>}
                         </div>
                         <footer className="stock-wizard-footer"><span className="muted">Step {wizardStep + 1} of 4</span><div><button className="button" type="button" onClick={closeForm}>{t(locale, 'cancel')}</button>{wizardStep < 3 ? <button className="button primary" type="button" disabled={!canContinueTransfer} onClick={nextTransferStep}>{t(locale, 'next')}</button> : <button className="button primary" type="button" disabled={saving || !quantityComplete} onClick={saveTransfer}><Save size={15} />{saving ? 'Saving…' : t(locale, 'saveTransfer')}</button>}</div></footer>
@@ -1511,7 +1539,7 @@ export function StockCardScreen({ locale }) {
                     <h1>{t(locale, 'stockCard')}</h1>
                     <span className="muted">{t(locale, 'cardHint')}</span>
                 </div>
-                <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
+                <ShellPageActions><button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button></ShellPageActions>
             </div>
 
             <div className="metrics stock-metrics">
