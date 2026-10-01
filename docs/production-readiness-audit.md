@@ -11,7 +11,7 @@ Decision: **The repository is release candidate ready. Production traffic remain
 | Gate | Result |
 | --- | --- |
 | Laravel / PHP | Laravel 12 on PHP 8.2 |
-| Automated regression | **156 passed, 1,660 assertions** |
+| Automated regression | **158 passed, 1,669 assertions** |
 | Test isolation | PHPUnit forces SQLite `:memory:` and dedicated owner credentials |
 | Composer validation | Passed with strict validation |
 | Composer security | No advisories |
@@ -58,6 +58,7 @@ Decision: **The repository is release candidate ready. Production traffic remain
 - Added production checks for owner credentials, persistent writable backup/upload directories, SMTP, and sender address.
 - Added a production environment template with secure defaults and explicit shared paths.
 - Ended existing sessions when a linked employee/customer or assigned role is deactivated, and blocked inactive password/Google sign-ins.
+- Made the shared login contract match its UI by supporting both unique phone numbers and email addresses, while rejecting ambiguous duplicate phone matches.
 - Enabled trusted-host validation, encrypted production sessions, and HSTS for production HTTPS responses.
 - Restored 599 Myanmar characters in the Driver delivery source and added an encoding gate to CI.
 - Replaced the generic Laravel README with project setup, quality gate, and deployment guidance.

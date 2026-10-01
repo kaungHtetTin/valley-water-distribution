@@ -39,6 +39,39 @@ class AppAuthTest extends TestCase
         $this->assertAuthenticated();
     }
 
+    public function test_user_can_sign_in_with_their_phone_number(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+
+        $this->postJson('/api/auth/login', [
+            'email' => $user->phone,
+            'password' => 'password',
+            'app' => 'driver',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.user.id', $user->id);
+
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_duplicate_phone_number_cannot_select_an_ambiguous_account(): void
+    {
+        $this->seed();
+        $user = User::where('email', 'driver@valley.test')->firstOrFail();
+        User::factory()->create(['phone' => $user->phone]);
+
+        $this->postJson('/api/auth/login', [
+            'email' => $user->phone,
+            'password' => 'password',
+            'app' => 'driver',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('email');
+
+        $this->assertGuest();
+    }
+
     public function test_user_cannot_sign_in_to_the_wrong_app()
     {
         $this->seed();

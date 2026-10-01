@@ -32,12 +32,17 @@ class AppAuthController extends Controller
     public function login(Request $request)
     {
         $credentials = $request->validate([
-            'email' => ['required', 'email'],
+            'email' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string'],
             'app' => ['required', 'in:office,client,sales,supervisor,driver'],
         ]);
 
-        if (! Auth::attempt($request->only('email', 'password'), true)) {
+        $identifier = trim($credentials['email']);
+        $identifierColumn = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+        $ambiguousPhone = $identifierColumn === 'phone'
+            && User::query()->where('phone', $identifier)->count() !== 1;
+
+        if ($ambiguousPhone || ! Auth::attempt([$identifierColumn => $identifier, 'password' => $credentials['password']], true)) {
             throw ValidationException::withMessages([
                 'email' => [__('auth.failed')],
             ]);
