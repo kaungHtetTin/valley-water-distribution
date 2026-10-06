@@ -11,6 +11,52 @@ class PhaseThreePayrollTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_employee_salary_can_be_created_updated_and_used_in_payroll()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+
+        $metadata = $this->getJson('/api/master-data/meta')->assertOk()->json('data.resources');
+        $employeeFields = collect($metadata)->firstWhere('key', 'employees')['fields'];
+        $this->assertSame('number', collect($employeeFields)->firstWhere('name', 'base_salary')['type']);
+
+        $employee = ['name' => 'Salary Test', 'employee_type' => 'warehouse', 'base_salary' => 525000.50];
+        $id = $this->postJson('/api/master-data/employees', $employee)
+            ->assertCreated()->json('data.item.id');
+        $this->assertDatabaseHas('employees', ['id' => $id, 'base_salary' => 525000.50]);
+
+        $generated = $this->postJson('/api/payrolls/generate', ['month' => '2026-10', 'employee_type' => 'warehouse'])
+            ->assertCreated();
+        $payrollId = $generated->json('data.payroll.id');
+        $this->assertDatabaseHas('payroll_items', ['payroll_id' => $payrollId, 'employee_id' => $id, 'base_salary' => 525000.50, 'net_pay' => 525000.50]);
+
+        $employee['base_salary'] = 610000;
+        $this->putJson("/api/master-data/employees/{$id}", $employee)->assertOk();
+        // Salary changes only affect a payroll when a new draft is generated or refreshed.
+        $this->assertDatabaseHas('payroll_items', ['payroll_id' => $payrollId, 'employee_id' => $id, 'base_salary' => 525000.50]);
+        $this->postJson('/api/payrolls/generate', ['month' => '2026-10', 'employee_type' => 'warehouse'])->assertCreated();
+        $this->assertDatabaseHas('payroll_items', ['payroll_id' => $payrollId, 'employee_id' => $id, 'base_salary' => 610000]);
+
+        $this->postJson("/api/payrolls/{$payrollId}/approve")->assertOk();
+        $employee['base_salary'] = 0;
+        $this->putJson("/api/master-data/employees/{$id}", $employee)->assertOk();
+        $this->postJson('/api/payrolls/generate', ['month' => '2026-11', 'employee_type' => 'warehouse'])->assertCreated();
+        $this->assertDatabaseHas('payroll_items', ['employee_id' => $id, 'base_salary' => 0, 'net_pay' => 0]);
+        $this->assertDatabaseHas('payroll_items', ['payroll_id' => $payrollId, 'employee_id' => $id, 'base_salary' => 610000]);
+    }
+
+    public function test_employee_salary_rejects_invalid_amounts()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+
+        foreach ([-1, 'invalid', 1000000000000, '100.123'] as $salary) {
+            $this->postJson('/api/master-data/employees', [
+                'name' => 'Invalid Salary', 'employee_type' => 'warehouse', 'base_salary' => $salary,
+            ])->assertUnprocessable()->assertJsonValidationErrors('base_salary');
+        }
+    }
+
     public function test_office_can_generate_monthly_payroll_draft_from_attendance()
     {
         $this->seed();

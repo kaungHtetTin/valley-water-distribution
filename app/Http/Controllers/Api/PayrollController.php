@@ -274,6 +274,7 @@ class PayrollController extends Controller
                 'employees.code',
                 'employees.name',
                 'employees.employee_type',
+                'employees.base_salary',
                 DB::raw("SUM(CASE WHEN attendance_records.status = 'accepted' THEN 1 ELSE 0 END) as accepted_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.status = 'rejected' THEN 1 ELSE 0 END) as rejected_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.rejection_reason = 'gps_denied' THEN 1 ELSE 0 END) as gps_denied_count"),
@@ -281,7 +282,7 @@ class PayrollController extends Controller
                 DB::raw('MIN(attendance_records.attendance_at) as first_attendance_at'),
                 DB::raw('MAX(attendance_records.attendance_at) as last_attendance_at')
             )
-            ->groupBy('employees.id', 'employees.code', 'employees.name', 'employees.employee_type')
+            ->groupBy('employees.id', 'employees.code', 'employees.name', 'employees.employee_type', 'employees.base_salary')
             ->orderBy('employees.name');
 
         if ($employeeType) {
@@ -299,7 +300,7 @@ class PayrollController extends Controller
             ->groupBy('employee_id');
 
         return $employees->map(function ($employee) use ($adjustments, $payroll) {
-            $baseSalary = $this->defaultBaseSalary($employee->employee_type);
+            $baseSalary = (float) ($employee->base_salary ?? $this->defaultBaseSalary($employee->employee_type));
             $employeeAdjustments = $adjustments->get($employee->id, collect())->keyBy('adjustment_type');
             $allowance = (float) ($employeeAdjustments->get('allowance')->total_amount ?? 0);
             $incentive = (float) ($employeeAdjustments->get('incentive')->total_amount ?? 0);

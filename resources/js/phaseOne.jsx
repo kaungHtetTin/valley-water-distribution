@@ -132,7 +132,7 @@ const myFieldLabels = {
     brand_id: 'Brand', sku: 'SKU', unit: 'ယူနစ်', size: 'အရွယ်အစား', currency: 'ငွေကြေး', is_default: 'မူလဈေးနှုန်း',
     product_id: 'ကုန်ပစ္စည်း', price_type_id: 'ဈေးနှုန်းအမျိုးအစား', amount: 'ငွေပမာဏ', effective_from: 'စတင်သက်ရောက်ရက်',
     route_id: 'Route', shop_name: 'ဆိုင်အမည်', contact_name: 'ဆက်သွယ်သူ', credit_limit: 'အကြွေးကန့်သတ်ချက်',
-    assigned_route_id: 'သတ်မှတ် Route', employee_type: 'ဝန်ထမ်းအမျိုးအစား', hire_date: 'အလုပ်ဝင်ရက်',
+    assigned_route_id: 'သတ်မှတ် Route', employee_type: 'ဝန်ထမ်းအမျိုးအစား', hire_date: 'အလုပ်ဝင်ရက်', base_salary: 'အခြေခံလစာ (ကျပ်)',
     assigned_driver_id: 'သတ်မှတ်ယာဉ်မောင်း', plate_no: 'ယာဉ်နံပါတ်', vehicle_type: 'ယာဉ်အမျိုးအစား',
     make: 'ထုတ်လုပ်သူ', model: 'မော်ဒယ်', capacity: 'တင်ဆောင်နိုင်မှု', permission_ids: 'Permission များ', group: 'အုပ်စု', guard_name: 'Guard',
     area: 'ဧရိယာ', route: 'Route', price_type: 'ဈေးနှုန်းအမျိုးအစား', brand: 'Brand', product: 'ကုန်ပစ္စည်း',
@@ -725,7 +725,8 @@ function MasterField({ field, value, options = {}, locale, error, onChange, disa
             {label}
             {field.type === 'textarea' ? <textarea value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} rows="3" /> : field.type === 'select' ? (
                 <select value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="">{text(locale, 'select')}</option>{sourceOptions.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}</select>
-            ) : <input type={field.type || 'text'} autoComplete={field.autocomplete} step={field.type === 'number' ? '0.01' : undefined} value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} />}
+            ) : <input type={field.type || 'text'} autoComplete={field.autocomplete} min={field.min} max={field.max} step={field.type === 'number' ? '0.01' : undefined} value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} />}
+            {field.name === 'base_salary' && <small>{locale === 'my' ? 'လစဉ်အခြေခံလစာ။ ကွက်လပ်ထားပါက ဝန်ထမ်းအမျိုးအစားအလိုက် မူလလစာကို သုံးပါမည်။' : 'Monthly base salary. Leave blank to use the employee type default.'}</small>}
             {error && <small>{error}</small>}
         </label>
     );
@@ -1618,6 +1619,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                     <div><dt>Email</dt><dd>{employee.email || '—'}</dd></div>
                     <div className="employee-profile-wide"><dt>Address</dt><dd>{employee.address || '—'}</dd></div>
                     <div><dt>Hire date</dt><dd>{dateLabel(employee.hire_date)}</dd></div>
+                    <div><dt>Base salary</dt><dd>{employee.base_salary == null ? 'Employee type default' : money(employee.base_salary)}</dd></div>
                     {['sales', 'driver'].includes(employee.employee_type) && <div><dt>Assigned route</dt><dd>{employee.assigned_route || 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'sales' && <div className="employee-profile-wide"><dt>Sales supervisor</dt><dd>{employee.supervisor_name ? `${employee.supervisor_code} · ${employee.supervisor_name}` : 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'driver' && <div className="employee-profile-wide"><dt>Assigned vehicle</dt><dd>{employee.assigned_vehicle || 'Not assigned'}</dd></div>}
@@ -2313,7 +2315,7 @@ function columnLabel(column, definition, locale) {
 function renderValue(column, value, locale) {
     if (['is_active', 'is_default'].includes(column)) return <span className={`status ${value ? 'success' : 'neutral'}`}>{value ? text(locale, column === 'is_active' ? 'active' : 'yes') : text(locale, column === 'is_active' ? 'inactive' : 'no')}</span>;
     if (value === null || value === undefined || value === '') return <span className="muted">—</span>;
-    if (['amount', 'credit_limit'].includes(column)) return `${Number(value).toLocaleString()} MMK`;
+    if (['amount', 'credit_limit', 'base_salary'].includes(column)) return `${Number(value).toLocaleString()} MMK`;
     if (locale === 'my' && myOptionLabels[value]) return myOptionLabels[value];
     return String(value);
 }

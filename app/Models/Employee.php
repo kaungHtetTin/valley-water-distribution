@@ -11,7 +11,7 @@ class Employee extends Model
 
     protected $guarded = [];
 
-    protected $casts = ['hire_date' => 'date', 'is_active' => 'boolean'];
+    protected $casts = ['hire_date' => 'date', 'is_active' => 'boolean', 'base_salary' => 'decimal:2'];
 
     public function assignedRoute()
     {
