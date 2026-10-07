@@ -11,6 +11,47 @@ class PhaseFourMobileOrderTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_sales_selected_price_and_default_fallback_are_used_for_create_and_edit(): void
+    {
+        $this->seed();
+        $sales = User::where('email', 'sales@valley.test')->firstOrFail();
+        $this->actingAs($sales);
+        $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
+        $specialId = DB::table('price_types')->where('code', 'SPC')->value('id');
+        $customerId = DB::table('customers')->where('route_id', DB::table('employees')->where('id', $sales->employee_id)->value('assigned_route_id'))->value('id');
+        $payload = ['customer_id' => $customerId, 'price_type_id' => $specialId, 'save_as' => 'draft',
+            'items' => [['product_id' => $productId, 'quantity' => 2, 'item_type' => 'sale'],
+                ['product_id' => $productId, 'quantity' => 1, 'item_type' => 'foc']]];
+        $created = $this->postJson('/api/mobile/orders', $payload)->assertCreated()
+            ->assertJsonPath('data.order.price_type_id', $specialId)
+            ->assertJsonPath('data.items.0.unit_price', 2800)
+            ->assertJsonPath('data.items.1.unit_price', 0);
+        DB::table('product_prices')->where('product_id', $productId)->where('price_type_id', $specialId)->update(['amount' => 0]);
+        $this->putJson('/api/mobile/orders/'.$created->json('data.order.id'), $payload)->assertOk()
+            ->assertJsonPath('data.items.0.unit_price', 3000)->assertJsonPath('data.order.total', 6000);
+        DB::table('product_prices')->where('product_id', $productId)->where('price_type_id', $specialId)->delete();
+        $this->postJson('/api/mobile/orders', $payload)->assertCreated()
+            ->assertJsonPath('data.items.0.unit_price', 3000)->assertJsonPath('data.items.1.unit_price', 0);
+        $meta = $this->getJson('/api/mobile/orders/meta')->assertOk()->json('data');
+        $product = collect($meta['products'])->firstWhere('id', $productId);
+        $this->assertEquals(3000, $product['default_price']);
+        $this->assertEquals('WSL', collect($meta['price_types'])->firstWhere('is_default', true)['code']);
+    }
+
+    public function test_missing_default_does_not_create_free_sale_or_use_future_price(): void
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'client@valley.test')->firstOrFail());
+        $productId = DB::table('products')->where('sku', 'VAL-5G')->value('id');
+        $defaultId = DB::table('price_types')->where('is_default', true)->value('id');
+        DB::table('product_prices')->where('product_id', $productId)->where('price_type_id', $defaultId)
+            ->update(['effective_from' => now()->addYear()->toDateString()]);
+        $this->postJson('/api/mobile/orders', ['price_type_id' => $defaultId,
+            'items' => [['product_id' => $productId, 'quantity' => 1, 'item_type' => 'sale']]])->assertStatus(422);
+        $meta = $this->getJson('/api/mobile/orders/meta')->assertOk()->json('data.products');
+        $this->assertNull(collect($meta)->firstWhere('id', $productId)['default_price']);
+    }
+
     public function test_client_can_place_and_view_own_order()
     {
         $this->seed();

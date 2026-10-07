@@ -50,8 +50,12 @@ class MobileOrderController extends Controller
                 $product->prices = DB::table('product_prices')
                     ->where('product_id', $product->id)
                     ->where('is_active', true)
-                    ->orderByDesc('effective_from')
+                    ->where(function ($query) {
+                        $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', now()->toDateString());
+                    })
+                    ->orderByDesc('effective_from')->orderByDesc('id')
                     ->get(['price_type_id', 'amount']);
+                $product->default_price = \App\Support\ProductPricing::amount($product->id, null, now());
 
                 return $product;
             });
@@ -60,7 +64,7 @@ class MobileOrderController extends Controller
             'app' => $scope['app'],
             'customers' => $customers,
             'products' => $products,
-            'price_types' => DB::table('price_types')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
+            'price_types' => DB::table('price_types')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'is_default']),
             'routes' => DB::table('routes')->where('is_active', true)
                 ->when($scope['app'] === 'sales', fn ($query) => $query->where('id', $scope['route_id']))
                 ->orderBy('name')->get(['id', 'area_id', 'code', 'name']),
@@ -351,17 +355,8 @@ class MobileOrderController extends Controller
 
     private function priceForProduct(int $productId, ?int $priceTypeId, Carbon $orderDate): float
     {
-        $price = DB::table('product_prices')
-            ->where('product_id', $productId)
-            ->when($priceTypeId, fn ($query) => $query->where('price_type_id', $priceTypeId))
-            ->where('is_active', true)
-            ->where(function ($query) use ($orderDate) {
-                $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', $orderDate->toDateString());
-            })
-            ->orderByDesc('effective_from')
-            ->value('amount');
-
-        abort_unless($price !== null, 422, 'Product price is required.');
+        $price = \App\Support\ProductPricing::amount($productId, $priceTypeId, $orderDate);
+        abort_unless($price !== null, 422, 'A positive product price or default price is required.');
 
         return (float) $price;
     }
@@ -463,6 +458,7 @@ class MobileOrderController extends Controller
             'id' => $order->id,
             'code' => $order->code,
             'customer_id' => $order->customer_id,
+            'price_type_id' => $order->price_type_id,
             'customer_code' => $order->customer_code,
             'shop_name' => $order->recipient_name_display,
             'recipient_name' => $order->recipient_name_display,

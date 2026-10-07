@@ -66,6 +66,7 @@ class PhaseTwoAttendanceTest extends TestCase
     public function test_public_attendance_accepts_employee_inside_allowed_radius()
     {
         $this->seed();
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-07 08:00:00', 'Asia/Yangon'));
         $token = DB::table('attendance_locations')->where('code', 'ATT-OFFICE')->value('public_token');
 
         $this->getJson("/api/public/attendance/{$token}")

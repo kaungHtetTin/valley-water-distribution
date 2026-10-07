@@ -8,15 +8,18 @@ window._ = _;
  */
 
 import axios from 'axios';
+import { installCsrfRecovery } from './csrfRecovery';
 window.axios = axios;
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
-const token = document.head.querySelector('meta[name="csrf-token"]');
-
-if (token) {
-    window.axios.defaults.headers.common['X-CSRF-TOKEN'] = token.content;
-}
+// Axios reads the current XSRF cookie on each request. A page-load token becomes
+// stale after login/logout or session changes in another open app.
+installCsrfRecovery(axios, {
+    refreshUrl: window.ValleyRuntime?.auth?.csrf || '/api/auth/csrf',
+    origin: window.location.origin,
+    onSessionChanged: () => window.dispatchEvent(new Event('valley-session-expired')),
+});
 
 /**
  * Echo exposes an expressive API for subscribing to channels and listening

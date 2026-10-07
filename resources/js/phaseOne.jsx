@@ -2,6 +2,7 @@ import {
     AlertCircle,
     Building2,
     CalendarDays,
+    Clock3,
     Check,
     CheckCircle2,
     ChevronLeft,
@@ -38,6 +39,7 @@ import {
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveKpiRefresh } from './useLiveKpiRefresh';
 import { DetailPage, DetailPanel } from './components/DetailPage';
 import { ShellBackButton } from './components/ShellBackButton';
 import { ShellPageActions, ShellPageSearch } from './components/ShellPageActions';
@@ -627,7 +629,11 @@ function ProductPriceMatrix({ definition, locale, canManage, embedded = false })
 }
 
 function MasterForm({ definition, resourceKey, options, editing, locale, onClose, onSaved }) {
-    const [values, setValues] = useState(editing.values);
+    const defaultSalary = (type) => definition.salary_defaults?.[type] ?? definition.salary_defaults?.other ?? 0;
+    const [values, setValues] = useState(() => resourceKey === 'employees' && (editing.values.base_salary == null || editing.values.base_salary === '')
+        ? { ...editing.values, base_salary: defaultSalary(editing.values.employee_type) }
+        : editing.values);
+    const salaryEntered = useRef(editing.values.base_salary != null && editing.values.base_salary !== '');
     const [errors, setErrors] = useState({});
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
@@ -658,7 +664,9 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
         setSaving(true);
         setErrors({});
         setMessage('');
-        const payload = normalizePayload(values, visibleFields);
+        const payload = normalizePayload(resourceKey === 'employees' && (values.base_salary == null || values.base_salary === '')
+            ? { ...values, base_salary: defaultSalary(values.employee_type) }
+            : values, visibleFields);
         try {
             const { data } = editing.mode === 'create'
                 ? await window.axios.post(`${apiBase('masterData')}/${resourceKey}`, payload)
@@ -689,7 +697,14 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
                 <div className="master-form-body">
                     <div className="master-form-grid">
                         {visibleFields.map((field) => (
-                            <MasterField key={field.name} field={field} value={values[field.name]} options={options} locale={locale} error={validationError(field.name, errors, locale)} onChange={(value) => setValues((current) => ({ ...current, [field.name]: value, ...(resourceKey === 'employees' && field.name === 'employee_type' && value !== 'driver' ? { assigned_vehicle_id: '' } : {}), ...(resourceKey === 'employees' && field.name === 'employee_type' ? { access_role: '' } : {}) }))} />
+                            <MasterField key={field.name} field={field} value={values[field.name]} options={options} locale={locale} error={validationError(field.name, errors, locale)} onChange={(value) => {
+                                if (resourceKey === 'employees' && field.name === 'base_salary') salaryEntered.current = value !== '';
+                                setValues((current) => ({
+                                    ...current, [field.name]: value,
+                                    ...(resourceKey === 'employees' && field.name === 'employee_type' && value !== 'driver' ? { assigned_vehicle_id: '' } : {}),
+                                    ...(resourceKey === 'employees' && field.name === 'employee_type' ? { access_role: '', ...(!salaryEntered.current ? { base_salary: defaultSalary(value) } : {}) } : {}),
+                                }));
+                            }} />
                         ))}
                     </div>
                     {message && <div className="inline-error"><AlertCircle size={15} /> {message}</div>}
@@ -726,7 +741,6 @@ function MasterField({ field, value, options = {}, locale, error, onChange, disa
             {field.type === 'textarea' ? <textarea value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} rows="3" /> : field.type === 'select' ? (
                 <select value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="">{text(locale, 'select')}</option>{sourceOptions.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}</select>
             ) : <input type={field.type || 'text'} autoComplete={field.autocomplete} min={field.min} max={field.max} step={field.type === 'number' ? '0.01' : undefined} value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} />}
-            {field.name === 'base_salary' && <small>{locale === 'my' ? 'လစဉ်အခြေခံလစာ။ ကွက်လပ်ထားပါက ဝန်ထမ်းအမျိုးအစားအလိုက် မူလလစာကို သုံးပါမည်။' : 'Monthly base salary. Leave blank to use the employee type default.'}</small>}
             {error && <small>{error}</small>}
         </label>
     );
@@ -774,6 +788,10 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
             formData.append('default_theme', values.default_theme || 'light');
             formData.append('default_customer_credit_limit', values.default_customer_credit_limit ?? 500000);
             formData.append('delivery_credit_due_days', values.delivery_credit_due_days ?? 14);
+            formData.append('attendance_start_time', values.attendance_start_time || '08:00');
+            if (section === 'salary' || section === 'all') {
+                Object.entries(values.default_base_salaries || {}).forEach(([type, amount]) => formData.append(`default_base_salaries[${type}]`, amount));
+            }
             Object.entries(values.contact_channels || {}).forEach(([key, value]) => formData.append(`contact_channels[${key}]`, value || ''));
             formData.append('remove_logo', removeLogo ? '1' : '0');
             if (logo) formData.append('logo', logo);
@@ -869,6 +887,51 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
                             </select>
                             <small className="muted">Applied when branding settings are saved.</small>
                         </label>
+                    </div>
+                </section>}
+                {['all', 'salary'].includes(section) && <section className="branding-settings salary-default-settings" aria-labelledby="salary-default-settings-title">
+                    <div className="branding-settings-heading">
+                        <span className="company-settings-icon"><WalletCards size={17} /></span>
+                        <div><strong id="salary-default-settings-title">{locale === 'my' ? 'မူလလစဉ်အခြေခံလစာ' : 'Default monthly base salaries'}</strong><p className="salary-settings-subtitle">{locale === 'my' ? 'ဝန်ထမ်း၏ အခြေခံလစာ ကွက်လပ်ဖြစ်ပါက ဤလစာကို payroll နှင့် နောက်ကျဖိုင်းကြေးတွင် အသုံးပြုပါမည်။' : 'Set monthly salaries by employee type. Used when an employee’s base salary is blank.'}</p></div>
+                    </div>
+                    <div className="branding-settings-grid salary-default-grid">
+                        {[
+                            ['office', 'Office', 'ရုံးဝန်ထမ်း'], ['sales', 'Sales', 'အရောင်းဝန်ထမ်း'],
+                            ['sales_supervisor', 'Sales supervisor', 'အရောင်းကြီးကြပ်ရေးမှူး'], ['driver', 'Driver', 'ယာဉ်မောင်း'],
+                            ['warehouse', 'Warehouse', 'ဂိုဒေါင်ဝန်ထမ်း'], ['other', 'Other employee types', 'အခြားဝန်ထမ်းအမျိုးအစားများ'],
+                        ].map(([type, label, myLabel]) => <label className="master-field" key={type} data-field={`default_base_salaries.${type}`} htmlFor={`salary-default-${type}`}>
+                            <span className="salary-field-heading"><span>{locale === 'my' ? myLabel : label}</span><span className="salary-field-unit">MMK / {locale === 'my' ? 'လ' : 'month'}</span></span>
+                            <input id={`salary-default-${type}`} type="number" min="0" max="999999999999.99" step="0.01" required disabled={!canManage} aria-invalid={Boolean(errors[`default_base_salaries.${type}`])} aria-describedby={errors[`default_base_salaries.${type}`] ? `salary-error-${type}` : undefined} value={values.default_base_salaries?.[type] ?? ''} onChange={(event) => setValues((current) => ({ ...current, default_base_salaries: { ...current.default_base_salaries, [type]: event.target.value } }))} />
+                            {errors[`default_base_salaries.${type}`]?.[0] && <small className="field-error" id={`salary-error-${type}`} role="alert">{errors[`default_base_salaries.${type}`][0]}</small>}
+                        </label>)}
+                    </div>
+                    <div className="salary-settings-guidance">
+                        <AlertCircle size={15} />
+                        <div><p>{locale === 'my' ? 'ဝန်ထမ်းတစ်ဦးချင်း သတ်မှတ်ထားသော လစာကို ဦးစားပေးပါမည်။ မူလလစာ မရှိလိုပါက ၀ ထည့်ပါ။' : 'Individual employee salaries take priority. Enter 0 for no default salary.'}</p><p>{locale === 'my' ? 'ပြောင်းလဲမှုသည် နောက်တစ်ကြိမ် ဆွဲသော payroll draft နှင့် နောက်ထပ် check-in များတွင် သက်ရောက်ပါမည်။' : 'Changes apply to new or refreshed payroll drafts and future check-ins.'}</p></div>
+                    </div>
+                    {errors.default_base_salaries?.[0] && <p className="field-error salary-settings-error" role="alert">{errors.default_base_salaries[0]}</p>}
+                </section>}
+                {['all', 'attendance'].includes(section) && <section className="branding-settings attendance-settings" aria-labelledby="attendance-settings-title">
+                    <div className="branding-settings-heading">
+                        <span className="company-settings-icon"><Clock3 size={17} /></span>
+                        <div><strong id="attendance-settings-title">{locale === 'my' ? 'ရုံးတက်ချိန် သတ်မှတ်ချက်' : 'Attendance settings'}</strong><p className="attendance-settings-subtitle">{locale === 'my' ? 'အလုပ်စချိန်နှင့် နောက်ကျဖိုင်းကြေး သတ်မှတ်ချက်များ' : 'Set the daily start time for employee check-ins.'}</p></div>
+                    </div>
+                    <div className="attendance-settings-body">
+                        <div className="attendance-settings-schedule">
+                            <label className="master-field" data-field="attendance_start_time" htmlFor="attendance-start-time">
+                                <span>{locale === 'my' ? 'အလုပ်စချိန်' : 'Work start time'}</span>
+                                <input id="attendance-start-time" type="time" required disabled={!canManage} aria-invalid={Boolean(errors.attendance_start_time)} aria-describedby={errors.attendance_start_time ? 'attendance-time-help attendance-time-error' : 'attendance-time-help'} value={values.attendance_start_time || '08:00'} onChange={(event) => setValues((current) => ({ ...current, attendance_start_time: event.target.value }))} />
+                                <small className="attendance-settings-help" id="attendance-time-help">{locale === 'my' ? 'မြန်မာစံတော်ချိန် (UTC +၆:၃၀)။ မူလအချိန် မနက် ၈ နာရီ။' : 'Myanmar time (UTC +06:30). Default: 8:00 AM.'}</small>
+                                {errors.attendance_start_time?.[0] && <small className="field-error" id="attendance-time-error" role="alert">{errors.attendance_start_time[0]}</small>}
+                            </label>
+                            <p className="attendance-settings-note">{locale === 'my' ? 'သတ်မှတ်ချိန်ထက် နောက်ကျမှ check-in လုပ်ပါက Late အဖြစ် မှတ်တမ်းတင်ပါမည်။' : 'Check-ins after this time are recorded as Late.'}</p>
+                        </div>
+                        <aside className="attendance-settings-policy" aria-label={locale === 'my' ? 'နောက်ကျဖိုင်းကြေး စည်းမျဉ်း' : 'Late fine policy'}>
+                            <span className="eyebrow">{locale === 'my' ? 'ဖိုင်းကြေး စည်းမျဉ်း' : 'Late fine policy'}</span>
+                            <strong>{locale === 'my' ? 'တစ်မိနစ်ဖိုင်းကြေး = အခြေခံလစာ ÷ ၄၈၀' : 'Fine per minute = base salary ÷ 480'}</strong>
+                            <p>{locale === 'my' ? '၈ နာရီ × ၆၀ မိနစ်။ နောက်ကျမိနစ် စုစုပေါင်းဖြင့် မြှောက်ပြီး payroll ဆွဲချိန်တွင် နုတ်ပါမည်။' : '8 hours × 60 minutes. Multiply by the late minutes; the total is deducted when payroll is generated.'}</p>
+                            <div className="attendance-settings-kpi"><CheckCircle2 size={14} /><span>{locale === 'my' ? 'နောက်ကျမှုကြောင့် KPI အမှတ် မလျှော့ပါ။' : 'Late attendance does not reduce KPI scores.'}</span></div>
+                        </aside>
                     </div>
                 </section>}
                 {['all', 'contact-channels'].includes(section) && <section className="branding-settings" aria-labelledby="contact-channel-settings-title">
@@ -1052,6 +1115,8 @@ export function BusinessSetupScreen({ locale, canManage = true, section = 'compa
             { id: 'company', label: 'Company information', myLabel: 'ကုမ္ပဏီအချက်အလက်', description: 'Business identity and contacts', myDescription: 'လုပ်ငန်းအချက်အလက်နှင့် ဆက်သွယ်ရန်', icon: Building2 },
             { id: 'contact-channels', label: 'Contact channels', myLabel: 'ဆက်သွယ်ရန်လမ်းကြောင်းများ', description: 'Customer phone, social and web links', myDescription: 'ဖောက်သည်ဖုန်း၊ လူမှုကွန်ရက်နှင့် ဝဘ်လင့်ခ်များ', icon: MessageCircle },
             { id: 'branding', label: 'Branding', myLabel: 'အမှတ်တံဆိပ်', description: 'Logo, app color and theme', myDescription: 'လိုဂို၊ အရောင်နှင့် အပြင်အဆင်', icon: Palette },
+            { id: 'attendance', label: 'Attendance settings', myLabel: 'ရုံးတက်ချိန်', description: 'Work start time and late fines', myDescription: 'အလုပ်စချိန်နှင့် နောက်ကျဖိုင်းကြေး', icon: Clock3 },
+            { id: 'salary', label: 'Salary defaults', myLabel: 'မူလအခြေခံလစာ', description: 'Monthly base salary by employee type', myDescription: 'ဝန်ထမ်းအမျိုးအစားအလိုက် လစဉ်အခြေခံလစာ', icon: WalletCards },
             { id: 'delivery', label: 'Delivery defaults', myLabel: 'ပို့ဆောင်ရေးမူလတန်ဖိုး', description: 'Credit limits and due days', myDescription: 'အကြွေးကန့်သတ်ချက်နှင့် ရက်များ', icon: Truck },
         ] },
         { id: 'catalog', label: 'Catalog', myLabel: 'ကုန်ပစ္စည်းစာရင်း', tabs: [
@@ -1114,7 +1179,7 @@ export function BusinessSetupScreen({ locale, canManage = true, section = 'compa
                 </nav>
 
                 <div className="business-setup-content" role="tabpanel">
-                    {['company', 'contact-channels', 'branding', 'delivery'].includes(activeSection)
+                    {['company', 'contact-channels', 'branding', 'delivery', 'attendance', 'salary'].includes(activeSection)
                         ? <CompanySettingsScreen locale={locale} canManage={canManage} onBrandingUpdated={onBrandingUpdated} section={activeSection} embedded />
                         : activeSection === 'printing'
                             ? <PrintingSettingsScreen canManage={canManage} />
@@ -1140,6 +1205,11 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
     const [managerError, setManagerError] = useState('');
     const [managerForm, setManagerForm] = useState({ result: null, notes: '', items: [] });
     const [refreshKey, setRefreshKey] = useState(0);
+
+    useLiveKpiRefresh(async (isCurrent) => {
+        const { data } = await window.axios.get(apiBase('kpiReports') || '/api/kpi-reports', { params: { employee_id: employee.id, period: 'month', month, year: Number(month.slice(0, 4)) } });
+        if (isCurrent()) setState((current) => ({ ...current, report: data.data, error: '' }));
+    }, `${employee.id}-${month}`, !state.loading && !targetOpen && !managerOpen);
 
     useEffect(() => {
         let mounted = true;
@@ -1318,7 +1388,8 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
                             <div className="employee-kpi-current-copy">
                                 <div><strong>{review.template_name}</strong><span className={`status ${review.status}`}>{titleCase(review.status)}</span></div>
                                 <span>{review.month} · {employee.name}</span>
-                                <p><small>{review.payroll_adjustment_id ? 'Posted to payroll' : review.status === 'approved' ? 'Approved bonus' : 'Bonus preview'}</small><strong>{formatMoney(review.bonus_amount)}</strong></p>
+                                <p><small>{review.payroll_adjustment_id ? 'Posted to payroll' : review.status === 'approved' ? 'Approved bonus' : 'Current total bonus'}</small><strong>{formatMoney(review.bonus_amount)}</strong></p>
+                                <span className="kpi-live-bonus-note">{review.bonus_calculation === 'proportional' ? `${formatMoney(review.target_bonus)} × ${Number(review.overall_score).toLocaleString(undefined, { maximumFractionDigits: 2 })}%` : 'Historical payout rules'}{review.status === 'draft' ? ' · Updates every 20 seconds' : ''}</span>
                                 {scoreChange !== null && <em className={scoreChange >= 0 ? 'is-positive' : 'is-negative'}><TrendingUp size={13} /> {scoreChange >= 0 ? '+' : ''}{Number(scoreChange).toLocaleString(undefined, { maximumFractionDigits: 2 })} points from {previous.label}</em>}
                             </div>
                         </div>
@@ -1335,7 +1406,7 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
                                 const points = metric.points_average === null ? 0 : Number(metric.points_average);
                                 const progress = Math.min(Math.max(points / Math.max(Number(metric.weight || 0), 1) * 100, 0), 100);
                                 const manual = metric.calculation_type === 'manual';
-                                return <article key={`${metric.template_code}-${metric.code}`}>
+                                return <article key={`${metric.template_code}-${metric.code}-${metric.unit}`}>
                                     <header><span><strong>{metric.name}</strong><small>{manual ? 'Manager assessment' : metric.code}</small></span><b>{metric.points_average === null ? 'Pending' : `${Number(metric.points_average).toLocaleString(undefined, { maximumFractionDigits: 2 })} pts`}</b></header>
                                     <div className="employee-kpi-progress"><i style={{ width: `${progress}%` }} /></div>
                                     <dl>

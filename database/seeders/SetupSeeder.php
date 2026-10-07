@@ -27,7 +27,7 @@ class SetupSeeder extends Seeder
             'office.suppliers' => ['view', 'manage'],
             'office.access.users' => ['manage'],
             'office.access.roles' => ['manage'],
-            'office.attendance' => ['view', 'manage'],
+            'office.attendance' => ['view', 'manage', 'approve-full'],
             'office.payroll' => ['view', 'manage'],
             'office.payroll.drafts' => ['prepare', 'approve', 'pay'],
             'office.payroll.adjustments' => ['manage'],
@@ -131,6 +131,7 @@ class SetupSeeder extends Seeder
                 'office.finance.books.view', 'office.payroll.view', 'office.payroll.drafts.pay',
             ],
             'Finance Manager' => [
+                'office.attendance.view', 'office.attendance.approve-full',
                 'office.finance.collections.view', 'office.finance.collections.review',
                 'office.finance.receivables.view', 'office.finance.expenses.view', 'office.finance.expenses.review',
                 'office.finance.suppliers.view', 'office.finance.books.view', 'office.finance.profit-loss.view',

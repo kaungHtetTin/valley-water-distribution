@@ -1,5 +1,6 @@
 import { AlertCircle, BadgeCheck, CalendarDays, CircleDollarSign, Download, Pencil, Plus, Printer, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useLiveKpiRefresh } from './useLiveKpiRefresh';
 import { DetailPage, DetailPanel } from './components/DetailPage';
 import { ShellPageActions } from './components/ShellPageActions';
 import { printConfiguredDocument } from './printDocuments';
@@ -668,6 +669,11 @@ export function MobilePayrollHistoryScreen({ locale }) {
 
 function PayrollDetailPage({ viewing, locale, canPrepare = false, canApprove = false, canPay = false, processingId = null, operationError = '', onApprove, onMarkPaid, onDelete, onClose }) {
     const [state, setState] = useState(() => viewing.items ? { loading: false, payroll: viewing.payroll, items: viewing.items, error: '' } : { loading: true, payroll: viewing.payroll, items: [], error: '' });
+
+    useLiveKpiRefresh(async (isCurrent) => {
+        const { data } = await window.axios.get(`${apiBase('payrolls')}/${viewing.payroll.id}`);
+        if (isCurrent()) setState({ loading: false, payroll: data.data.payroll, items: data.data.items, error: '' });
+    }, String(viewing.payroll.id), !state.loading && state.payroll.status === 'draft' && !processingId);
 
     useEffect(() => {
         if (viewing.items) return undefined;

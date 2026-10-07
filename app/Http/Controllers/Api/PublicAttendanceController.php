@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceLocation;
-use App\Models\AttendanceRecord;
 use App\Support\ApiResponse;
+use App\Support\AttendanceCheckIn;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -62,7 +62,7 @@ class PublicAttendanceController extends Controller
             }
         }
 
-        $record = AttendanceRecord::create([
+        $record = AttendanceCheckIn::record([
             'attendance_location_id' => $location?->id,
             'employee_id' => $employee?->id,
             'entered_employee_code' => $employeeCode,
@@ -79,6 +79,8 @@ class PublicAttendanceController extends Controller
             'result' => [
                 'record_id' => $record->id,
                 'status' => $record->status,
+                'late_minutes' => (int) $record->late_minutes,
+                'late_fine' => (float) $record->late_fine,
                 'rejection_reason' => $record->rejection_reason,
                 'distance_m' => $record->distance_m,
                 'allowed_radius_m' => $location?->allowed_radius_m,

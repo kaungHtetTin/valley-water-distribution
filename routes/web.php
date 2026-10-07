@@ -58,6 +58,7 @@ Route::get('/uploads/profile-photos/{filename}', ProfilePhotoController::class)
     ->name('profile-photo');
 
 Route::prefix('api/auth')->group(function () {
+    Route::get('/csrf', [AppAuthController::class, 'csrf']);
     Route::get('/user', [AppAuthController::class, 'user']);
     Route::post('/login', [AppAuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('/register', [AppAuthController::class, 'register'])->middleware('throttle:6,1');
@@ -224,6 +225,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/attendance/summary', [AttendanceRecordController::class, 'summary']);
     Route::get('/attendance/records', [AttendanceRecordController::class, 'index']);
     Route::get('/attendance/records/{id}', [AttendanceRecordController::class, 'show'])->whereNumber('id');
+    Route::post('/attendance/records/{id}/approve-full', [AttendanceRecordController::class, 'approveFull'])->whereNumber('id');
 
     Route::get('/payroll-history', [PayrollController::class, 'salaryHistory']);
     Route::get('/payroll-history/{id}', [PayrollController::class, 'salaryHistoryShow'])->whereNumber('id');

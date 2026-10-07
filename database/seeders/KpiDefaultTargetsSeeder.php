@@ -10,13 +10,10 @@ class KpiDefaultTargetsSeeder extends Seeder
 {
     /**
      * Defaults translated from docs/KPI.xlsx into the units used by the app.
-     *
-     * The workbook's Sales Target is 4,000 product units. The application
-     * records net sales in MMK, so the initial value uses the workbook's
-     * 4,000 units at a conservative 1,000 MMK reference value per unit.
+     * Net sales achievement uses the workbook's 4,000 product units directly.
      */
     private const OPERATIONAL_TARGETS = [
-        'SAL-NET-SALES' => 4_000_000,
+        'SAL-NET-SALES' => 4_000,
         'SAL-NEW-CUSTOMER' => 20,
         'SAL-VISIT' => 150,
         'SAL-COLLECTION' => 12_500_000,

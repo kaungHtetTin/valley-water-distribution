@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\User;
 use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use App\Support\SalaryDefaults;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -42,6 +44,9 @@ class MasterDataController extends Controller
                 ? array_values(array_filter($config['fields'], fn ($field) => ! in_array($field['name'], ['access_role', 'password', 'password_confirmation'], true)))
                 : $config['fields'],
             'list' => $config['list'],
+            'salary_defaults' => $key === 'employees'
+                ? (Company::query()->oldest('id')->first()?->default_base_salaries ?? SalaryDefaults::AMOUNTS)
+                : null,
         ])->values();
 
         return ApiResponse::success('Master data setup loaded.', [
@@ -282,8 +287,8 @@ class MasterDataController extends Controller
 
         $attendanceQuery = DB::table('attendance_records')->where('employee_id', $id);
         $attendanceSummary = [
-            'accepted_this_month' => (clone $attendanceQuery)->where('status', 'accepted')->whereBetween('attendance_at', [$monthStart, $monthEnd])->count(),
-            'rejected_this_month' => (clone $attendanceQuery)->where('status', '!=', 'accepted')->whereBetween('attendance_at', [$monthStart, $monthEnd])->count(),
+            'accepted_this_month' => (clone $attendanceQuery)->whereIn('status', ['accepted', 'late'])->whereBetween('attendance_at', [$monthStart, $monthEnd])->count(),
+            'rejected_this_month' => (clone $attendanceQuery)->where('status', 'rejected')->whereBetween('attendance_at', [$monthStart, $monthEnd])->count(),
             'last_attendance_at' => (clone $attendanceQuery)->max('attendance_at'),
         ];
         $attendance = (clone $attendanceQuery)
@@ -292,6 +297,7 @@ class MasterDataController extends Controller
             ->orderByDesc('attendance_records.attendance_at')
             ->get([
                 'attendance_records.id', 'attendance_records.attendance_at', 'attendance_records.status',
+                'attendance_records.late_minutes', 'attendance_records.late_fine',
                 'attendance_records.distance_m', 'attendance_records.rejection_reason',
                 'attendance_locations.name as location_name',
             ]);

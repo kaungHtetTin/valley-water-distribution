@@ -163,6 +163,7 @@ const officeCopy = {
         totalEmployees: 'Employees',
         totalRecords: 'Records',
         accepted: 'Accepted',
+        late: 'Late accepted', lateCount: 'Late count', lateMinutes: 'Late minutes', lateFine: 'Late fine (MMK)',
         outside_allowed_radius: 'Outside allowed radius',
         gps_denied: 'GPS denied',
         invalid_employee_id: 'Invalid employee ID',
@@ -250,8 +251,9 @@ export function PublicAttendanceScreen({ token, locale, setLocale }) {
                     <div className="attendance-result rejected"><AlertCircle size={28} /><h2>{t.rejected}</h2><p>{t.inactive}</p></div>
                 ) : result ? (
                     <div className={`attendance-result ${result.status}`}>
-                        {result.status === 'accepted' ? <CheckCircle2 size={30} /> : <AlertCircle size={30} />}
-                        <h2>{result.status === 'accepted' ? t.accepted : t.rejected}</h2>
+                        {['accepted', 'late'].includes(result.status) ? <CheckCircle2 size={30} /> : <AlertCircle size={30} />}
+                        <h2>{result.status === 'late' ? (locale === 'my' ? 'နောက်ကျ တက်ရောက်မှု လက်ခံပြီး' : 'Late attendance accepted') : ['accepted', 'late'].includes(result.status) ? t.accepted : t.rejected}</h2>
+                        <LateDetails record={result} locale={locale} />
                         {result.rejection_reason && <p>{t[result.rejection_reason] || result.rejection_reason}</p>}
                         {result.employee_name && <strong>{result.employee_name}</strong>}
                         <dl><div><dt>{t.distance}</dt><dd>{result.distance_m === null ? '—' : `${result.distance_m} m`}</dd></div><div><dt>{t.radius}</dt><dd>{result.allowed_radius_m} m</dd></div></dl>
@@ -409,7 +411,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
     );
 }
 
-export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate }) {
+export function AttendanceRecordsScreen({ locale, user, detailId = null, onNavigate }) {
     const [filters, setFilters] = useState({ search: '', status: '', rejection_reason: '', attendance_location_id: '', date: '' });
     const [page, setPage] = useState(1);
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
@@ -417,6 +419,23 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
     const [viewing, setViewing] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
     const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/attendance/records`;
+    const [approving, setApproving] = useState(null);
+    const canApprove = ['Owner', 'Finance Manager', 'Manager'].includes(user?.role)
+        && user?.permissions?.includes('office.attendance.approve-full');
+    const approvalLabel = locale === 'my' ? 'အပြည့်အဝ ရုံးတက်အဖြစ် လက်ခံမည်' : 'Accept as full attendance';
+    const approveFull = async (record) => {
+        if (approving !== null) return;
+        setApproving(record.id);
+        try {
+            const { data } = await window.axios.post(`${apiBase('attendanceRecords')}/${record.id}/approve-full`);
+            setViewing(data.data.record);
+            setRefreshKey((key) => key + 1);
+        } catch (error) {
+            setState((current) => ({ ...current, error: requestMessage(error, locale) }));
+        } finally {
+            setApproving(null);
+        }
+    };
 
     useEffect(() => {
         if (!detailId) {
@@ -462,7 +481,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
     }, [filters, locale, page, refreshKey]);
 
     const summary = useMemo(() => {
-        const accepted = state.items.filter((item) => item.status === 'accepted').length;
+        const accepted = state.items.filter((item) => ['accepted', 'late'].includes(item.status)).length;
         const rejected = state.items.filter((item) => item.status === 'rejected').length;
         const gpsDenied = state.items.filter((item) => item.rejection_reason === 'gps_denied').length;
         return [
@@ -473,7 +492,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
         ];
     }, [locale, state.items, state.meta.total]);
 
-    if (detailId) return viewing ? <AttendanceRecordDetailPage record={viewing} locale={locale} onClose={() => onNavigate?.(listPath)} /> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
+    if (detailId) return viewing ? <><AttendanceRecordDetailPage record={viewing} locale={locale} onClose={() => onNavigate?.(listPath)} approvalAction={canApprove && viewing.status === 'late' ? <button className="button primary" disabled={approving !== null} onClick={() => approveFull(viewing)}>{approvalLabel}</button> : null} />{state.error && <div className="inline-error" role="alert">{state.error}</div>}</> : <WorkspaceState icon={state.error ? AlertCircle : RefreshCw} title={state.error || t(locale, 'loading')} loading={!state.error} />;
 
     return (
         <section className="master-workspace attendance-workspace">
@@ -503,6 +522,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
                     <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => { setFilters((current) => ({ ...current, status: event.target.value })); setPage(1); }}>
                         <option value="">{t(locale, 'allStatuses')}</option>
                         <option value="accepted">{t(locale, 'accepted')}</option>
+                        <option value="late">{t(locale, 'late')}</option>
                         <option value="rejected">{t(locale, 'rejected')}</option>
                     </select>
                     <select aria-label={t(locale, 'reason')} value={filters.rejection_reason} onChange={(event) => { setFilters((current) => ({ ...current, rejection_reason: event.target.value })); setPage(1); }}>
@@ -537,7 +557,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
                                         <td>{record.location_name || <span className="muted">-</span>}</td>
                                         <td>{formatDateTime(record.attendance_at)}</td>
                                         <td>{meters(record.distance_m)}</td>
-                                        <td><StatusBadge status={record.status} locale={locale} /></td>
+                                        <td><StatusBadge status={record.status} locale={locale} /><LateDetails record={record} locale={locale} />{canApprove && record.status === 'late' && <button className="button" type="button" disabled={approving !== null} onClick={(event) => { event.stopPropagation(); approveFull(record); }}>{approvalLabel}</button>}</td>
                                         <td>{record.rejection_reason ? t(locale, record.rejection_reason) : <span className="muted">-</span>}</td>
                                     </tr>
                                 ))}
@@ -554,7 +574,7 @@ export function AttendanceRecordsScreen({ locale, detailId = null, onNavigate })
 }
 
 export function AttendanceSummaryScreen({ locale }) {
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = attendanceDate().slice(0, 7);
     const [filters, setFilters] = useState({ month: currentMonth, date_from: '', date_to: '', employee_type: '', search: '' });
     const [page, setPage] = useState(1);
     const [state, setState] = useState({ loading: true, items: [], period: {}, totals: {}, meta: {}, error: '' });
@@ -593,6 +613,9 @@ export function AttendanceSummaryScreen({ locale }) {
         [t(locale, 'totalRecords'), state.totals.records ?? 0, t(locale, 'attendanceSummary')],
         [t(locale, 'accepted'), state.totals.accepted ?? 0, t(locale, 'status')],
         [t(locale, 'rejected'), state.totals.rejected ?? 0, t(locale, 'status')],
+        [t(locale, 'lateCount'), state.totals.late_count ?? 0, t(locale, 'attendanceSummary')],
+        [t(locale, 'lateMinutes'), state.totals.late_minutes ?? 0, t(locale, 'attendanceSummary')],
+        [t(locale, 'lateFine'), Number(state.totals.late_fine || 0).toLocaleString(), 'MMK'],
     ];
 
     return (
@@ -635,6 +658,7 @@ export function AttendanceSummaryScreen({ locale }) {
                                     <th>{t(locale, 'employee')}</th>
                                     <th>{t(locale, 'employeeType')}</th>
                                     <th>{t(locale, 'totalRecords')}</th>
+                                    <th>{t(locale, 'lateCount')}</th><th>{t(locale, 'lateMinutes')}</th><th>{t(locale, 'lateFine')}</th>
                                     <th>{t(locale, 'accepted')}</th>
                                     <th>{t(locale, 'rejected')}</th>
                                     <th>{t(locale, 'gpsDenied')}</th>
@@ -648,6 +672,7 @@ export function AttendanceSummaryScreen({ locale }) {
                                         <td><strong>{row.employee_name}</strong><span className="muted">{row.employee_code}</span></td>
                                         <td>{titleCase(row.employee_type)}</td>
                                         <td>{row.total_records}</td>
+                                        <td>{row.late_count}</td><td>{row.late_minutes}</td><td>{Number(row.late_fine || 0).toLocaleString()}</td>
                                         <td>{row.accepted_count}</td>
                                         <td>{row.rejected_count}</td>
                                         <td>{row.gps_denied_count}</td>
@@ -743,8 +768,9 @@ function MobileAttendanceCheckInDialog({ locale, onClose, onRecorded }) {
                 <div className="master-form-body mobile-attendance-checkin-body">
                     {result ? (
                         <div className={`mobile-attendance-checkin-result ${result.status}`}>
-                            {result.status === 'accepted' ? <CheckCircle2 size={32} /> : <AlertCircle size={32} />}
-                            <div><h3>{result.already_recorded ? 'Already checked in today' : result.status === 'accepted' ? 'Attendance recorded' : 'Attendance rejected'}</h3><p>{result.warehouse_name} · {formatDateTime(result.attendance_at)}</p></div>
+                            {['accepted', 'late'].includes(result.status) ? <CheckCircle2 size={32} /> : <AlertCircle size={32} />}
+                            <div><h3>{result.already_recorded ? 'Already checked in today' : ['accepted', 'late'].includes(result.status) ? 'Attendance recorded' : 'Attendance rejected'}</h3><p>{result.warehouse_name} · {formatDateTime(result.attendance_at)}</p></div>
+                            <LateDetails record={result} locale={locale} />
                             {result.rejection_reason && <small>{t(locale, result.rejection_reason)}</small>}
                         </div>
                     ) : state.loading ? (
@@ -777,7 +803,7 @@ function MobileAttendanceCheckInDialog({ locale, onClose, onRecorded }) {
 
 export function MobileAttendanceHistoryScreen({ locale }) {
     const today = new Date();
-    const [month, setMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
+    const [month, setMonth] = useState(attendanceDate().slice(0, 7));
     const [selectedDate, setSelectedDate] = useState('');
     const [state, setState] = useState({ loading: true, items: [], summary: { accepted: 0, rejected: 0, total: 0 }, error: '' });
     const [selected, setSelected] = useState(null);
@@ -805,7 +831,7 @@ export function MobileAttendanceHistoryScreen({ locale }) {
     const daysInMonth = new Date(year, monthNumber, 0).getDate();
     const leadingDays = monthDate.getDay();
     const recordsByDate = useMemo(() => state.items.reduce((days, record) => {
-        const key = String(record.attendance_at || '').slice(0, 10);
+        const key = attendanceDate(record.attendance_at);
         if (!days[key]) days[key] = [];
         days[key].push(record);
         return days;
@@ -815,11 +841,11 @@ export function MobileAttendanceHistoryScreen({ locale }) {
         if (day < 1 || day > daysInMonth) return null;
         const date = `${month}-${String(day).padStart(2, '0')}`;
         const records = recordsByDate[date] || [];
-        return { day, date, records, accepted: records.some((record) => record.status === 'accepted'), rejected: records.some((record) => record.status === 'rejected') };
+        return { day, date, records, late: records.some((record) => record.status === 'late'), accepted: records.some((record) => ['accepted', 'late'].includes(record.status)), rejected: records.some((record) => record.status === 'rejected') };
     });
     const visibleRecords = selectedDate ? (recordsByDate[selectedDate] || []) : state.items;
     const recordedDays = Object.keys(recordsByDate).length;
-    const acceptedDays = Object.values(recordsByDate).filter((records) => records.some((record) => record.status === 'accepted')).length;
+    const acceptedDays = Object.values(recordsByDate).filter((records) => records.some((record) => ['accepted', 'late'].includes(record.status))).length;
     const changeMonth = (offset) => {
         const next = new Date(year, monthNumber - 1 + offset, 1);
         setMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`);
@@ -844,6 +870,9 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                 <div><small>Recorded days</small><strong>{recordedDays}</strong></div>
                 <div><small>Present days</small><strong>{acceptedDays}</strong></div>
                 <div><small>{t(locale, 'rejected')}</small><strong>{state.summary.rejected}</strong></div>
+                <div><small>{t(locale, 'lateCount')}</small><strong>{state.summary.late_count || 0}</strong></div>
+                <div><small>{t(locale, 'lateMinutes')}</small><strong>{state.summary.late_minutes || 0}</strong></div>
+                <div><small>{t(locale, 'lateFine')}</small><strong>{Number(state.summary.late_fine || 0).toLocaleString()}</strong></div>
             </section>
 
             <section className="mobile-master-section mobile-attendance-calendar-section">
@@ -854,9 +883,9 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                 </div>
                 <div className="mobile-attendance-calendar" role="grid" aria-label="Attendance calendar">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span className="mobile-calendar-weekday" key={day}>{day}</span>)}
-                    {calendarCells.map((cell, index) => cell ? <button key={cell.date} type="button" className={`${cell.accepted ? 'is-accepted' : cell.rejected ? 'is-rejected' : ''} ${selectedDate === cell.date ? 'is-selected' : ''}`} onClick={() => setSelectedDate((value) => value === cell.date ? '' : cell.date)} aria-label={`${cell.date}, ${cell.records.length} attendance records`}><span>{cell.day}</span>{cell.records.length > 0 && <small>{cell.records.length}</small>}</button> : <span className="mobile-calendar-empty" key={`empty-${index}`} />)}
+                    {calendarCells.map((cell, index) => cell ? <button key={cell.date} type="button" className={`${cell.late ? 'is-late' : cell.accepted ? 'is-accepted' : cell.rejected ? 'is-rejected' : ''} ${selectedDate === cell.date ? 'is-selected' : ''}`} onClick={() => setSelectedDate((value) => value === cell.date ? '' : cell.date)} aria-label={`${cell.date}, ${cell.records.length} attendance records`}><span>{cell.day}</span>{cell.records.length > 0 && <small>{cell.records.length}</small>}</button> : <span className="mobile-calendar-empty" key={`empty-${index}`} />)}
                 </div>
-                <div className="mobile-calendar-legend"><span><i className="accepted" />Present</span><span><i className="rejected" />Rejected only</span><span><i />No record</span></div>
+                <div className="mobile-calendar-legend"><span><i className="accepted" />Present</span><span><i className="late" />{t(locale, 'late')}</span><span><i className="rejected" />Rejected only</span><span><i />No record</span></div>
             </section>
 
             <section className="mobile-master-section">
@@ -870,6 +899,7 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                                 <span>
                                     <strong>{record.warehouse_name || record.location_name || t(locale, 'location')}</strong>
                                     <small>{formatDateTime(record.attendance_at)}</small>
+                                    <LateDetails record={record} locale={locale} />
                                     <small>{record.rejection_reason ? t(locale, record.rejection_reason) : `${t(locale, 'distance')}: ${metersText(record.distance_m ?? 0)}`}</small>
                                 </span>
                                 <StatusBadge status={record.status} locale={locale} />
@@ -880,7 +910,7 @@ export function MobileAttendanceHistoryScreen({ locale }) {
             </section>
 
             {selected && <MobileAttendanceDetailSheet record={selected} locale={locale} onClose={() => setSelected(null)} />}
-            {checkInOpen && <MobileAttendanceCheckInDialog locale={locale} onClose={() => setCheckInOpen(false)} onRecorded={(record) => setState((current) => { const exists = current.items.some((item) => item.id === record.id); const previous = current.items.find((item) => item.id === record.id); return { ...current, items: exists ? current.items.map((item) => item.id === record.id ? { ...item, ...record } : item) : [record, ...current.items], summary: { ...current.summary, total: Number(current.summary.total || 0) + (exists ? 0 : 1), accepted: Number(current.summary.accepted || 0) - (previous?.status === 'accepted' ? 1 : 0) + (record.status === 'accepted' ? 1 : 0), rejected: Number(current.summary.rejected || 0) - (previous?.status === 'rejected' ? 1 : 0) + (record.status === 'rejected' ? 1 : 0) } }; })} />}
+            {checkInOpen && <MobileAttendanceCheckInDialog locale={locale} onClose={() => setCheckInOpen(false)} onRecorded={() => setRefreshKey((key) => key + 1)} />}
         </div>
     );
 }
@@ -1095,18 +1125,19 @@ function LocationDetailPage({ location, locale, canManage, onClose, onEdit, onRo
     );
 }
 
-function AttendanceRecordDetailPage({ record, locale, onClose }) {
+function AttendanceRecordDetailPage({ record, locale, onClose, approvalAction }) {
     return (
         <DetailPage eyebrow={t(locale, 'attendanceRecords')} title={record.employee_name || record.entered_employee_code} subtitle={formatDateTime(record.attendance_at)} onBack={onClose}
             aside={<DetailPanel eyebrow={t(locale, 'status')}><div className="record-page-summary"><span>{t(locale, 'status')}</span><strong><StatusBadge status={record.status} locale={locale} /></strong><small className="muted">{record.location_name || '-'}</small></div></DetailPanel>}
         >
             <DetailPanel eyebrow={t(locale, 'details')} title={t(locale, 'attendance')}>
+                {approvalAction}
                 <dl className="record-page-facts">
                     <InfoRow label={t(locale, 'employee')} value={record.employee_name || '-'} />
                     <InfoRow label={t(locale, 'employeeCode')} value={record.employee_code || record.entered_employee_code} />
                     <InfoRow label={t(locale, 'location')} value={record.location_name || '-'} />
                     <InfoRow label={t(locale, 'checkedAt')} value={formatDateTime(record.attendance_at)} />
-                    <InfoRow label={t(locale, 'status')} value={<StatusBadge status={record.status} locale={locale} />} />
+                    <InfoRow label={t(locale, 'status')} value={<><StatusBadge status={record.status} locale={locale} /><LateDetails record={record} locale={locale} /></>} />
                     <InfoRow label={t(locale, 'reason')} value={record.rejection_reason ? t(locale, record.rejection_reason) : '-'} />
                     <InfoRow label={t(locale, 'distance')} value={meters(record.distance_m)} />
                     <InfoRow label={t(locale, 'latitude')} value={record.latitude ?? '-'} />
@@ -1125,7 +1156,7 @@ function MobileAttendanceDetailSheet({ record, locale, onClose }) {
                 <dl className="mobile-info-list">
                     <InfoRow label={t(locale, 'location')} value={record.location_name || '-'} />
                     <InfoRow label={t(locale, 'checkedAt')} value={formatDateTime(record.attendance_at)} />
-                    <InfoRow label={t(locale, 'status')} value={<StatusBadge status={record.status} locale={locale} />} />
+                    <InfoRow label={t(locale, 'status')} value={<><StatusBadge status={record.status} locale={locale} /><LateDetails record={record} locale={locale} /></>} />
                     <InfoRow label={t(locale, 'reason')} value={record.rejection_reason ? t(locale, record.rejection_reason) : '-'} />
                     <InfoRow label={t(locale, 'distance')} value={meters(record.distance_m)} />
                     <InfoRow label={t(locale, 'latitude')} value={record.latitude ?? '-'} />
@@ -1140,8 +1171,16 @@ function InfoRow({ label, value }) {
     return <div><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
+officeCopy.my = { ...officeCopy.my, late: 'နောက်ကျ လက်ခံပြီး', lateCount: 'နောက်ကျအကြိမ်ရေ', lateMinutes: 'နောက်ကျမိနစ်', lateFine: 'ဖိုင်းကြေး (ကျပ်)' };
+
+function LateDetails({ record, locale }) {
+    if (record.full_attendance_approved_at) return <small className="muted">{locale === 'my' ? 'အပြည့်အဝ ရုံးတက်အဖြစ် လက်ခံပြီး' : 'Accepted as full attendance'} · {record.full_attendance_approver_name} · {formatDateTime(record.full_attendance_approved_at)} · {locale === 'my' ? 'ပယ်ဖျက်ဖိုင်းကြေး' : 'Fine waived'}: {Number(record.waived_late_fine || 0).toLocaleString()} MMK</small>;
+    if (record.status !== 'late') return null;
+    return <small className="attendance-late-details">{t(locale, 'lateMinutes')}: {record.late_minutes || 0} · {t(locale, 'lateFine')}: {Number(record.late_fine || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</small>;
+}
+
 function StatusBadge({ status, locale }) {
-    const normalized = status === 'accepted' || status === 'active' ? 'success' : status === 'rejected' ? 'danger' : 'neutral';
+    const normalized = status === 'accepted' || status === 'active' ? 'success' : status === 'rejected' ? 'danger' : status === 'late' ? 'warning' : 'neutral';
     const label = status === 'active' ? t(locale, 'active') : status === 'inactive' ? t(locale, 'inactive') : t(locale, status);
     return <span className={`status ${normalized}`}>{label}</span>;
 }
@@ -1168,11 +1207,17 @@ function metersText(value) {
     return `${Number(value).toLocaleString()} m`;
 }
 
+function attendanceDate(value = new Date()) {
+    const parsed = typeof value === 'string' && !/[TZ]|[+-]\d{2}:\d{2}$/.test(value) ? value.replace(' ', 'T') + '+06:30' : value;
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yangon', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(parsed));
+}
+
 function formatDateTime(value) {
     if (!value) return '-';
-    const date = new Date(value);
+    const parsed = typeof value === 'string' && !/[TZ]|[+-]\d{2}:\d{2}$/.test(value) ? value.replace(' ', 'T') + '+06:30' : value;
+    const date = new Date(parsed);
     if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString([], { timeZone: 'Asia/Yangon', year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function periodLabel(period = {}) {

@@ -1,10 +1,10 @@
 {
-  "_DetailPage-CgjGBJRf.js": {
-    "file": "assets/DetailPage-CgjGBJRf.js",
+  "_DetailPage-BVbR6nec.js": {
+    "file": "assets/DetailPage-BVbR6nec.js",
     "name": "DetailPage",
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "resources/js/app.js"
     ]
   },
@@ -15,8 +15,8 @@
       "_jsx-runtime-CXUMngI_.js"
     ]
   },
-  "_ShellBackButton-Dd5hDLF8.js": {
-    "file": "assets/ShellBackButton-Dd5hDLF8.js",
+  "_ShellBackButton-BMryllB7.js": {
+    "file": "assets/ShellBackButton-BMryllB7.js",
     "name": "ShellBackButton",
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
@@ -68,6 +68,13 @@
   "_circle-dollar-sign-CtbNFJvB.js": {
     "file": "assets/circle-dollar-sign-CtbNFJvB.js",
     "name": "circle-dollar-sign",
+    "imports": [
+      "_jsx-runtime-CXUMngI_.js"
+    ]
+  },
+  "_clock-3-CWhRMXdJ.js": {
+    "file": "assets/clock-3-CWhRMXdJ.js",
+    "name": "clock-3",
     "imports": [
       "_jsx-runtime-CXUMngI_.js"
     ]
@@ -162,8 +169,8 @@
       "_jsx-runtime-CXUMngI_.js"
     ]
   },
-  "_send-BOlD9GAI.js": {
-    "file": "assets/send-BOlD9GAI.js",
+  "_send-dVcdM8Xt.js": {
+    "file": "assets/send-dVcdM8Xt.js",
     "name": "send",
     "imports": [
       "_jsx-runtime-CXUMngI_.js"
@@ -190,6 +197,13 @@
       "_jsx-runtime-CXUMngI_.js"
     ]
   },
+  "_useLiveKpiRefresh-CQfUza8p.js": {
+    "file": "assets/useLiveKpiRefresh-CQfUza8p.js",
+    "name": "useLiveKpiRefresh",
+    "imports": [
+      "_jsx-runtime-CXUMngI_.js"
+    ]
+  },
   "node_modules/leaflet/dist/images/layers-2x.png": {
     "file": "assets/layers-2x-Bpkbi35X.png",
     "src": "node_modules/leaflet/dist/images/layers-2x.png"
@@ -203,7 +217,7 @@
     "src": "node_modules/leaflet/dist/images/marker-icon.png"
   },
   "resources/css/app.css": {
-    "file": "assets/app-B5qhYTDV.css",
+    "file": "assets/app-CKaC1-Xj.css",
     "name": "app",
     "names": [
       "app.css"
@@ -212,7 +226,7 @@
     "isEntry": true
   },
   "resources/js/ProfileSettings.jsx": {
-    "file": "assets/ProfileSettings-BsAiGYNy.js",
+    "file": "assets/ProfileSettings-Cd0WL4bj.js",
     "name": "ProfileSettings",
     "src": "resources/js/ProfileSettings.jsx",
     "isDynamicEntry": true,
@@ -224,20 +238,20 @@
     ]
   },
   "resources/js/SupervisorApp.jsx": {
-    "file": "assets/SupervisorApp-DwUWv13r.js",
+    "file": "assets/SupervisorApp-BU_GBdTH.js",
     "name": "SupervisorApp",
     "src": "resources/js/SupervisorApp.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "_circle-alert-CntYHV5v.js",
       "_refresh-cw-BqJFk4sU.js",
       "resources/js/app.js"
     ]
   },
   "resources/js/app.js": {
-    "file": "assets/app-ChDaIvB3.js",
+    "file": "assets/app-3FnM2r0u.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
@@ -263,7 +277,7 @@
     ]
   },
   "resources/js/phaseEight.jsx": {
-    "file": "assets/phaseEight-BWltyBcu.js",
+    "file": "assets/phaseEight-BPf_yezu.js",
     "name": "phaseEight",
     "src": "resources/js/phaseEight.jsx",
     "isDynamicEntry": true,
@@ -281,7 +295,7 @@
     ]
   },
   "resources/js/phaseEleven.jsx": {
-    "file": "assets/phaseEleven-C80M3hh8.js",
+    "file": "assets/phaseEleven-CTiyFFYA.js",
     "name": "phaseEleven",
     "src": "resources/js/phaseEleven.jsx",
     "isDynamicEntry": true,
@@ -295,31 +309,31 @@
     ]
   },
   "resources/js/phaseFive.jsx": {
-    "file": "assets/phaseFive-CeyiYJEY.js",
+    "file": "assets/phaseFive-DQQ9uWUy.js",
     "name": "phaseFive",
     "src": "resources/js/phaseFive.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "_check-D69FzdvC.js",
       "_plus-DIdX_g-x.js",
       "_printer-C_hl60fC.js",
       "_refresh-cw-BqJFk4sU.js",
       "_save-C3IYjdqE.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js",
+      "_DetailPage-BVbR6nec.js",
       "_printDocuments-GgKFa2sT.js"
     ]
   },
   "resources/js/phaseFour.jsx": {
-    "file": "assets/phaseFour-Cl0LDZHW.js",
+    "file": "assets/phaseFour-B-JMeOC2.js",
     "name": "phaseFour",
     "src": "resources/js/phaseFour.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "_badge-check-p-8QsU9L.js",
       "_ban-CPkqYRJo.js",
       "_check-D69FzdvC.js",
@@ -333,12 +347,12 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js",
+      "_DetailPage-BVbR6nec.js",
       "_printDocuments-GgKFa2sT.js"
     ]
   },
   "resources/js/phaseKpi.jsx": {
-    "file": "assets/phaseKpi-H6YKiEdw.js",
+    "file": "assets/phaseKpi-Bgim3Ywu.js",
     "name": "phaseKpi",
     "src": "resources/js/phaseKpi.jsx",
     "isDynamicEntry": true,
@@ -346,16 +360,18 @@
       "_jsx-runtime-CXUMngI_.js",
       "_badge-check-p-8QsU9L.js",
       "_circle-alert-CntYHV5v.js",
-      "_send-BOlD9GAI.js",
+      "_clock-3-CWhRMXdJ.js",
       "_refresh-cw-BqJFk4sU.js",
       "_save-C3IYjdqE.js",
+      "_send-dVcdM8Xt.js",
       "_trending-up-tpecsUoB.js",
       "resources/js/app.js",
-      "_MonthSelect-CYdgKt19.js"
+      "_MonthSelect-CYdgKt19.js",
+      "_useLiveKpiRefresh-CQfUza8p.js"
     ]
   },
   "resources/js/phaseKpiReport.jsx": {
-    "file": "assets/phaseKpiReport-qIkK6Fu2.js",
+    "file": "assets/phaseKpiReport-D2iYsGlo.js",
     "name": "phaseKpiReport",
     "src": "resources/js/phaseKpiReport.jsx",
     "isDynamicEntry": true,
@@ -371,7 +387,7 @@
     ]
   },
   "resources/js/phaseNine.jsx": {
-    "file": "assets/phaseNine-BDdpGQ_y.js",
+    "file": "assets/phaseNine-BROkIwqI.js",
     "name": "phaseNine",
     "src": "resources/js/phaseNine.jsx",
     "isDynamicEntry": true,
@@ -385,16 +401,17 @@
     ]
   },
   "resources/js/phaseOne.jsx": {
-    "file": "assets/phaseOne-BFgm8w4B.js",
+    "file": "assets/phaseOne-DkvGBV79.js",
     "name": "phaseOne",
     "src": "resources/js/phaseOne.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "_check-D69FzdvC.js",
       "_chevron-left-Bf6CaTSJ.js",
       "_circle-alert-CntYHV5v.js",
+      "_clock-3-CWhRMXdJ.js",
       "_phone-CQuCRBdi.js",
       "_leaflet-D3ExDc92.js",
       "_pencil-768ysRAr.js",
@@ -405,18 +422,19 @@
       "_trash-2-C1be3aAZ.js",
       "_trending-up-tpecsUoB.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js",
-      "_MonthSelect-CYdgKt19.js"
+      "_DetailPage-BVbR6nec.js",
+      "_MonthSelect-CYdgKt19.js",
+      "_useLiveKpiRefresh-CQfUza8p.js"
     ]
   },
   "resources/js/phaseSeven.jsx": {
-    "file": "assets/phaseSeven-CrpLsd63.js",
+    "file": "assets/phaseSeven-C6e4bKW-.js",
     "name": "phaseSeven",
     "src": "resources/js/phaseSeven.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "_arrow-up-right-CnApsDLQ.js",
       "_badge-check-p-8QsU9L.js",
       "_circle-alert-CntYHV5v.js",
@@ -429,18 +447,18 @@
       "_save-C3IYjdqE.js",
       "_trending-up-tpecsUoB.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js",
+      "_DetailPage-BVbR6nec.js",
       "_printDocuments-GgKFa2sT.js"
     ]
   },
   "resources/js/phaseSix.jsx": {
-    "file": "assets/phaseSix-DslLflKu.js",
+    "file": "assets/phaseSix-DvwTfRGO.js",
     "name": "phaseSix",
     "src": "resources/js/phaseSix.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-Dd5hDLF8.js",
+      "_ShellBackButton-BMryllB7.js",
       "_ban-CPkqYRJo.js",
       "_check-D69FzdvC.js",
       "_leaflet-D3ExDc92.js",
@@ -450,11 +468,11 @@
       "_refresh-cw-BqJFk4sU.js",
       "_save-C3IYjdqE.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js"
+      "_DetailPage-BVbR6nec.js"
     ]
   },
   "resources/js/phaseTen.jsx": {
-    "file": "assets/phaseTen-D0xxQp4T.js",
+    "file": "assets/phaseTen-ClL3f2up.js",
     "name": "phaseTen",
     "src": "resources/js/phaseTen.jsx",
     "isDynamicEntry": true,
@@ -463,16 +481,17 @@
       "_arrow-up-right-CnApsDLQ.js",
       "_circle-alert-CntYHV5v.js",
       "_circle-dollar-sign-CtbNFJvB.js",
-      "_send-BOlD9GAI.js",
+      "_clock-3-CWhRMXdJ.js",
       "_download-A0SW9OCW.js",
       "_phone-CQuCRBdi.js",
       "_printer-C_hl60fC.js",
       "_refresh-cw-BqJFk4sU.js",
+      "_send-dVcdM8Xt.js",
       "resources/js/app.js"
     ]
   },
   "resources/js/phaseThree.jsx": {
-    "file": "assets/phaseThree-EGH5gTWO.js",
+    "file": "assets/phaseThree-DCVR_3pM.js",
     "name": "phaseThree",
     "src": "resources/js/phaseThree.jsx",
     "isDynamicEntry": true,
@@ -489,12 +508,13 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js",
-      "_printDocuments-GgKFa2sT.js"
+      "_DetailPage-BVbR6nec.js",
+      "_printDocuments-GgKFa2sT.js",
+      "_useLiveKpiRefresh-CQfUza8p.js"
     ]
   },
   "resources/js/phaseTwo.jsx": {
-    "file": "assets/phaseTwo-BqqutBuW.js",
+    "file": "assets/phaseTwo-BtXdqd4a.js",
     "name": "phaseTwo",
     "src": "resources/js/phaseTwo.jsx",
     "isDynamicEntry": true,
@@ -511,7 +531,7 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-CgjGBJRf.js"
+      "_DetailPage-BVbR6nec.js"
     ]
   }
 }

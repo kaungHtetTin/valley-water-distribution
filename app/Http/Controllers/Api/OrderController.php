@@ -52,8 +52,12 @@ class OrderController extends Controller
                 $product->prices = DB::table('product_prices')
                     ->where('product_id', $product->id)
                     ->where('is_active', true)
-                    ->orderByDesc('effective_from')
+                    ->where(function ($query) {
+                        $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', now()->toDateString());
+                    })
+                    ->orderByDesc('effective_from')->orderByDesc('id')
                     ->get(['price_type_id', 'amount']);
+                $product->default_price = \App\Support\ProductPricing::amount($product->id, null, now());
 
                 return $product;
             });
@@ -61,8 +65,8 @@ class OrderController extends Controller
         return ApiResponse::success('Order setup loaded.', [
             'customers' => $customers,
             'products' => $products,
-            'price_types' => DB::table('price_types')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
-            'areas' => DB::table('areas')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
+            'price_types' => DB::table('price_types')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'is_default']),
+            'areas' => DB::table('areas')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'is_default']),
             'routes' => DB::table('routes')->where('is_active', true)->orderBy('name')->get(['id', 'area_id', 'code', 'name']),
         ]);
     }
@@ -471,17 +475,8 @@ class OrderController extends Controller
 
     private function priceForProduct(int $productId, ?int $priceTypeId, Carbon $orderDate): float
     {
-        $price = DB::table('product_prices')
-            ->where('product_id', $productId)
-            ->when($priceTypeId, fn ($query) => $query->where('price_type_id', $priceTypeId))
-            ->where('is_active', true)
-            ->where(function ($query) use ($orderDate) {
-                $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', $orderDate->toDateString());
-            })
-            ->orderByDesc('effective_from')
-            ->value('amount');
-
-        abort_unless($price !== null, 422, 'Product price is required.');
+        $price = \App\Support\ProductPricing::amount($productId, $priceTypeId, $orderDate);
+        abort_unless($price !== null, 422, 'A positive product price or default price is required.');
 
         return (float) $price;
     }

@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             $this->call(DemoSeeder::class);
         }
 
+        $this->call(DemoSeeder::class);
         // Assign role defaults after any existing or test fixture employees are present.
         $this->call(KpiDefaultTargetsSeeder::class);
     }

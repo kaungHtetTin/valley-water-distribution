@@ -717,6 +717,15 @@ function App() {
         window.location.assign(appConfig[redirectApp].path);
     }, [activeApp, auth.user]);
 
+    useEffect(() => {
+        const sessionExpired = () => setAuth({
+            loading: false, user: null, errors: {},
+            message: 'Your session changed or expired. Please sign in again.',
+        });
+        window.addEventListener('valley-session-expired', sessionExpired);
+        return () => window.removeEventListener('valley-session-expired', sessionExpired);
+    }, []);
+
     const handleLogin = async (payload) => {
         setAuth((current) => ({ ...current, errors: {}, message: '', submitting: true }));
 
@@ -1119,7 +1128,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'attendance-locations' ? (
                     <AttendanceLocationsScreen locale={locale} canManage={canManageAttendance} detailId={resolveOfficeDetailId(pathname, '/attendance/locations')} onNavigate={navigate} />
                 ) : activeView === 'attendance-records' ? (
-                    <AttendanceRecordsScreen locale={locale} detailId={resolveOfficeDetailId(pathname, '/attendance/records')} onNavigate={navigate} />
+                    <AttendanceRecordsScreen locale={locale} user={user} detailId={resolveOfficeDetailId(pathname, '/attendance/records')} onNavigate={navigate} />
                 ) : activeView === 'attendance-summary' ? (
                     <AttendanceSummaryScreen locale={locale} />
                 ) : activeView === 'payroll-drafts' ? (
@@ -1730,7 +1739,7 @@ function resolveBusinessSetupSection(pathname = window.location.pathname) {
     const officePath = normalizePath(new URL(appConfig.office.path, window.location.origin).pathname);
     const setupPath = normalizePath(`${officePath}/setup`);
     const section = currentPath.startsWith(`${setupPath}/`) ? currentPath.slice(setupPath.length).split('/').filter(Boolean)[0] : '';
-    return ['company', 'contact-channels', 'branding', 'delivery', 'printing', 'brands', 'products', 'price-types', 'product-prices', 'areas', 'routes', 'warehouses', 'vehicles', 'roles', 'permissions', 'qr-locations', 'kpi-targets'].includes(section) ? section : 'company';
+    return ['company', 'contact-channels', 'branding', 'delivery', 'attendance', 'salary', 'printing', 'brands', 'products', 'price-types', 'product-prices', 'areas', 'routes', 'warehouses', 'vehicles', 'roles', 'permissions', 'qr-locations', 'kpi-targets'].includes(section) ? section : 'company';
 }
 
 function resolveOfficeDetailId(pathname, routeSuffix) {

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\AttendanceRecord;
 use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
+use App\Support\AttendanceCheckIn;
 use App\Support\AppAccess;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -396,7 +396,7 @@ class MobileMasterDataController extends Controller
 
         $validated = $request->validate([
             'month' => ['nullable', 'date_format:Y-m'],
-            'status' => ['nullable', 'in:accepted,rejected'],
+            'status' => ['nullable', 'in:accepted,late,rejected'],
             'date' => ['nullable', 'date'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
@@ -425,13 +425,18 @@ class MobileMasterDataController extends Controller
             ->groupBy('attendance_records.status')
             ->pluck('total', 'attendance_records.status');
 
+        $lateTotals = (clone $query)->select([])->selectRaw('COALESCE(SUM(attendance_records.late_minutes), 0) as late_minutes, COALESCE(SUM(attendance_records.late_fine), 0) as late_fine')->first();
+
         $paginator = $query->orderByDesc('attendance_records.attendance_at')
             ->paginate(min(max((int) $request->query('per_page', 31), 1), 100));
 
         return ApiResponse::success('Attendance history loaded.', [
             'items' => $paginator->items(),
             'summary' => [
-                'accepted' => (int) ($summary['accepted'] ?? 0),
+                'accepted' => (int) ($summary['accepted'] ?? 0) + (int) ($summary['late'] ?? 0),
+                'late_count' => (int) ($summary['late'] ?? 0),
+                'late_minutes' => (int) $lateTotals->late_minutes,
+                'late_fine' => (float) $lateTotals->late_fine,
                 'rejected' => (int) ($summary['rejected'] ?? 0),
                 'total' => (int) $summary->sum(),
             ],
@@ -469,13 +474,14 @@ class MobileMasterDataController extends Controller
             ->leftJoin('attendance_locations', 'attendance_records.attendance_location_id', '=', 'attendance_locations.id')
             ->leftJoin('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
             ->where('attendance_records.employee_id', $request->user()->employee_id)
-            ->where('attendance_records.status', 'accepted')
+            ->whereIn('attendance_records.status', ['accepted', 'late'])
             ->whereDate('attendance_records.attendance_at', today())
             ->orderByDesc('attendance_records.attendance_at')
             ->first([
                 'attendance_records.id',
                 'attendance_records.attendance_at',
                 'attendance_records.distance_m',
+                'attendance_records.status', 'attendance_records.late_minutes', 'attendance_records.late_fine',
                 'attendance_locations.name as location_name',
                 'warehouses.name as warehouse_name',
             ]);
@@ -518,7 +524,7 @@ class MobileMasterDataController extends Controller
             ->leftJoin('attendance_locations', 'attendance_records.attendance_location_id', '=', 'attendance_locations.id')
             ->leftJoin('warehouses', 'attendance_locations.warehouse_id', '=', 'warehouses.id')
             ->where('attendance_records.employee_id', $employee->id)
-            ->where('attendance_records.status', 'accepted')
+            ->whereIn('attendance_records.status', ['accepted', 'late'])
             ->whereDate('attendance_records.attendance_at', today())
             ->orderByDesc('attendance_records.attendance_at')
             ->first([
@@ -560,7 +566,7 @@ class MobileMasterDataController extends Controller
             }
         }
 
-        $record = AttendanceRecord::create([
+        $record = AttendanceCheckIn::record([
             'attendance_location_id' => $location->id,
             'employee_id' => $employee->id,
             'entered_employee_code' => $employee->code,
@@ -672,6 +678,8 @@ class MobileMasterDataController extends Controller
         return [
             'record_id' => $record->id,
             'status' => $record->status,
+            'late_minutes' => (int) $record->late_minutes,
+            'late_fine' => (float) $record->late_fine,
             'rejection_reason' => $record->rejection_reason,
             'distance_m' => $record->distance_m,
             'allowed_radius_m' => $location->allowed_radius_m,

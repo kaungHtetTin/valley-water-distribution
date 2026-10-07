@@ -16,6 +16,7 @@
                     attendance: @json(url('/attendance')),
                 },
                 auth: {
+                    csrf: @json(url('/api/auth/csrf')),
                     user: @json(url('/api/auth/user')),
                     login: @json(url('/api/auth/login')),
                     register: @json(url('/api/auth/register')),

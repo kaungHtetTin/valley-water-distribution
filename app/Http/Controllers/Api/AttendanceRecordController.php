@@ -11,6 +11,30 @@ use Illuminate\Support\Facades\DB;
 
 class AttendanceRecordController extends Controller
 {
+    public function approveFull(Request $request, int $id)
+    {
+        $this->authorizePermission($request);
+        abort_unless(in_array($request->user()->role, ['Owner', 'Finance Manager', 'Manager'], true)
+            && in_array('office.attendance.approve-full', AppAccess::permissionsForRole($request->user()->role), true), 403);
+
+        DB::transaction(function () use ($request, $id) {
+            $record = DB::table('attendance_records')->where('id', $id)->lockForUpdate()->first();
+            abort_unless($record, 404);
+            // Repeated clicks cannot replace the original approval audit.
+            if ($record->full_attendance_approved_at) return;
+            abort_unless($record->status === 'late', 422, 'Only late attendance can be accepted as full attendance.');
+            DB::table('attendance_records')->where('id', $id)->update([
+                'status' => 'accepted', 'late_minutes' => 0, 'late_fine' => 0,
+                'original_late_minutes' => $record->late_minutes, 'waived_late_fine' => $record->late_fine,
+                'full_attendance_approved_by' => $request->user()->id,
+                'full_attendance_approver_name' => $request->user()->name,
+                'full_attendance_approved_at' => now(), 'updated_at' => now(),
+            ]);
+        });
+
+        return $this->show($request, $id);
+    }
+
     public function index(Request $request)
     {
         $this->authorizePermission($request);
@@ -91,10 +115,13 @@ class AttendanceRecordController extends Controller
                 'employees.name as employee_name',
                 'employees.employee_type',
                 DB::raw('COUNT(attendance_records.id) as total_records'),
-                DB::raw("SUM(CASE WHEN attendance_records.status = 'accepted' THEN 1 ELSE 0 END) as accepted_count"),
+                DB::raw("SUM(CASE WHEN attendance_records.status IN ('accepted', 'late') THEN 1 ELSE 0 END) as accepted_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.status = 'rejected' THEN 1 ELSE 0 END) as rejected_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.rejection_reason = 'gps_denied' THEN 1 ELSE 0 END) as gps_denied_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.rejection_reason = 'outside_allowed_radius' THEN 1 ELSE 0 END) as outside_radius_count"),
+                DB::raw("SUM(CASE WHEN attendance_records.status = 'late' THEN 1 ELSE 0 END) as late_count"),
+                DB::raw('COALESCE(SUM(attendance_records.late_minutes), 0) as late_minutes'),
+                DB::raw('COALESCE(SUM(attendance_records.late_fine), 0) as late_fine'),
                 DB::raw('MIN(attendance_records.attendance_at) as first_attendance_at'),
                 DB::raw('MAX(attendance_records.attendance_at) as last_attendance_at')
             )
@@ -118,9 +145,12 @@ class AttendanceRecordController extends Controller
             $carry['records'] += (int) $row->total_records;
             $carry['accepted'] += (int) $row->accepted_count;
             $carry['rejected'] += (int) $row->rejected_count;
+            $carry['late_count'] += (int) $row->late_count;
+            $carry['late_minutes'] += (int) $row->late_minutes;
+            $carry['late_fine'] += (float) $row->late_fine;
 
             return $carry;
-        }, ['employees' => 0, 'records' => 0, 'accepted' => 0, 'rejected' => 0]);
+        }, ['employees' => 0, 'records' => 0, 'accepted' => 0, 'rejected' => 0, 'late_count' => 0, 'late_minutes' => 0, 'late_fine' => 0]);
 
         $paginator = $query->orderBy('employees.name')
             ->paginate(min(max((int) $request->query('per_page', 20), 1), 100));
@@ -138,6 +168,9 @@ class AttendanceRecordController extends Controller
                 'employee_type' => $row->employee_type,
                 'total_records' => (int) $row->total_records,
                 'accepted_count' => (int) $row->accepted_count,
+                'late_count' => (int) $row->late_count,
+                'late_minutes' => (int) $row->late_minutes,
+                'late_fine' => (float) $row->late_fine,
                 'rejected_count' => (int) $row->rejected_count,
                 'gps_denied_count' => (int) $row->gps_denied_count,
                 'outside_radius_count' => (int) $row->outside_radius_count,

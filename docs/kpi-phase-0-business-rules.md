@@ -28,29 +28,25 @@ Helper and storekeeper reviews, formula builders, period reopening, and complex 
 | Weighted score | Achievement × metric weight |
 | Overall score | Sum of weighted scores |
 
-## Bonus Bands
+## Proportional Bonus
 
-| Overall score | Payout |
-|---:|---:|
-| Below 75% | 0% of target bonus |
-| 75%–79.99% | 50% |
-| 80%–89.99% | 80% |
-| 90%–99.99% | 100% |
-| 100% | 120% |
+Bonus = monthly target bonus × displayed overall score ÷ 100, rounded to two decimal places. The score is capped at 100%; there is no minimum payout threshold. For example, 40,000 MMK × 60.77% = 24,308 MMK. Employee and personal mobile KPI panels refresh every 20 seconds while visible and when the window regains focus. Refreshing leaves open target and manager forms intact.
 
-The KPI page shows the projected bonus. Posting that bonus into payroll remains a later phase so Office staff can verify the scores first.
+Draft payroll includes the current KPI bonus for the month, even before KPI approval or posting. Loading the draft refreshes KPI figures and payroll totals; the detail page refreshes every 20 seconds. A posted KPI bonus is counted through its adjustment instead of added a second time. Other incentive adjustments are added normally. Payroll approval refreshes and freezes the amounts, and subsequent reads preserve approved and paid payroll totals. Previously approved or posted KPI bonuses retain their historical payout amounts.
 
 ## Sales Representative Template
 
 | Metric | Weight | First release entry |
 |---|---:|---|
-| Net sales achievement | 35% | Target and actual |
+| Net sales achievement | 35% | Net sold stock quantity in units; default monthly target 4,000 |
 | New customer acquisition | 15% | Target and actual |
 | Customer visit completion | 15% | Target and actual |
 | Collection achievement | 20% | Target and actual |
 | Attendance and punctuality | 5% | Target and actual |
 | Teamwork and discipline | 5% | Manager score |
 | Task and report completion | 5% | Manager score |
+
+Net sales achievement uses sale-item quantities from issued, delivered, and partially delivered invoices attributed to the sales employee. Confirmed sales-return quantities are deducted in the month of the return. FOC items and returns of FOC items are excluded; the net quantity cannot fall below zero. Achievement is net quantity ÷ quantity target × 100, capped at 100%. Monetary sales targets do not override the KPI quantity target. Existing staff targets and draft reviews move to the 4,000-unit default; finalized legacy reviews retain their MMK unit and bonuses, and reports separate quantities from monetary values.
 
 ## Driver Template
 

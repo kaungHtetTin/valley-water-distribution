@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\Payroll;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use App\Support\SalaryDefaults;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +50,7 @@ class PayrollController extends Controller
     public function show(Request $request, Payroll $payroll)
     {
         $this->authorizePermission($request, 'office.payroll.view');
+        $payroll = $this->refreshDraft($payroll);
 
         return ApiResponse::success('Payroll loaded.', [
             'payroll' => $this->payrollPayload($payroll),
@@ -214,11 +217,16 @@ class PayrollController extends Controller
             abort_if($payroll->generated_by === $request->user()->id, 409, 'The payroll preparer cannot approve their own draft.');
         }
 
-        $payroll->update([
-            'status' => 'approved',
-            'approved_by' => $request->user()?->id,
-            'approved_at' => now(),
-        ]);
+        DB::transaction(function () use ($payroll, $request) {
+            $locked = Payroll::query()->lockForUpdate()->findOrFail($payroll->id);
+            abort_unless($locked->status === 'draft', 409, 'Only draft payrolls can be approved.');
+            $locked = $this->refreshDraft($locked);
+            $locked->update([
+                'status' => 'approved',
+                'approved_by' => $request->user()?->id,
+                'approved_at' => now(),
+            ]);
+        });
 
         return ApiResponse::success('Payroll approved.', [
             'payroll' => $this->payrollPayload($payroll->fresh()),
@@ -261,6 +269,28 @@ class PayrollController extends Controller
         return ApiResponse::success('Payroll draft deleted.');
     }
 
+    private function refreshDraft(Payroll $payroll): Payroll
+    {
+        if ($payroll->status !== 'draft') return $payroll;
+
+        return DB::transaction(function () use ($payroll) {
+            $payroll = Payroll::query()->lockForUpdate()->findOrFail($payroll->id);
+            if ($payroll->status !== 'draft') return $payroll;
+            $items = $this->draftItems($payroll, $payroll->period_start->copy()->startOfDay(), $payroll->period_end->copy()->endOfDay(), $payroll->employee_type);
+            foreach ($items as $item) {
+                $payroll->items()->updateOrCreate(['employee_id' => $item['employee_id']], $item);
+            }
+            $payroll->items()->whereNotIn('employee_id', array_column($items, 'employee_id'))->delete();
+            $payroll->update([
+                'total_gross' => collect($items)->sum('gross_pay'),
+                'total_deductions' => collect($items)->sum(fn ($item) => $item['advance_deduction'] + $item['other_deduction']),
+                'total_net' => collect($items)->sum('net_pay'),
+            ]);
+
+            return $payroll;
+        });
+    }
+
     private function draftItems(Payroll $payroll, Carbon $start, Carbon $end, ?string $employeeType): array
     {
         $query = DB::table('employees')
@@ -275,10 +305,11 @@ class PayrollController extends Controller
                 'employees.name',
                 'employees.employee_type',
                 'employees.base_salary',
-                DB::raw("SUM(CASE WHEN attendance_records.status = 'accepted' THEN 1 ELSE 0 END) as accepted_count"),
+                DB::raw("SUM(CASE WHEN attendance_records.status IN ('accepted', 'late') THEN 1 ELSE 0 END) as accepted_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.status = 'rejected' THEN 1 ELSE 0 END) as rejected_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.rejection_reason = 'gps_denied' THEN 1 ELSE 0 END) as gps_denied_count"),
                 DB::raw("SUM(CASE WHEN attendance_records.rejection_reason = 'outside_allowed_radius' THEN 1 ELSE 0 END) as outside_radius_count"),
+                DB::raw('COALESCE(SUM(attendance_records.late_fine), 0) as late_fine'),
                 DB::raw('MIN(attendance_records.attendance_at) as first_attendance_at'),
                 DB::raw('MAX(attendance_records.attendance_at) as last_attendance_at')
             )
@@ -290,6 +321,14 @@ class PayrollController extends Controller
         }
 
         $employees = $query->get();
+        app(KpiReviewController::class)->refreshExistingMonthlyDrafts($payroll->month, $employees->pluck('id')->all());
+        $unpostedBonuses = DB::table('kpi_results')
+            ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
+            ->where('kpi_periods.month', $payroll->month)
+            ->whereIn('kpi_results.employee_id', $employees->pluck('id'))
+            ->whereIn('kpi_results.status', ['draft', 'submitted', 'approved'])
+            ->whereNull('kpi_results.payroll_adjustment_id')
+            ->pluck('kpi_results.bonus_amount', 'kpi_results.employee_id');
         $adjustments = DB::table('payroll_adjustments')
             ->whereIn('employee_id', $employees->pluck('id'))
             ->where('status', 'active')
@@ -299,11 +338,13 @@ class PayrollController extends Controller
             ->get()
             ->groupBy('employee_id');
 
-        return $employees->map(function ($employee) use ($adjustments, $payroll) {
-            $baseSalary = (float) ($employee->base_salary ?? $this->defaultBaseSalary($employee->employee_type));
+        $salaryDefaults = Company::query()->oldest('id')->first()?->default_base_salaries ?? SalaryDefaults::AMOUNTS;
+
+        return $employees->map(function ($employee) use ($adjustments, $payroll, $salaryDefaults, $unpostedBonuses) {
+            $baseSalary = (float) ($employee->base_salary ?? SalaryDefaults::forEmployeeType($employee->employee_type, $salaryDefaults));
             $employeeAdjustments = $adjustments->get($employee->id, collect())->keyBy('adjustment_type');
             $allowance = (float) ($employeeAdjustments->get('allowance')->total_amount ?? 0);
-            $incentive = (float) ($employeeAdjustments->get('incentive')->total_amount ?? 0);
+            $incentive = (float) ($employeeAdjustments->get('incentive')->total_amount ?? 0) + (float) ($unpostedBonuses[$employee->id] ?? 0);
             $ot = (float) ($employeeAdjustments->get('ot')->total_amount ?? 0);
             $advance = (float) ($employeeAdjustments->get('advance')->total_amount ?? 0);
             $grossPay = $baseSalary + $allowance + $incentive + $ot;
@@ -325,10 +366,10 @@ class PayrollController extends Controller
                 'incentive_amount' => $incentive,
                 'ot_amount' => $ot,
                 'advance_deduction' => $advance,
-                'other_deduction' => 0,
+                'other_deduction' => (float) $employee->late_fine,
                 'gross_pay' => $grossPay,
-                'net_pay' => $grossPay - $advance,
-                'remarks' => null,
+                'net_pay' => $grossPay - $advance - (float) $employee->late_fine,
+                'remarks' => $employee->late_fine > 0 ? 'Late attendance fine: '.number_format($employee->late_fine, 2, '.', '').' MMK' : null,
             ];
         })->all();
     }
@@ -404,18 +445,6 @@ class PayrollController extends Controller
     private function nextCode(string $month, ?string $employeeType): string
     {
         return 'PAY-'.str_replace('-', '', $month).'-'.Str::upper($employeeType ?: 'ALL');
-    }
-
-    private function defaultBaseSalary(string $employeeType): int
-    {
-        return match ($employeeType) {
-            'office' => 450000,
-            'sales' => 380000,
-            'sales_supervisor' => 450000,
-            'driver' => 360000,
-            'warehouse' => 330000,
-            default => 300000,
-        };
     }
 
     private function authorizePermission(Request $request, string|array $permission): void

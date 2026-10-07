@@ -20,6 +20,7 @@ class AttendanceRecord extends Model
         'distance_m',
         'status',
         'rejection_reason',
+        'late_minutes', 'late_fine', 'salary_snapshot', 'start_time_snapshot',
     ];
 
     protected $casts = [
@@ -27,5 +28,8 @@ class AttendanceRecord extends Model
         'latitude' => 'float',
         'longitude' => 'float',
         'distance_m' => 'float',
+        'late_minutes' => 'integer',
+        'late_fine' => 'float',
+        'salary_snapshot' => 'float',
     ];
 }

@@ -55,8 +55,12 @@ class OrderAdjustmentController extends Controller
                 $product->prices = DB::table('product_prices')
                     ->where('product_id', $product->id)
                     ->where('is_active', true)
-                    ->orderByDesc('effective_from')
+                    ->where(function ($query) {
+                        $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', now()->toDateString());
+                    })
+                    ->orderByDesc('effective_from')->orderByDesc('id')
                     ->get(['price_type_id', 'amount']);
+                $product->default_price = \App\Support\ProductPricing::amount($product->id, null, now());
 
                 return $product;
             });

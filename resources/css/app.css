@@ -16550,3 +16550,53 @@ body.filter-drawer-open::after {
         grid-template-columns: 1fr;
     }
 }
+
+.mobile-attendance-calendar button.is-late { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 18%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-warning) 45%, var(--color-border)); }
+.mobile-calendar-legend i.late, .attendance-dot.late { background: var(--color-warning); }
+.attendance-late-details { display: block; color: var(--color-warning); margin-top: 4px; white-space: normal; }
+.mobile-attendance-checkin-result.late { color: var(--color-warning); }
+.mobile-attendance-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.attendance-settings .branding-settings-heading { padding: 12px 16px; }
+.attendance-settings .attendance-settings-subtitle { margin: 3px 0 0; color: var(--color-muted); font-size: 11px; font-weight: 400; }
+.attendance-settings-body { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(260px, 1.1fr); gap: 24px; padding: 20px 16px; }
+.attendance-settings-schedule { min-width: 0; }
+.attendance-settings-schedule .master-field { max-width: 300px; }
+.attendance-settings-schedule input[type="time"] { width: 100%; font-variant-numeric: tabular-nums; }
+.attendance-settings .master-field .attendance-settings-help { color: var(--color-muted); font-weight: 400; line-height: 1.6; }
+.attendance-settings-note { margin: 12px 0 0; max-width: 340px; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
+.attendance-settings-policy { display: grid; align-content: start; gap: 7px; min-width: 0; border-left: 1px solid var(--color-border); padding-left: 24px; }
+.attendance-settings-policy .eyebrow { margin: 0; }
+.attendance-settings-policy > strong { color: var(--color-text); font-size: 13px; line-height: 1.6; }
+.attendance-settings-policy > p { margin: 0; max-width: 420px; color: var(--color-muted); font-size: 11px; line-height: 1.7; }
+.attendance-settings-kpi { display: flex; align-items: start; gap: 6px; margin-top: 6px; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
+.attendance-settings-kpi svg { flex: 0 0 auto; color: var(--color-success); margin-top: 2px; }
+.salary-default-settings .branding-settings-heading { align-items: flex-start; padding: 12px 16px; }
+.salary-default-settings .branding-settings-heading > div { min-width: 0; }
+.salary-default-settings .branding-settings-heading strong { display: block; line-height: 1.6; }
+.salary-default-settings .salary-settings-subtitle { margin: 3px 0 0; color: var(--color-muted); font-size: 11px; font-weight: 400; line-height: 1.6; }
+.salary-default-settings .salary-default-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 20px; padding: 20px 16px; }
+.salary-default-grid .master-field { min-width: 0; }
+.salary-default-grid .salary-field-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.salary-default-grid .salary-field-unit { color: var(--color-muted); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.salary-default-grid input { width: 100%; font-variant-numeric: tabular-nums; }
+.salary-settings-guidance { display: flex; align-items: flex-start; gap: 8px; margin: 0 16px 16px; padding-top: 12px; border-top: 1px solid var(--color-border); color: var(--color-muted); }
+.salary-settings-guidance > svg { flex: 0 0 auto; margin-top: 2px; }
+.salary-settings-guidance p { margin: 0; font-size: 11px; font-weight: 400; line-height: 1.7; }
+.salary-settings-guidance p + p { margin-top: 3px; }
+.salary-settings-error { margin: 0 16px 16px; }
+@media (max-width: 1024px) {
+    .salary-default-settings .salary-default-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .attendance-settings-body { grid-template-columns: 1fr; gap: 18px; }
+    .attendance-settings-policy { border-left: 0; border-top: 1px solid var(--color-border); padding: 16px 0 0; }
+}
+@media (max-width: 760px) {
+    .salary-default-settings .branding-settings-heading { padding: 12px; }
+    .salary-default-settings .salary-default-grid { grid-template-columns: 1fr; padding: 16px 12px; gap: 16px; }
+    .salary-default-grid input { min-height: 40px; }
+    .salary-settings-guidance { margin: 0 12px 16px; }
+    .attendance-settings-body { padding: 16px 12px; }
+    .attendance-settings .branding-settings-heading { padding: 12px; }
+    .attendance-settings-schedule .master-field { max-width: none; }
+    .attendance-settings-schedule input[type="time"] { min-height: 40px; }
+}

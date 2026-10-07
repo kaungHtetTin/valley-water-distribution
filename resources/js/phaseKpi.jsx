@@ -2,6 +2,7 @@ import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Clock3, RefreshCw, 
 import { useEffect, useState } from 'react';
 import { ShellPageActions } from './components/ShellPageActions';
 import { MonthSelect } from './components/MonthSelect';
+import { useLiveKpiRefresh } from './useLiveKpiRefresh';
 
 const currentMonth = () => {
     const date = new Date();
@@ -26,6 +27,11 @@ export function MobileKpiScreen() {
     const [month, setMonth] = useState(currentMonth());
     const [refreshKey, setRefreshKey] = useState(0);
     const [state, setState] = useState({ loading: true, result: null, items: [], previous: null, history: [], error: '' });
+
+    useLiveKpiRefresh(async (isCurrent) => {
+        const { data } = await window.axios.get(mobileApi(), { params: { month } });
+        if (isCurrent()) setState({ loading: false, ...data.data, error: '' });
+    }, month, !state.loading);
 
     useEffect(() => {
         let mounted = true;
@@ -82,7 +88,8 @@ export function MobileKpiScreen() {
                         <div className="mobile-kpi-hero-copy">
                             <div className="mobile-kpi-title-row"><strong>{result.template_name}</strong><KpiStatus status={result.status} /></div>
                             <span>{result.month} · {result.employee_name}</span>
-                            <div className="mobile-kpi-bonus"><small>{result.payroll_adjustment_id ? 'Posted to payroll' : result.status === 'approved' ? 'Approved bonus' : 'Bonus preview'}</small><strong>{money(result.bonus_amount)}</strong></div>
+                            <div className="mobile-kpi-bonus"><small>{result.payroll_adjustment_id ? 'Posted to payroll' : result.status === 'approved' ? 'Approved bonus' : 'Current total bonus'}</small><strong>{money(result.bonus_amount)}</strong></div>
+                            <small className="kpi-live-bonus-note">{result.bonus_calculation === 'proportional' ? `${money(result.target_bonus)} × ${number(result.overall_score)}%` : 'Historical payout rules'}{result.status === 'draft' ? ' · Updates every 20 seconds' : ''}</small>
                             {scoreChange !== null && <small className={scoreChange >= 0 ? 'is-positive' : 'is-negative'}><TrendingUp size={13} /> {scoreChange >= 0 ? '+' : ''}{number(scoreChange)} points from {previous.month}</small>}
                         </div>
                     </section>
@@ -97,13 +104,13 @@ export function MobileKpiScreen() {
                                 return (
                                     <article key={item.id}>
                                         <div className="mobile-kpi-metric-title">
-                                            <div><strong>{item.name}</strong><span>{manual ? 'Manager assessment' : item.is_automatic ? 'Updated from operations' : item.unit}</span></div>
+                                            <div><strong>{item.name}</strong><span>{manual ? 'Manager assessment' : item.is_automatic ? `Updated from operations ? ${item.unit}` : item.unit}</span></div>
                                             <b>{item.weighted_score === null ? 'Pending' : `${number(item.weighted_score)} pts`}</b>
                                         </div>
                                         <div className="mobile-kpi-progress"><i style={{ width: `${contribution}%` }} /></div>
                                         <div className="mobile-kpi-values">
-                                            {!manual && <span><small>Target</small><strong>{item.target_value === null ? '—' : number(item.target_value)}</strong></span>}
-                                            <span><small>{manual ? 'Score' : 'Actual'}</small><strong>{actualValue === null ? '—' : number(actualValue)}</strong></span>
+                                            {!manual && <span><small>Target</small><strong>{item.target_value === null ? '—' : `${number(item.target_value)} ${item.unit}`}</strong></span>}
+                                            <span><small>{manual ? 'Score' : 'Actual'}</small><strong>{actualValue === null ? '—' : manual ? number(actualValue) : `${number(actualValue)} ${item.unit}`}</strong></span>
                                             <span><small>Achievement</small><strong>{item.achievement_percent === null ? '—' : `${number(item.achievement_percent)}%`}</strong></span>
                                             <span><small>Weight</small><strong>{number(item.weight)}%</strong></span>
                                         </div>
@@ -482,7 +489,7 @@ function ReviewDialog({ detail, form, canManage, canApprove, processing, error, 
                                 const actualLocked = item.is_automatic || !editable;
                                 return (
                                     <tr key={item.id}>
-                                        <td><strong>{item.name}</strong><span className={item.is_automatic ? 'kpi-source-note' : 'muted'}>{item.is_automatic ? item.source_note || 'Ready to refresh' : manual ? 'Manager score' : item.unit}</span></td>
+                                        <td><strong>{item.name}</strong><span className={item.is_automatic ? 'kpi-source-note' : 'muted'}>{item.is_automatic ? `${item.unit} ? ${item.source_note || 'Ready to refresh'}` : manual ? 'Manager score' : item.unit}</span></td>
                                         <td>{number(item.weight)}%</td>
                                         <td>{manual ? <span className="muted">100</span> : <input className="kpi-cell-input" type="number" min="0" step="0.01" disabled={!editable} value={item.target_value ?? ''} aria-label={`${item.name} target`} onChange={(event) => onChangeItem(item.id, 'target_value', event.target.value)} />}</td>
                                         <td><input className={`kpi-cell-input ${item.is_automatic ? 'is-synced' : ''}`} type="number" min="0" max={manual ? 100 : undefined} step={manual ? 1 : 0.01} inputMode={manual ? 'numeric' : 'decimal'} disabled={manual ? !editable : actualLocked} value={(manual ? item.manual_score : item.actual_value) ?? ''} aria-label={`${item.name} ${manual ? 'score' : 'actual'}`} onChange={(event) => onChangeItem(item.id, manual ? 'manual_score' : 'actual_value', event.target.value)} /></td>

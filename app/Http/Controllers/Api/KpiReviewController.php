@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use App\Support\KpiBonus;
+use App\Support\NetSalesQuantity;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,15 +29,8 @@ class KpiReviewController extends Controller
                     ->orderBy('sort_order')
                     ->get()
                     ->map(fn ($metric) => $this->metricPayload($metric));
-                $template->bonus_rules = DB::table('kpi_bonus_rules')
-                    ->where('kpi_template_id', $template->id)
-                    ->orderBy('sort_order')
-                    ->get()
-                    ->map(fn ($rule) => [
-                        'minimum_score' => (float) $rule->minimum_score,
-                        'maximum_score' => $rule->maximum_score === null ? null : (float) $rule->maximum_score,
-                        'payout_percent' => (float) $rule->payout_percent,
-                    ]);
+                $template->bonus_calculation = 'proportional';
+                $template->bonus_rules = [];
 
                 return $template;
             });
@@ -595,8 +590,9 @@ class KpiReviewController extends Controller
             ->join('employees', 'kpi_results.employee_id', '=', 'employees.id')
             ->join('kpi_template_metrics', 'kpi_result_items.kpi_template_metric_id', '=', 'kpi_template_metrics.id');
         $metricBreakdown = $applyPeriod($applyPeople($metricQuery))
-            ->selectRaw("kpi_templates.code as template_code, kpi_templates.name as template_name, kpi_templates.employee_type, kpi_template_metrics.code, kpi_template_metrics.name, kpi_template_metrics.unit, kpi_template_metrics.calculation_type, kpi_template_metrics.weight, COUNT(*) as reviews, AVG(COALESCE(kpi_result_items.target_value, kpi_template_metrics.default_target)) as target_average, AVG(CASE WHEN kpi_template_metrics.calculation_type = 'manual' THEN kpi_result_items.manual_score ELSE kpi_result_items.actual_value END) as actual_average, AVG(kpi_result_items.achievement_percent) as achievement_average, AVG(kpi_result_items.weighted_score) as points_average")
+            ->selectRaw("kpi_templates.code as template_code, kpi_templates.name as template_name, kpi_templates.employee_type, kpi_template_metrics.code, kpi_template_metrics.name, COALESCE(kpi_result_items.unit_snapshot, kpi_template_metrics.unit) as unit, kpi_template_metrics.calculation_type, kpi_template_metrics.weight, COUNT(*) as reviews, AVG(COALESCE(kpi_result_items.target_value, kpi_template_metrics.default_target)) as target_average, AVG(CASE WHEN kpi_template_metrics.calculation_type = 'manual' THEN kpi_result_items.manual_score ELSE kpi_result_items.actual_value END) as actual_average, AVG(kpi_result_items.achievement_percent) as achievement_average, AVG(kpi_result_items.weighted_score) as points_average")
             ->groupBy('kpi_templates.id', 'kpi_templates.code', 'kpi_templates.name', 'kpi_templates.employee_type', 'kpi_template_metrics.id', 'kpi_template_metrics.code', 'kpi_template_metrics.name', 'kpi_template_metrics.unit', 'kpi_template_metrics.calculation_type', 'kpi_template_metrics.weight', 'kpi_template_metrics.sort_order')
+            ->groupByRaw('COALESCE(kpi_result_items.unit_snapshot, kpi_template_metrics.unit)')
             ->orderBy('kpi_templates.name')
             ->orderBy('kpi_template_metrics.sort_order')
             ->get()
@@ -747,6 +743,7 @@ class KpiReviewController extends Controller
                         'kpi_result_id' => $result->id,
                         'kpi_template_metric_id' => $metric->id,
                         'target_value' => $staffTargets->get($metric->id) ?? $metric->default_target,
+                        'unit_snapshot' => $metric->unit,
                         'created_at' => $now,
                         'updated_at' => $now,
                     ]);
@@ -953,19 +950,26 @@ class KpiReviewController extends Controller
         }
 
         $result = DB::table('kpi_results')->where('id', $resultId)->first();
-        $payout = DB::table('kpi_bonus_rules')
-            ->where('kpi_template_id', $result->kpi_template_id)
-            ->where('minimum_score', '<=', $overall)
-            ->where(function ($query) use ($overall) {
-                $query->whereNull('maximum_score')->orWhere('maximum_score', '>', $overall);
-            })
-            ->orderByDesc('minimum_score')
-            ->value('payout_percent') ?? 0;
         DB::table('kpi_results')->where('id', $resultId)->update([
             'overall_score' => round($overall, 2),
-            'bonus_amount' => round((float) $result->target_bonus * (float) $payout / 100, 2),
+            'bonus_amount' => KpiBonus::amount((float) $result->target_bonus, $overall),
+            'bonus_calculation' => 'proportional',
             'updated_at' => now(),
         ]);
+    }
+
+    public function refreshExistingMonthlyDrafts(string $month, array $employeeIds): void
+    {
+        $results = DB::table('kpi_results')
+            ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
+            ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
+            ->where('kpi_periods.month', $month)->where('kpi_results.status', 'draft')
+            ->whereIn('kpi_results.employee_id', $employeeIds)
+            ->get(['kpi_results.id', 'kpi_templates.code']);
+        foreach ($results as $result) {
+            $this->syncAutomaticActuals((int) $result->id, $result->code);
+            $this->recalculate((int) $result->id);
+        }
     }
 
     private function syncSalesActuals(int $resultId): void
@@ -985,28 +989,19 @@ class KpiReviewController extends Controller
         $startDate = $start->toDateString();
         $endDate = $end->toDateString();
 
-        $invoiceQuery = DB::table('invoices')
-            ->join('orders', 'invoices.order_id', '=', 'orders.id')
-            ->join('users', 'orders.created_by', '=', 'users.id')
-            ->where('users.employee_id', $employeeId)
-            ->whereIn('invoices.status', ['issued', 'delivered', 'partially_delivered'])
-            ->whereBetween('invoices.invoice_date', [$startDate, $endDate]);
-        $invoiceCount = (clone $invoiceQuery)->count('invoices.id');
-        $grossSales = (float) (clone $invoiceQuery)->sum('invoices.total');
-
-        $returnQuery = DB::table('orders as returns')
-            ->join('orders as original_orders', 'returns.original_order_id', '=', 'original_orders.id')
-            ->join('users', 'original_orders.created_by', '=', 'users.id')
-            ->where('users.employee_id', $employeeId)
-            ->where('returns.status', 'confirmed')
-            ->whereBetween('returns.order_date', [$startDate, $endDate]);
-        $returnCount = (clone $returnQuery)->count('returns.id');
-        $returnValue = (float) (clone $returnQuery)->sum('returns.total');
-        $salesTarget = DB::table('sales_targets')
-            ->where('employee_id', $employeeId)
-            ->whereDate('target_month', $startDate)
-            ->value('target_amount');
-        $this->updateSourceMetric($resultId, 'SAL-NET-SALES', max($grossSales - $returnValue, 0), $invoiceCount + $returnCount, "{$invoiceCount} eligible invoice(s), {$returnCount} confirmed return(s)", $salesTarget);
+        $sales = NetSalesQuantity::forEmployee($employeeId, $startDate, $endDate);
+        // A finalized legacy review may later be reopened as a draft.
+        $metric = DB::table('kpi_template_metrics')->where('code', 'SAL-NET-SALES')->first();
+        if ($metric) {
+            $target = DB::table('kpi_staff_target_items')
+                ->join('kpi_staff_profiles', 'kpi_staff_target_items.kpi_staff_profile_id', '=', 'kpi_staff_profiles.id')
+                ->where('kpi_staff_profiles.employee_id', $employeeId)
+                ->where('kpi_staff_target_items.kpi_template_metric_id', $metric->id)->value('target_value') ?? $metric->default_target;
+            DB::table('kpi_result_items')->where('kpi_result_id', $resultId)->where('kpi_template_metric_id', $metric->id)
+                ->where(fn ($query) => $query->whereNull('unit_snapshot')->orWhere('unit_snapshot', '!=', 'units'))
+                ->update(['unit_snapshot' => 'units', 'target_value' => $target, 'updated_at' => now()]);
+        }
+        $this->updateSourceMetric($resultId, 'SAL-NET-SALES', $sales['quantity'], $sales['count'], $sales['note']);
 
         $newCustomerCount = DB::table('customers')
             ->join('users', 'customers.created_by', '=', 'users.id')
@@ -1035,7 +1030,7 @@ class KpiReviewController extends Controller
 
         $attendanceDays = DB::table('attendance_records')
             ->where('employee_id', $employeeId)
-            ->where('status', 'accepted')
+            ->whereIn('status', ['accepted', 'late'])
             ->whereBetween('attendance_at', [$start, $end])
             ->distinct()
             ->count(DB::raw('DATE(attendance_at)'));
@@ -1063,7 +1058,7 @@ class KpiReviewController extends Controller
 
         $attendanceDays = DB::table('attendance_records')
             ->where('employee_id', $employeeId)
-            ->where('status', 'accepted')
+            ->whereIn('status', ['accepted', 'late'])
             ->whereBetween('attendance_at', [$start, $end])
             ->distinct()
             ->count(DB::raw('DATE(attendance_at)'));
@@ -1105,7 +1100,7 @@ class KpiReviewController extends Controller
         $end = Carbon::parse($result->period_end)->endOfDay();
         $attendanceDays = DB::table('attendance_records')
             ->where('employee_id', $result->employee_id)
-            ->where('status', 'accepted')
+            ->whereIn('status', ['accepted', 'late'])
             ->whereBetween('attendance_at', [$start, $end])
             ->distinct()
             ->count(DB::raw('DATE(attendance_at)'));
@@ -1168,7 +1163,7 @@ class KpiReviewController extends Controller
                 'code' => $item->code,
                 'name' => $item->name,
                 'calculation_type' => $item->calculation_type,
-                'unit' => $item->unit,
+                'unit' => $item->unit_snapshot ?? $item->unit,
                 'weight' => (float) $item->weight,
                 'target_value' => $item->target_value === null ? null : (float) $item->target_value,
                 'actual_value' => $item->actual_value === null ? null : (float) $item->actual_value,
@@ -1202,6 +1197,7 @@ class KpiReviewController extends Controller
             'overall_score' => (float) $result->overall_score,
             'target_bonus' => (float) $result->target_bonus,
             'bonus_amount' => (float) $result->bonus_amount,
+            'bonus_calculation' => $result->bonus_calculation,
             'payroll_adjustment_id' => $result->payroll_adjustment_id ? (int) $result->payroll_adjustment_id : null,
             'payroll_adjustment_reference' => $result->payroll_adjustment_id ? 'ADJ-'.str_pad((string) $result->payroll_adjustment_id, 6, '0', STR_PAD_LEFT) : null,
             'bonus_posted_at' => $result->bonus_posted_at,

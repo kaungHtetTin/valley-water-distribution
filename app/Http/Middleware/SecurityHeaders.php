@@ -21,7 +21,7 @@ class SecurityHeaders
             $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
 
-        if ($request->is('api/*')) {
+        if ($request->is('api/*') || str_contains($response->headers->get('Content-Type', ''), 'text/html')) {
             $response->headers->set('Cache-Control', 'no-store, private');
         }
 

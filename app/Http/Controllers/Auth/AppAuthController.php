@@ -23,6 +23,16 @@ use Throwable;
 
 class AppAuthController extends Controller
 {
+    public function csrf(Request $request)
+    {
+        // Read the current session token; rotating it here would invalidate
+        // requests in the other open Valley apps.
+        return ApiResponse::success('Session token loaded.', [
+            'csrf_token' => $request->session()->token(),
+            'user_id' => $request->user()?->id,
+        ]);
+    }
+
     public function user(Request $request)
     {
         return ApiResponse::success('Current auth state loaded.', [

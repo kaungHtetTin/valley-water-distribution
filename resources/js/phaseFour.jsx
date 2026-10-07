@@ -177,7 +177,7 @@ function requestMessage(error, locale) {
 }
 
 function defaultPriceTypeId(customer, priceTypes) {
-    return customer?.price_type_id || priceTypes.find((item) => item.code === 'RTL')?.id || priceTypes.find((item) => item.code === 'WSL')?.id || priceTypes[0]?.id || '';
+    return customer?.price_type_id || priceTypes.find((item) => item.is_default)?.id || priceTypes[0]?.id || '';
 }
 
 function repriceItems(items, products, priceTypeId) {
@@ -1211,6 +1211,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
         payment_type: 'credit',
         notes: '',
         promotion_title: '',
+        price_type_id: '',
         order_discount: '',
         items: [],
     }));
@@ -1274,6 +1275,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                 customer_id: order.customer_id || '', area_id: order.area_id || '', route_id: order.route_id || '',
                 recipient_name: order.recipient_name || '', recipient_phone: order.recipient_phone || '', delivery_address: order.delivery_address || '',
                 requested_delivery_date: repeatOrderId ? '' : (order.requested_delivery_date || ''), payment_type: order.payment_type || 'cash',
+                price_type_id: order.price_type_id || '',
                 notes: repeatOrderId ? `Repeated from ${order.code}` : noteLines.filter((line) => line !== promotionLine).join('\n'),
                 promotion_title: repeatOrderId ? (promotionLine?.slice('Promotion: '.length) || '') : (promotionLine?.slice('Promotion: '.length) || ''),
                 order_discount: order.discount_total || '',
@@ -1289,7 +1291,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
     }, [editOrderId, locale, meta.loading, repeatOrderId]);
 
     const selectedCustomer = meta.customers.find((customer) => Number(customer.id) === Number(form.customer_id));
-    const priceTypeId = selectedCustomer?.price_type_id || defaultPriceTypeId(null, meta.price_types);
+    const priceTypeId = form.price_type_id || defaultPriceTypeId(selectedCustomer, meta.price_types);
     const preview = meta.app === 'sales'
         ? calculateSalesWizardPreview(form.items, meta.products, priceTypeId, form.order_discount)
         : calculateMobilePreview(form.items, meta.products, priceTypeId);
@@ -1314,6 +1316,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
             payment_type: meta.app === 'client' ? 'credit' : 'cash',
             notes: '',
             promotion_title: '',
+            price_type_id: '',
             order_discount: '',
             items: [],
         });
@@ -1351,6 +1354,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
         setForm((current) => ({
             ...current,
             customer_id: customerId,
+            price_type_id: defaultPriceTypeId(customer, meta.price_types),
             area_id: customer?.area_id || current.area_id,
             route_id: customer?.route_id || current.route_id,
             recipient_name: customer?.shop_name || '',
@@ -1381,7 +1385,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                 customer_id: form.customer_id ? Number(form.customer_id) : null,
                 area_id: form.area_id ? Number(form.area_id) : null,
                 route_id: form.route_id ? Number(form.route_id) : null,
-                price_type_id: selectedCustomer?.price_type_id || defaultPriceTypeId(null, meta.price_types),
+                price_type_id: priceTypeId ? Number(priceTypeId) : undefined,
                 recipient_name: form.recipient_name,
                 recipient_phone: form.recipient_phone || null,
                 delivery_address: form.delivery_address,
@@ -1466,6 +1470,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                                 {meta.app === 'sales' && <label>{t(locale, 'route')}<select required value={form.route_id} onChange={(event) => setForm((current) => ({ ...current, route_id: event.target.value }))}><option value="">{t(locale, 'route')}</option>{meta.routes.filter((route) => Number(route.area_id) === Number(form.area_id)).map((route) => <option key={route.id} value={route.id}>{route.code} - {route.name}</option>)}</select></label>}
                                 <label>{t(locale, 'recipientName')}<input required maxLength="150" value={form.recipient_name} onChange={(event) => setForm((current) => ({ ...current, recipient_name: event.target.value }))} /></label>
                                 <label>{t(locale, 'recipientPhone')}<input type="tel" maxLength="50" value={form.recipient_phone} onChange={(event) => setForm((current) => ({ ...current, recipient_phone: event.target.value }))} /></label>
+                                {meta.app === 'sales' && <label className="wide">{t(locale, 'priceType')}<select value={priceTypeId} onChange={(event) => setForm((current) => ({ ...current, price_type_id: event.target.value }))}>{meta.price_types.map((priceType) => <option key={priceType.id} value={priceType.id}>{priceType.code} · {priceType.name}</option>)}</select></label>}
                                 <label className="wide">{t(locale, 'address')}<textarea required rows="3" maxLength="500" value={form.delivery_address} onChange={(event) => setForm((current) => ({ ...current, delivery_address: event.target.value }))} /></label>
                                 <label className="wide">{t(locale, 'requestedDelivery')}<input type="date" value={form.requested_delivery_date} onChange={(event) => setForm((current) => ({ ...current, requested_delivery_date: event.target.value }))} /></label>
                                 <label className="wide">{t(locale, 'notes')}<textarea rows="3" maxLength="500" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
@@ -2348,8 +2353,10 @@ function Pagination({ meta = {}, page, setPage }) {
 
 function priceForProduct(product, priceTypeId) {
     if (!product) return '';
-    const price = product.prices?.find((item) => Number(item.price_type_id) === Number(priceTypeId)) || product.prices?.[0];
-    return price ? Number(price.amount) : '';
+    const selected = Number(product.prices?.find((item) => Number(item.price_type_id) === Number(priceTypeId))?.amount);
+    if (Number.isFinite(selected) && selected > 0) return selected;
+    const fallback = Number(product.default_price);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : '';
 }
 
 function calculatePreview(items) {
