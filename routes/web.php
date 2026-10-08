@@ -159,6 +159,8 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/stock/transfers', [StockController::class, 'transfers']);
     Route::get('/stock/documents/{documentCode}', [StockController::class, 'document']);
     Route::post('/stock/receipts', [StockController::class, 'storeReceipt']);
+    Route::put('/stock/receipts/{documentCode}', [StockController::class, 'updateReceipt']);
+    Route::delete('/stock/receipts/{documentCode}', [StockController::class, 'destroyReceipt']);
     Route::post('/stock/transfers', [StockController::class, 'storeTransfer']);
     Route::get('/stock/closing-counts', [StockController::class, 'closingCounts']);
     Route::get('/stock/closing-counts/preview', [StockController::class, 'closingCountPreview']);

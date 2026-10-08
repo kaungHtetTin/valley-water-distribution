@@ -1,4 +1,4 @@
-import { Archive, CalendarDays, Check, Package, Plus, Printer, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
+import { Archive, CalendarDays, Check, Eye, Pencil, Trash2, Package, Plus, Printer, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
 import { ShellBackButton } from './components/ShellBackButton';
@@ -289,6 +289,11 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
     const [page, setPage] = useState(1);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [editingReceipt, setEditingReceipt] = useState('');
+    const [receiptDetail, setReceiptDetail] = useState(null);
+    const [receiptBusy, setReceiptBusy] = useState(false);
+    const [receiptError, setReceiptError] = useState('');
+    const [deleteReceipt, setDeleteReceipt] = useState(null);
     const [formOpen, setFormOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [formError, setFormError] = useState('');
@@ -335,7 +340,40 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
         setPage(1);
     }, [filters.search, filters.warehouse_id, filters.product_id, filters.supplier_id, filters.type, filters.date]);
 
+    const loadReceipt = async (code, edit = false) => {
+        setReceiptBusy(true);
+        setReceiptError('');
+        try {
+            const { data } = await window.axios.get(`${apiBase()}/documents/${encodeURIComponent(code)}`);
+            if (edit) {
+                const document = data.data.document;
+                setEditingReceipt(code);
+                setReceiptDetail(null);
+                setForm({ ...blankForm, ...document, reference_code: document.reference_code || '', notes: document.notes || '', supplier_id: document.supplier_id || '', due_date: document.due_date || '', items: data.data.items.map((item) => ({ product_id: item.product_id, name: item.product_name, sku: item.product_sku, unit: item.unit, quantity: Math.abs(item.signed_quantity), unit_cost: item.unit_cost })) });
+                setWizardStep(0);
+                setProductSearch('');
+                setFormError('');
+                setFormOpen(true);
+            } else setReceiptDetail(data.data);
+        } catch (error) { setReceiptError(requestMessage(error)); }
+        finally { setReceiptBusy(false); }
+    };
+
+    const confirmDeleteReceipt = async () => {
+        setReceiptBusy(true);
+        setReceiptError('');
+        try {
+            await window.axios.delete(`${apiBase()}/receipts/${encodeURIComponent(deleteReceipt.document_code)}`);
+            setDeleteReceipt(null);
+            setReceiptDetail(null);
+            setPage(1);
+            setRefreshKey((value) => value + 1);
+        } catch (error) { setReceiptError(requestMessage(error)); }
+        finally { setReceiptBusy(false); }
+    };
+
     const openForm = () => {
+        setEditingReceipt('');
         if (mode === 'receive' && !isSeparateReceiveForm && onNavigate) {
             onNavigate(`${window.ValleyRuntime?.routes?.office || '/office'}/stock/receive/new`);
             return;
@@ -358,7 +396,9 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     };
 
     const closeForm = () => {
+        if (saving) return;
         setFormOpen(false);
+        setEditingReceipt('');
         setSaving(false);
         setFormError('');
         setWizardStep(0);
@@ -386,26 +426,28 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     }, [isSeparateReceiveForm, meta.loading, meta.error, meta.warehouses, formOpen, movementConfig.defaultType]);
 
     useEffect(() => {
-        if (mode !== 'receive' || receiveForm || !formOpen) return;
+        if (mode !== 'receive' || receiveForm || !formOpen || editingReceipt) return;
         setFormOpen(false);
         setSaving(false);
         setFormError('');
         setWizardStep(0);
         setProductSearch('');
-    }, [mode, receiveForm, formOpen]);
+    }, [mode, receiveForm, formOpen, editingReceipt]);
 
     const saveMovement = (event) => {
         event?.preventDefault();
         setSaving(true);
         setFormError('');
         const endpoint = mode === 'receive' ? 'receipts' : 'movements';
-        window.axios.post(`${apiBase()}/${endpoint}`, form)
+        const request = editingReceipt ? window.axios.put(`${apiBase()}/receipts/${encodeURIComponent(editingReceipt)}`, form) : window.axios.post(`${apiBase()}/${endpoint}`, form);
+        request
             .then(({ data }) => {
-                const saved = mode === 'receive'
-                    ? { ...data.data.receipt, document_code: data.data.receipt.document_code, warehouse_code: selectedWarehouse?.code, warehouse_name: selectedWarehouse?.name }
-                    : data.data.movement;
-                setState((current) => ({ ...current, items: [saved, ...current.items], summary: { ...current.summary, records_count: Number(current.summary.records_count || 0) + 1, total_quantity: Number(current.summary.total_quantity || 0) + Math.abs(Number(saved.total_quantity ?? saved.signed_quantity ?? 0)), total_value: Number(current.summary.total_value || 0) + Math.abs(Number(saved.total_value ?? saved.total_cost ?? 0)) }, pageMeta: { ...current.pageMeta, total: Number(current.pageMeta.total || 0) + 1 } }));
-                closeForm();
+                setRefreshKey((value) => value + 1);
+                setFormOpen(false);
+                setEditingReceipt('');
+                setSaving(false);
+                setFormError('');
+                if (isSeparateReceiveForm && onNavigate) onNavigate(`${window.ValleyRuntime?.routes?.office || '/office'}/stock/receive`);
             })
             .catch((error) => {
                 setSaving(false);
@@ -414,7 +456,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
     };
 
     const isReceiveWizard = mode === 'receive';
-    const selectedProducts = form.items.map((item) => ({ ...meta.products.find((product) => Number(product.id) === Number(item.product_id)), ...item }));
+    const selectedProducts = form.items.map((item) => ({ ...meta.products.find((product) => Number(product.id) === Number(item.product_id)), ...item, id: item.product_id }));
     const selectedWarehouse = meta.warehouses.find((warehouse) => Number(warehouse.id) === Number(form.warehouse_id));
     const selectedSupplier = meta.suppliers.find((supplier) => Number(supplier.id) === Number(form.supplier_id));
     const filteredProducts = meta.products.filter((product) => {
@@ -566,7 +608,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                             <td><strong>{number(movement.products_count)}</strong><span className="muted">{t(locale, 'products')}</span></td>
                                             <td className="numeric">{number(movement.total_quantity)}</td>
                                             <td className="numeric"><strong>{money(movement.total_value)}</strong></td>
-                                            <td className="table-actions-cell"><div className="row-actions"><button className="icon-button" type="button" title="Print stock receipt" aria-label={`Print ${movement.document_code}`} onClick={() => printStockDocument('stock_receipt', movement.document_code)}><Printer size={16} /></button></div></td>
+                                            <td className="table-actions-cell"><div className="row-actions"><button className="icon-button" type="button" title="View receipt" aria-label={`View ${movement.document_code}`} disabled={receiptBusy} onClick={() => loadReceipt(movement.document_code)}><Eye size={16} /></button>{canManage && <><button className="icon-button" type="button" title="Edit receipt" aria-label={`Edit ${movement.document_code}`} disabled={receiptBusy || meta.loading} onClick={() => loadReceipt(movement.document_code, true)}><Pencil size={16} /></button><button className="icon-button danger" type="button" title="Delete receipt" aria-label={`Delete ${movement.document_code}`} disabled={receiptBusy} onClick={() => { setReceiptError(''); setDeleteReceipt(movement); }}><Trash2 size={16} /></button></>}<button className="icon-button" type="button" title="Print stock receipt" aria-label={`Print ${movement.document_code}`} onClick={() => printStockDocument('stock_receipt', movement.document_code)}><Printer size={16} /></button></div></td>
                                         </tr>
                                     ) : (
                                         <tr key={movement.id}>
@@ -588,7 +630,11 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                 )}
             </section></>}
 
-            {formOpen && (!isReceiveWizard || isSeparateReceiveForm) && (
+            {receiptError && !deleteReceipt && <p className="form-alert" role="alert">{receiptError}</p>}
+            {receiptDetail && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setReceiptDetail(null)}><section className="master-dialog stock-dialog" role="dialog" aria-modal="true" aria-label="Stock receipt details"><header><h2>{receiptDetail.document.code}</h2><button className="icon-button" type="button" aria-label="Close receipt details" onClick={() => setReceiptDetail(null)}><X size={16} /></button></header><div className="master-form-body"><dl className="stock-receive-review">{[['Date', formatDate(receiptDetail.document.movement_date)], ['Type', t(locale, receiptDetail.document.movement_type)], ['Warehouse', `${receiptDetail.document.warehouse_code} / ${receiptDetail.document.warehouse_name}`], ['Supplier', receiptDetail.document.supplier_name], ['Reference', receiptDetail.document.reference_code], ['Settlement', receiptDetail.document.movement_type === 'opening' ? '-' : receiptDetail.document.settlement_method], ['Quantity', number(receiptDetail.document.total_quantity)], ['Total value', money(receiptDetail.document.total_value)], ['Due date', receiptDetail.document.due_date], ['Notes', receiptDetail.document.notes]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '-'}</dd></div>)}</dl><div className="master-table-wrap"><table className="master-table"><thead><tr><th>Product</th><th>Quantity</th><th>Unit cost</th><th>Value</th></tr></thead><tbody>{receiptDetail.items.map((item) => <tr key={item.id}><td><strong>{item.product_name}</strong><span className="muted">{item.product_sku} / {item.unit}</span></td><td className="numeric">{number(Math.abs(item.signed_quantity))}</td><td className="numeric">{money(item.unit_cost)}</td><td className="numeric">{money(item.total_cost)}</td></tr>)}</tbody></table></div></div><footer><button className="button" type="button" onClick={() => setReceiptDetail(null)}>Close</button>{canManage && <button className="button primary" type="button" disabled={receiptBusy} onClick={() => loadReceipt(receiptDetail.document.code, true)}><Pencil size={15} />Edit receipt</button>}</footer></section></div>}
+            {deleteReceipt && <div className="modal-backdrop"><section className="master-dialog" role="dialog" aria-modal="true" aria-label="Delete stock receipt"><header><h2>Delete {deleteReceipt.document_code}?</h2></header><div className="master-form-body"><p>This removes the receipt and reverses its stock quantities, supplier invoice, and payment recorded with the receipt.</p>{receiptError && <p className="form-alert" role="alert">{receiptError}</p>}</div><footer><button className="button" type="button" disabled={receiptBusy} onClick={() => { setDeleteReceipt(null); setReceiptError(''); }}>Cancel</button><button className="button danger" type="button" disabled={receiptBusy} onClick={confirmDeleteReceipt}><Trash2 size={15} />{receiptBusy ? 'Deleting...' : 'Delete receipt'}</button></footer></section></div>}
+
+            {formOpen && (!isReceiveWizard || isSeparateReceiveForm || editingReceipt) && (
                 <div className={isSeparateReceiveForm ? 'stock-receive-form-page' : 'modal-backdrop'} role={isSeparateReceiveForm ? undefined : 'presentation'} onMouseDown={(event) => !isSeparateReceiveForm && event.target === event.currentTarget && closeForm()}>
                     <form className={`master-dialog stock-dialog${isReceiveWizard ? ' stock-wizard-dialog' : ''}${isSeparateReceiveForm ? ' stock-wizard-page' : ''}`} onSubmit={handleMovementSubmit}>
                         {isSeparateReceiveForm ? (
@@ -596,7 +642,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                 <div><h1>{t(locale, movementConfig.action)}</h1><p>Create and review a warehouse stock receipt.</p></div>
                             </header></>
                         ) : (
-                            <header><h2>{t(locale, movementConfig.action)}</h2><button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={closeForm}><X size={16} /></button></header>
+                            <header><h2>{editingReceipt ? `Edit ${editingReceipt}` : t(locale, movementConfig.action)}</h2><button className="icon-button" type="button" aria-label={t(locale, 'cancel')} onClick={closeForm}><X size={16} /></button></header>
                         )}
                         {isReceiveWizard ? <>
                             <div className="stock-wizard-stepper-wrap">
@@ -674,7 +720,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                                 <span className="muted">Step {wizardStep + 1} of 4</span>
                                 <div>
                                     <button className="button" type="button" onClick={closeForm}>{t(locale, 'cancel')}</button>
-                                    {wizardStep < 3 ? <button className="button primary" type="button" disabled={!canContinueWizard} onClick={nextWizardStep}>{t(locale, 'next')}</button> : <button className="button primary" type="button" disabled={saving || !quantityComplete} onClick={saveMovement}><Save size={15} />{saving ? t(locale, 'loadingMovements') : t(locale, 'recordReceive')}</button>}
+                                    {wizardStep < 3 ? <button className="button primary" type="button" disabled={!canContinueWizard} onClick={nextWizardStep}>{t(locale, 'next')}</button> : <button className="button primary" type="button" disabled={saving || !quantityComplete} onClick={saveMovement}><Save size={15} />{saving ? t(locale, 'loadingMovements') : editingReceipt ? 'Save changes' : t(locale, 'recordReceive')}</button>}
                                 </div>
                             </footer>
                         </> : <>

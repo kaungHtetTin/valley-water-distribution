@@ -362,6 +362,9 @@ class StockController extends Controller
             ->map(fn ($movement) => $this->movementPayload($movement))
             ->values();
 
+        $invoice = SupplierInvoice::where('stock_document_code', $documentCode)->first();
+        $payment = $invoice ? SupplierPayment::where('supplier_invoice_id', $invoice->id)->first() : null;
+
         return ApiResponse::success('Stock document loaded.', [
             'document' => [
                 'code' => $documentCode,
@@ -372,6 +375,10 @@ class StockController extends Controller
                 'supplier_id' => $primary->supplier_id,
                 'supplier_code' => $primary->supplier_code,
                 'supplier_name' => $primary->supplier_name,
+                'warehouse_id' => $primary->warehouse_id,
+                'settlement_method' => $payment?->payment_method ?? 'credit',
+                'payment_terms_days' => $invoice?->payment_terms_days ?? 30,
+                'due_date' => $invoice?->due_date?->toDateString(),
                 'warehouse_code' => $primary->warehouse_code,
                 'warehouse_name' => $primary->warehouse_name,
                 'destination_warehouse_code' => $destination?->warehouse_code,
@@ -668,7 +675,7 @@ class StockController extends Controller
             : $movementDate->copy()->addDays($paymentTermsDays)->toDateString();
 
         $result = DB::transaction(function () use ($validated, $movementDate, $settlementMethod, $paymentTermsDays, $receiptDueDate, $request) {
-            $documentCode = $this->nextReceiptCode($movementDate);
+            $documentCode = $request->attributes->get('receipt_document_code') ?? $this->nextReceiptCode($movementDate);
             $movements = [];
             $totalQuantity = 0;
             $totalValue = 0;
@@ -782,6 +789,67 @@ class StockController extends Controller
                 'items' => $result['movements'],
             ],
         ], 201);
+    }
+
+    public function updateReceipt(Request $request, string $documentCode)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+
+        return DB::transaction(function () use ($request, $documentCode) {
+            $this->removeReceipt($documentCode);
+            $request->attributes->set('receipt_document_code', $documentCode);
+            return $this->storeReceipt($request)->setStatusCode(200);
+        }, 3);
+    }
+
+    public function destroyReceipt(Request $request, string $documentCode)
+    {
+        $this->authorizePermission($request, self::MANAGE_PERMISSION);
+        DB::transaction(fn () => $this->removeReceipt($documentCode), 3);
+
+        return ApiResponse::success('Stock receipt deleted.');
+    }
+
+    private function removeReceipt(string $documentCode): void
+    {
+        $movements = StockMovement::where('document_code', $documentCode)->orderBy('id')->lockForUpdate()->get();
+        abort_if($movements->isEmpty(), 404, 'Stock receipt not found.');
+        abort_if($movements->contains(fn ($line) => ! in_array($line->movement_type, ['opening', 'receive'])), 422, 'Only stock receipts can be edited or deleted.');
+
+        foreach ($movements as $line) {
+            $balance = $this->inventory->balanceFor($line->warehouse_id, $line->product_id);
+            $history = StockMovement::where('warehouse_id', $line->warehouse_id)
+                ->where('product_id', $line->product_id)
+                ->where(fn ($query) => $query->where('document_code', '!=', $documentCode)->orWhereNull('document_code'))->orderBy('id')->lockForUpdate()->get();
+            abort_if($history->contains(fn ($movement) => $movement->id > $line->id), 409,
+                'This receipt has later stock movements. Reverse those movements before editing or deleting it.');
+            $quantity = 0;
+            $average = 0;
+            foreach ($history as $movement) {
+                $signed = (float) $movement->signed_quantity;
+                if ($signed > 0) {
+                    $average = (($quantity * $average) + (float) $movement->total_cost) / ($quantity + $signed);
+                }
+                $quantity += $signed;
+            }
+            $balance->update(['quantity' => $quantity, 'average_cost' => $average,
+                'stock_value' => $quantity * $average, 'last_movement_at' => $history->last()?->created_at]);
+        }
+
+        $invoice = SupplierInvoice::where('stock_document_code', $documentCode)->lockForUpdate()->first();
+        if ($invoice) {
+            $payments = SupplierPayment::where('supplier_invoice_id', $invoice->id)->lockForUpdate()->get();
+            foreach ($payments as $payment) {
+                abort_if($payment->notes !== 'Paid when stock receipt was recorded.', 409,
+                    'This receipt has supplier payments. Remove those payments before editing or deleting it.');
+                FinancialTransaction::where('reference_type', 'supplier_payment')->where('reference_id', $payment->id)->delete();
+                SupplierLedgerEntry::where('source_type', 'supplier_payment')->where('source_key', $payment->code)->delete();
+                $payment->delete();
+            }
+            $invoice->delete();
+        }
+        SupplierLedgerEntry::where('source_type', 'stock_receipt')->where('source_key', $documentCode)->delete();
+        StockMovement::where('document_code', $documentCode)->delete();
     }
 
     public function storeTransfer(Request $request)
@@ -1210,7 +1278,7 @@ class StockController extends Controller
     private function nextSupplierInvoiceCode(Carbon $date): string
     {
         $prefix = 'PIN-'.$date->format('Ym').'-';
-        $next = SupplierInvoice::where('code', 'like', "{$prefix}%")->count() + 1;
+        $next = (int) substr((string) SupplierInvoice::where('code', 'like', "{$prefix}%")->max('code'), strlen($prefix)) + 1;
 
         return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
@@ -1218,7 +1286,7 @@ class StockController extends Controller
     private function nextSupplierPaymentCode(Carbon $date): string
     {
         $prefix = 'SPY-'.$date->format('Ym').'-';
-        $next = SupplierPayment::where('code', 'like', "{$prefix}%")->count() + 1;
+        $next = (int) substr((string) SupplierPayment::where('code', 'like', "{$prefix}%")->max('code'), strlen($prefix)) + 1;
 
         return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
@@ -1348,10 +1416,7 @@ class StockController extends Controller
     private function nextReceiptCode(Carbon $movementDate): string
     {
         $prefix = 'REC-'.$movementDate->format('Ym').'-';
-        $next = StockMovement::query()
-            ->where('document_code', 'like', "{$prefix}%")
-            ->distinct()
-            ->count('document_code') + 1;
+        $next = (int) substr((string) StockMovement::where('document_code', 'like', "{$prefix}%")->max('document_code'), strlen($prefix)) + 1;
 
         return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }

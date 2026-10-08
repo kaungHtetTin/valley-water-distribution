@@ -12804,7 +12804,7 @@ body.printing-preview-open {
     width: auto;
 }
 
-/* Keep stock receipt columns sized to their content and the print action at the right edge. */
+/* Keep receipt actions inside a shared sticky column with room for all four controls. */
 .master-table.stock-receipt-table {
     width: max-content;
     min-width: 100%;
@@ -12836,9 +12836,9 @@ body.printing-preview-open {
 .master-table.stock-receipt-table > tbody > tr > .table-actions-cell {
     position: sticky;
     right: 0;
-    width: 64px;
-    min-width: 64px;
-    max-width: 64px;
+    width: 144px;
+    min-width: 144px;
+    max-width: none;
     padding-inline: 6px;
     text-align: center;
 }
@@ -12855,6 +12855,21 @@ body.printing-preview-open {
 
 .master-table.stock-receipt-table .table-actions-cell > .row-actions {
     justify-content: center;
+    width: max-content;
+    min-width: max-content;
+    margin-inline: auto;
+}
+
+.master-table.stock-receipt-table .row-actions > button {
+    flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+    .master-table.stock-receipt-table > thead > tr > .table-actions-header,
+    .master-table.stock-receipt-table > tbody > tr > .table-actions-cell {
+        width: 184px;
+        min-width: 184px;
+    }
 }
 
 /* Fit every supplier invoice column inside the selected supplier panel. */

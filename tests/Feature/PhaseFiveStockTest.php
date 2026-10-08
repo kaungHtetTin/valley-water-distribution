@@ -108,6 +108,97 @@ class PhaseFiveStockTest extends TestCase
         $this->assertEquals(20, DB::table('stock_balances')->where('warehouse_id', $warehouseId)->where('product_id', $smallBottleId)->value('quantity'));
     }
 
+    public function test_receipt_can_be_viewed_updated_and_deleted_with_its_accounting_entries()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $warehouse = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
+        $product = DB::table('products')->where('sku', 'VAL-500')->value('id');
+        $payload = ['movement_type' => 'receive', 'supplier_id' => DB::table('suppliers')->where('code', 'SUP-001')->value('id'),
+            'warehouse_id' => $warehouse, 'movement_date' => '2026-10-08', 'settlement_method' => 'cash',
+            'items' => [['product_id' => $product, 'quantity' => 10, 'unit_cost' => 100]]];
+        $code = $this->postJson('/api/stock/receipts', $payload)->assertCreated()->json('data.receipt.document_code');
+        $this->getJson("/api/stock/documents/{$code}")->assertOk()
+            ->assertJsonPath('data.document.warehouse_id', $warehouse)
+            ->assertJsonPath('data.document.settlement_method', 'cash')->assertJsonCount(1, 'data.items');
+        $payload['items'][0]['quantity'] = 20;
+        $this->putJson("/api/stock/receipts/{$code}", $payload)->assertOk()
+            ->assertJsonPath('data.receipt.document_code', $code)->assertJsonPath('data.receipt.total_value', 2000);
+        $this->assertDatabaseHas('stock_balances', ['warehouse_id' => $warehouse, 'product_id' => $product, 'quantity' => 20, 'stock_value' => 2000]);
+        $invoice = DB::table('supplier_invoices')->where('stock_document_code', $code)->first();
+        $payment = DB::table('supplier_payments')->where('supplier_invoice_id', $invoice->id)->first();
+        $this->assertEquals(2000, $payment->amount);
+        $this->deleteJson("/api/stock/receipts/{$code}")->assertOk();
+        $this->assertDatabaseMissing('stock_movements', ['document_code' => $code]);
+        $this->assertDatabaseMissing('supplier_invoices', ['stock_document_code' => $code]);
+        $this->assertDatabaseMissing('supplier_payments', ['id' => $payment->id]);
+        $this->assertDatabaseMissing('financial_transactions', ['reference_type' => 'supplier_payment', 'reference_id' => $payment->id]);
+        $this->assertDatabaseMissing('supplier_ledger_entries', ['source_type' => 'stock_receipt', 'source_key' => $code]);
+        $this->assertDatabaseHas('stock_balances', ['warehouse_id' => $warehouse, 'product_id' => $product, 'quantity' => 0, 'stock_value' => 0]);
+        $this->getJson("/api/stock/documents/{$code}")->assertNotFound();
+    }
+
+    public function test_receipt_changes_roll_back_when_invalid_or_followed_by_stock_movements()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $warehouse = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
+        $product = DB::table('products')->where('sku', 'VAL-500')->value('id');
+        $payload = ['movement_type' => 'opening', 'warehouse_id' => $warehouse, 'movement_date' => '2026-10-08',
+            'items' => [['product_id' => $product, 'quantity' => 10, 'unit_cost' => 100]]];
+        $code = $this->postJson('/api/stock/receipts', $payload)->assertCreated()->json('data.receipt.document_code');
+        $this->putJson("/api/stock/receipts/{$code}", ['items' => []])->assertUnprocessable();
+        $this->assertDatabaseHas('stock_movements', ['document_code' => $code, 'quantity' => 10]);
+        $this->postJson('/api/stock/movements', ['movement_type' => 'issue', 'warehouse_id' => $warehouse,
+            'product_id' => $product, 'quantity' => 1, 'movement_date' => '2026-10-08'])->assertCreated();
+        $this->deleteJson("/api/stock/receipts/{$code}")->assertStatus(409);
+        $this->putJson("/api/stock/receipts/{$code}", $payload)->assertStatus(409);
+        $this->assertDatabaseHas('stock_movements', ['document_code' => $code, 'quantity' => 10]);
+        $this->assertDatabaseHas('stock_balances', ['warehouse_id' => $warehouse, 'product_id' => $product, 'quantity' => 9]);
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
+        $this->deleteJson("/api/stock/receipts/{$code}")->assertForbidden();
+        $this->putJson("/api/stock/receipts/{$code}", $payload)->assertForbidden();
+    }
+
+    public function test_receipt_with_later_supplier_payment_cannot_be_deleted()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $warehouse = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
+        $product = DB::table('products')->where('sku', 'VAL-500')->value('id');
+        $supplier = DB::table('suppliers')->where('code', 'SUP-001')->value('id');
+        $payload = ['movement_type' => 'receive', 'supplier_id' => $supplier, 'warehouse_id' => $warehouse,
+            'movement_date' => '2026-10-08', 'settlement_method' => 'credit',
+            'items' => [['product_id' => $product, 'quantity' => 10, 'unit_cost' => 100]]];
+        $code = $this->postJson('/api/stock/receipts', $payload)->assertCreated()->json('data.receipt.document_code');
+        $invoice = DB::table('supplier_invoices')->where('stock_document_code', $code)->first();
+        DB::table('supplier_payments')->insert(['code' => 'PAY-TEST', 'supplier_id' => $supplier,
+            'supplier_invoice_id' => $invoice->id, 'payment_date' => '2026-10-08', 'amount' => 500,
+            'payment_method' => 'cash', 'notes' => 'Later payment', 'created_at' => now(), 'updated_at' => now()]);
+        $this->deleteJson("/api/stock/receipts/{$code}")->assertStatus(409);
+        $this->putJson("/api/stock/receipts/{$code}", $payload)->assertStatus(409);
+        $this->assertDatabaseHas('stock_balances', ['warehouse_id' => $warehouse, 'product_id' => $product, 'quantity' => 10, 'stock_value' => 1000]);
+        $this->assertDatabaseHas('supplier_invoices', ['id' => $invoice->id]);
+        $this->assertDatabaseHas('supplier_payments', ['code' => 'PAY-TEST']);
+    }
+
+    public function test_deleting_a_receipt_restores_previous_weighted_cost()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $warehouse = DB::table('warehouses')->where('code', 'WH-TGI')->value('id');
+        $product = DB::table('products')->where('sku', 'VAL-5G')->value('id');
+        $before = DB::table('stock_balances')->where('warehouse_id', $warehouse)->where('product_id', $product)->first();
+        $code = $this->postJson('/api/stock/receipts', ['movement_type' => 'opening', 'warehouse_id' => $warehouse,
+            'movement_date' => '2026-10-08', 'items' => [['product_id' => $product, 'quantity' => 10, 'unit_cost' => 5000]]])
+            ->assertCreated()->json('data.receipt.document_code');
+        $this->deleteJson("/api/stock/receipts/{$code}")->assertOk();
+        $after = DB::table('stock_balances')->where('warehouse_id', $warehouse)->where('product_id', $product)->first();
+        $this->assertEquals($before->quantity, $after->quantity);
+        $this->assertEquals($before->average_cost, $after->average_cost);
+        $this->assertEquals($before->stock_value, $after->stock_value);
+    }
+
     public function test_stock_balance_is_grouped_by_permitted_active_warehouse()
     {
         $this->seed();
