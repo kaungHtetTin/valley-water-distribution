@@ -2205,6 +2205,15 @@ label input {
 
 .supervisor-mobile-home { gap: 10px; }
 
+.supervisor-orders-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.supervisor-orders-pagination > span { color: var(--color-muted); font-size: 12px; text-align: center; }
+.supervisor-orders-page .supervisor-kpi-summary article { min-width: 0; }
+.supervisor-orders-page .supervisor-kpi-summary strong { overflow-wrap: anywhere; }
+.order-stock-unavailable { color: var(--color-danger, #b91c1c) !important; font-weight: 700; }
+.stock-product-picker button.is-out-of-stock:disabled { opacity: .6; cursor: not-allowed; }
+.app-root[data-app='supervisor'] .mobile-order-timeline li > div { min-width: 0; width: 100%; }
+.app-root[data-app='supervisor'] .mobile-order-timeline li small { white-space: normal; overflow-wrap: anywhere; }
+
 .supervisor-mobile-hero {
     display: grid;
     gap: 4px;

@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Services\CustomerCreditService;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use App\Support\OrderStockAvailability;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,20 @@ class MobileOrderController extends Controller
     public function meta(Request $request)
     {
         $scope = $this->scope($request, 'view');
+
+        if ($scope['app'] === 'supervisor') {
+            $representatives = DB::table('employees')->where('employee_type', 'sales')
+                ->where('supervisor_id', $scope['supervisor_id'])->whereNull('deleted_at')
+                ->orderBy('name')->get(['id', 'code', 'name', 'assigned_route_id']);
+            $routeIds = $this->scopedQuery($scope)->reorder()->distinct()->pluck('orders.route_id')
+                ->merge($representatives->pluck('assigned_route_id'))->filter()->unique();
+
+            return ApiResponse::success('Team order filters loaded.', [
+                'app' => 'supervisor',
+                'representatives' => $representatives,
+                'routes' => DB::table('routes')->whereIn('id', $routeIds)->orderBy('name')->get(['id', 'code', 'name']),
+            ]);
+        }
 
         $customers = $scope['app'] === 'client'
             ? DB::table('customers')->where('id', $scope['customer_id'])->get(['id', 'code', 'shop_name', 'contact_name', 'phone', 'address', 'area_id', 'route_id', 'price_type_id', 'credit_limit'])
@@ -43,9 +58,11 @@ class MobileOrderController extends Controller
         $products = DB::table('products')
             ->where('products.is_active', true)
             ->orderBy('products.name')
-            ->get(['products.id', 'products.sku', 'products.name', 'products.unit'])
+            ->select(['products.id', 'products.sku', 'products.name', 'products.unit'])
+            ->selectSub(OrderStockAvailability::quantityQuery(), 'available_stock')->get()
             ->map(function ($product) {
-                $product->available_stock = (float) DB::table('stock_balances')->where('product_id', $product->id)->sum('quantity');
+                $product->available_stock = (float) $product->available_stock;
+                $product->is_in_stock = $product->available_stock > 0;
                 $product->label = "{$product->sku} - {$product->name} ({$product->available_stock} {$product->unit})";
                 $product->prices = DB::table('product_prices')
                     ->where('product_id', $product->id)
@@ -79,6 +96,31 @@ class MobileOrderController extends Controller
     {
         $scope = $this->scope($request, 'view');
         $query = $this->scopedQuery($scope)->latest('orders.order_date')->latest('orders.id');
+
+        if ($scope['app'] === 'supervisor') {
+            $request->validate([
+                'representative_id' => ['nullable', 'integer'],
+                'route_id' => ['nullable', 'integer'],
+                'date_from' => ['nullable', 'date'],
+                'date_to' => ['nullable', 'date', Rule::when($request->filled('date_from'), 'after_or_equal:date_from')],
+                'delivery_from' => ['nullable', 'date'],
+                'delivery_to' => ['nullable', 'date', Rule::when($request->filled('delivery_from'), 'after_or_equal:delivery_from')],
+                'min_total' => ['nullable', 'numeric', 'min:0'],
+                'max_total' => ['nullable', 'numeric', 'min:0', Rule::when($request->filled('min_total'), 'gte:min_total')],
+                'delivery_status' => ['nullable', Rule::in(['none', 'planned', 'assigned', 'loading', 'on_route', 'delivered', 'partially_delivered', 'failed'])],
+            ]);
+            if ($request->filled('representative_id')) {
+                $query->where('order_author.employee_id', $request->query('representative_id'));
+            }
+            if ($request->filled('route_id')) {
+                $query->where('orders.route_id', $request->query('route_id'));
+            }
+            if ($request->query('delivery_status') === 'none') {
+                $query->whereNull('order_delivery.id');
+            } elseif ($request->filled('delivery_status')) {
+                $query->where('order_delivery.status', $request->query('delivery_status'));
+            }
+        }
 
         if ($request->filled('status')) {
             $query->where('orders.status', $request->query('status'));
@@ -294,6 +336,16 @@ class MobileOrderController extends Controller
             return ['app' => 'client', 'customer_id' => $user->customer_id, 'route_id' => null];
         }
 
+        if ($user->role === 'Sales Supervisor') {
+            abort_unless($action === 'view', 403, 'Supervisor orders are read-only.');
+            $this->authorizePermission($request, 'supervisor.orders.view');
+            abort_unless(DB::table('employees')->where('id', $user->employee_id)
+                ->where('employee_type', 'sales_supervisor')->where('is_active', true)
+                ->whereNull('deleted_at')->exists(), 404, 'Sales supervisor profile was not found.');
+
+            return ['app' => 'supervisor', 'supervisor_id' => $user->employee_id];
+        }
+
         $this->authorizePermission($request, "sales.orders.{$action}");
         $routeId = DB::table('employees')->where('id', $user->employee_id)->value('assigned_route_id');
         abort_unless($routeId, 422, 'A route must be assigned before creating orders.');
@@ -328,6 +380,8 @@ class MobileOrderController extends Controller
 
     private function normalizeItems(array $items, ?int $priceTypeId, Carbon $orderDate): array
     {
+        OrderStockAvailability::validateItems($items);
+
         return collect($items)->map(function ($item) use ($orderDate, $priceTypeId) {
             $product = DB::table('products')->where('is_active', true)->find($item['product_id']);
             abort_unless($product, 422, 'Active product is required.');
@@ -382,6 +436,9 @@ class MobileOrderController extends Controller
     {
         return $this->baseQuery()
             ->when($scope['app'] === 'client', fn ($query) => $query->where('orders.customer_id', $scope['customer_id']))
+            ->when($scope['app'] === 'supervisor', fn ($query) => $query->whereIn('order_author.employee_id',
+                DB::table('employees')->where('employee_type', 'sales')->where('supervisor_id', $scope['supervisor_id'])
+                    ->whereNull('deleted_at')->select('id')))
             ->when($scope['app'] === 'sales', fn ($query) => $query->where('orders.route_id', $scope['route_id']));
     }
 
@@ -394,6 +451,8 @@ class MobileOrderController extends Controller
             ->groupBy('order_id');
 
         return DB::table('orders')
+            ->leftJoin('users as order_author', 'orders.created_by', '=', 'order_author.id')
+            ->leftJoin('employees as order_representative', 'order_author.employee_id', '=', 'order_representative.id')
             ->leftJoin('customers', 'orders.customer_id', '=', 'customers.id')
             ->leftJoin('routes', 'orders.route_id', '=', 'routes.id')
             ->leftJoin('areas', 'routes.area_id', '=', 'areas.id')
@@ -417,6 +476,9 @@ class MobileOrderController extends Controller
     {
         return [
             'orders.*',
+            'order_representative.id as representative_id',
+            'order_representative.code as representative_code',
+            'order_representative.name as representative_name',
             'customers.code as customer_code',
             DB::raw('COALESCE(orders.recipient_name, customers.shop_name) as recipient_name_display'),
             'areas.name as area',
@@ -445,6 +507,9 @@ class MobileOrderController extends Controller
 
     private function orderInScope(Order $order, array $scope): bool
     {
+        if ($scope['app'] === 'supervisor') {
+            return $this->scopedQuery($scope)->where('orders.id', $order->id)->exists();
+        }
         if ($scope['app'] === 'client') {
             return (int) $order->customer_id === (int) $scope['customer_id'];
         }
@@ -469,6 +534,9 @@ class MobileOrderController extends Controller
             'delivery_address' => $order->delivery_address,
             'route' => $order->route,
             'source_app' => $order->source_app,
+            'representative_id' => $order->representative_id,
+            'representative_code' => $order->representative_code,
+            'representative_name' => $order->representative_name,
             'order_date' => Carbon::parse($order->order_date)->toDateString(),
             'requested_delivery_date' => $order->requested_delivery_date ? Carbon::parse($order->requested_delivery_date)->toDateString() : null,
             'credit_due_date' => $order->credit_due_date ? Carbon::parse($order->credit_due_date)->toDateString() : null,

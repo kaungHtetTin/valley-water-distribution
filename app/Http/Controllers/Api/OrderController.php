@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
+use App\Support\OrderStockAvailability;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -46,8 +47,11 @@ class OrderController extends Controller
         $products = DB::table('products')
             ->where('products.is_active', true)
             ->orderBy('products.name')
-            ->get(['products.id', 'products.sku', 'products.name', 'products.unit'])
+            ->select(['products.id', 'products.sku', 'products.name', 'products.unit'])
+            ->selectSub(OrderStockAvailability::quantityQuery(), 'available_stock')->get()
             ->map(function ($product) {
+                $product->available_stock = (float) $product->available_stock;
+                $product->is_in_stock = $product->available_stock > 0;
                 $product->label = "{$product->sku} - {$product->name}";
                 $product->prices = DB::table('product_prices')
                     ->where('product_id', $product->id)
@@ -446,6 +450,8 @@ class OrderController extends Controller
 
     private function normalizeItems(array $items, ?int $priceTypeId, Carbon $orderDate): array
     {
+        OrderStockAvailability::validateItems($items);
+
         return collect($items)->map(function ($item) use ($orderDate, $priceTypeId) {
             $product = DB::table('products')->where('is_active', true)->find($item['product_id']);
             abort_unless($product, 422, 'Active product is required.');

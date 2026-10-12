@@ -7,6 +7,8 @@ import { printConfiguredDocument } from './printDocuments';
 
 const copy = {
     en: {
+        outOfStock: 'Out of stock',
+        availableStock: 'Available stock',
         actions: 'Actions',
         addItem: 'Add item',
         allCustomers: 'All customers',
@@ -131,6 +133,8 @@ const copy = {
         remove: 'Remove',
     },
     my: {
+        outOfStock: 'ပစ္စည်းလက်ကျန် မရှိပါ',
+        availableStock: 'လက်ကျန်',
         actions: 'လုပ်ဆောင်ချက်များ', addItem: 'ပစ္စည်းထပ်ထည့်ရန်', allCustomers: 'ဖောက်သည်အားလုံး', allStatuses: 'အခြေအနေအားလုံး', cancel: 'မလုပ်တော့ပါ', cash: 'ငွေသား', confirmed: 'အတည်ပြုပြီး', credit: 'အကြွေး', availableCredit: 'အသုံးပြုနိုင်သော အကြွေး', customer: 'ဖောက်သည်', customers: 'တာဝန်ပေးထားသော ဖောက်သည်များ', date: 'ရက်စွဲ', details: 'အသေးစိတ်', empty: 'ကိုက်ညီသော အော်ဒါမရှိပါ။', foc: 'အခမဲ့', itemType: 'အမျိုးအစား', items: 'ပစ္စည်းများ', loading: 'အော်ဒါများ ရယူနေသည်', notes: 'မှတ်ချက်', newOrder: 'အော်ဒါအသစ်', orderDate: 'အော်ဒါရက်စွဲ', order: 'အော်ဒါ', orders: 'အော်ဒါများ', ordersHint: 'ဖောက်သည်အော်ဒါများကို အတည်ပြုခြင်း၊ invoice နှင့် ပို့ဆောင်ရေးအတွက် စီမံပါ။', mobileOrdersHint: 'ပစ္စည်းနှင့် အရေအတွက်ကို ရွေးပါ။ ပို့ဆောင်ရေးအသေးစိတ်သည် မဖြစ်မနေမဟုတ်ပါ။', paymentType: 'ငွေပေးချေမှု', pending: 'စောင့်ဆိုင်း', price: 'ဈေးနှုန်း', product: 'ပစ္စည်း', quantity: 'အရေအတွက်', requestedDelivery: 'လိုချင်သော ပို့ဆောင်ရက်', retry: 'ပြန်ကြိုးစားရန်', route: 'လမ်းကြောင်း', saveMobileOrder: 'အော်ဒါတင်ရန်', searchOrders: 'အော်ဒါ သို့မဟုတ် ဖောက်သည်ရှာရန်', status: 'အခြေအနေ', subtotal: 'ပေါင်းလဒ်', total: 'စုစုပေါင်း', totalAmount: 'အော်ဒါတန်ဖိုး', unit: 'ယူနစ်', orderHistory: 'အော်ဒါမှတ်တမ်း', outstandingBalance: 'ပေးရန်ကျန်ငွေ', afterThisOrder: 'ဤအော်ဒါပြီးနောက်', overLimit: 'အကြွေးကန့်သတ်ချက်ကျော်', creditOk: 'အကြွေးရရှိနိုင်', creditLimit: 'အကြွေးကန့်သတ်ချက်', remove: 'ဖယ်ရှားရန်', sale: 'အရောင်း', draft: 'မူကြမ်း', cancelled: 'ပယ်ဖျက်ပြီး', invoiced: 'Invoice ပြီး', assigned: 'တာဝန်ပေးပြီး', delivering: 'ပို့ဆောင်နေသည်', delivered: 'ပို့ဆောင်ပြီး', submitted: 'တင်ပြပြီး', statusTimeline: 'အခြေအနေမှတ်တမ်း', waiting: 'စောင့်ဆိုင်း', current: 'လက်ရှိ', invoice: 'Invoice', delivery: 'ပို့ဆောင်ရေး',
     },
 };
@@ -173,7 +177,18 @@ function apiBase(name) {
 }
 
 function requestMessage(error, locale) {
+    const stockErrors = Object.values(error.response?.data?.errors || {}).flat().filter((message) => message.includes('is out of stock'));
+    if (stockErrors.length) return locale === 'my'
+        ? `${t(locale, 'outOfStock')}: ${stockErrors.map((message) => message.split(' is out of stock')[0]).join(', ')}`
+        : stockErrors.join(' ');
     return locale === 'my' ? t(locale, 'loading') : error.response?.data?.message || 'The order request could not be completed.';
+}
+
+const productInStock = (product) => Boolean(product && Number(product.available_stock) > 0);
+
+function UnavailableOrderItems({ items, products, locale }) {
+    const unavailable = items.map((item) => products.find((product) => Number(product.id) === Number(item.product_id))).filter((product) => !productInStock(product));
+    return unavailable.length ? <p className="form-alert" role="alert">{t(locale, 'outOfStock')}: {unavailable.map((product) => product?.name || t(locale, 'product')).join(', ')}</p> : null;
 }
 
 function defaultPriceTypeId(customer, priceTypes) {
@@ -209,6 +224,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
     const [page, setPage] = useState(1);
     const [refreshKey, setRefreshKey] = useState(0);
     const [formOpen, setFormOpen] = useState(false);
+    const [formError, setFormError] = useState('');
     const [wizardStep, setWizardStep] = useState(0);
     const [productSearch, setProductSearch] = useState('');
     const [saving, setSaving] = useState(false);
@@ -323,6 +339,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
     const preview = useMemo(() => calculatePreview(form.items), [form.items]);
 
     const initializeForm = (navigateToPage = true) => {
+        setFormError('');
         const firstArea = meta.areas[0];
         const firstRoute = meta.routes.find((route) => Number(route.area_id) === Number(firstArea?.id));
         const priceTypeId = defaultPriceTypeId(null, meta.price_types);
@@ -411,7 +428,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
     }));
     const filteredOrderProducts = meta.products.filter((product) => `${product.name} ${product.sku} ${product.unit}`.toLowerCase().includes(productSearch.trim().toLowerCase()));
     const orderBasicComplete = Boolean(form.area_id && form.route_id && form.recipient_name.trim() && form.delivery_address.trim() && form.order_date);
-    const orderProductsComplete = orderBasicComplete && selectedOrderItems.length > 0;
+    const orderProductsComplete = orderBasicComplete && selectedOrderItems.length > 0 && selectedOrderItems.every((item) => productInStock(item.product));
     const orderPricingComplete = orderProductsComplete && selectedOrderItems.every((item) => {
         const saleQuantity = Number(item.quantity || 0);
         const focQuantity = Number(item.foc_quantity || 0);
@@ -425,6 +442,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
 
     const toggleOrderProduct = (product) => {
         const selected = form.items.some((item) => Number(item.product_id) === Number(product.id));
+        if (!selected && !productInStock(product)) return;
         setForm((current) => {
             if (selected) return { ...current, items: current.items.filter((item) => Number(item.product_id) !== Number(product.id)) };
             const item = { ...blankItem, product_id: product.id, unit_price: priceForProduct(product, current.price_type_id || defaultPriceTypeId(selectedCustomer, meta.price_types)) };
@@ -438,6 +456,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
         if (event.nativeEvent?.submitter?.dataset?.action !== 'save-order') return;
         if (!canManage || wizardStep !== 3 || !orderPricingComplete) return;
         setSaving(true);
+        setFormError('');
         setState((current) => ({ ...current, error: '' }));
 
         try {
@@ -487,7 +506,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
             });
             onNavigate?.(`${orderListPath}/${data.data.order.id}`);
         } catch (error) {
-            setState((current) => ({ ...current, error: requestMessage(error, locale) }));
+            setFormError(requestMessage(error, locale));
             setSaving(false);
         }
     };
@@ -538,7 +557,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
     };
     const showOrderActions = canManage && state.items.some((order) => editableOrderStatuses.includes(order.status) || order.status === 'pending');
 
-    if (formMode) return formOpen ? <OrderCreationWizard editing={editing} locale={locale} form={form} setForm={setForm} meta={meta} saving={saving} error={state.error || meta.error} step={wizardStep} setStep={setWizardStep} productSearch={productSearch} setProductSearch={setProductSearch} products={filteredOrderProducts} selectedItems={selectedOrderItems} preview={preview} basicComplete={orderBasicComplete} productsComplete={orderProductsComplete} pricingComplete={orderPricingComplete} canOpenStep={canOpenOrderStep} onClose={closeForm} onSubmit={submit} onCustomerChange={handleCustomerChange} onAreaChange={handleAreaChange} onPriceTypeChange={handlePriceTypeChange} onToggleProduct={toggleOrderProduct} onUpdateItem={updateItem} /> : <WorkspaceState icon={(state.error || meta.error) ? AlertCircle : RefreshCw} title={state.error || meta.error || t(locale, 'loading')} loading={!state.error && !meta.error} />;
+    if (formMode) return formOpen ? <OrderCreationWizard editing={editing} locale={locale} form={form} setForm={setForm} meta={meta} saving={saving} error={formError || state.error || meta.error} step={wizardStep} setStep={setWizardStep} productSearch={productSearch} setProductSearch={setProductSearch} products={filteredOrderProducts} selectedItems={selectedOrderItems} preview={preview} basicComplete={orderBasicComplete} productsComplete={orderProductsComplete} pricingComplete={orderPricingComplete} canOpenStep={canOpenOrderStep} onClose={closeForm} onSubmit={submit} onCustomerChange={handleCustomerChange} onAreaChange={handleAreaChange} onPriceTypeChange={handlePriceTypeChange} onToggleProduct={toggleOrderProduct} onUpdateItem={updateItem} /> : <WorkspaceState icon={(state.error || meta.error) ? AlertCircle : RefreshCw} title={state.error || meta.error || t(locale, 'loading')} loading={!state.error && !meta.error} />;
 
     if (detailId && viewing) return <OrderDetailPage key={`${detailId}-${viewing.order.status || ''}`} viewing={viewing} locale={locale} canManage={canManage} processingId={processingId} cancelCandidate={cancelCandidate} actionMessage={actionMessage} actionError={state.error} onEdit={openEdit} onConfirm={confirmOrder} onRequestCancel={requestCancelOrder} onConfirmCancel={cancelOrder} onDismissCancel={() => setCancelCandidate(null)} onClose={() => onNavigate?.(orderListPath)} />;
 
@@ -654,6 +673,7 @@ function OrderCreationWizard({ editing = false, locale, form, setForm, meta, sav
 
                 <div className="master-form-body stock-wizard-body">
                     {error && <p className="form-alert">{error}</p>}
+                    <UnavailableOrderItems items={selectedItems} products={meta.products} locale={locale} />
 
                     {step === 0 && <section className="stock-wizard-stage">
                         <div className="stock-wizard-stage-heading"><p className="eyebrow">1 / 4</p><h3>Customer and delivery</h3><span>Set the recipient, route, pricing, and requested delivery information.</span></div>
@@ -676,7 +696,7 @@ function OrderCreationWizard({ editing = false, locale, form, setForm, meta, sav
                         <label className="master-search stock-product-search"><Search size={14} /><input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Search products" autoFocus /></label>
                         <div className="stock-product-picker">{products.length === 0 ? <p className="stock-wizard-empty">No products found.</p> : products.map((product) => {
                             const selected = selectedItems.some((item) => Number(item.product_id) === Number(product.id));
-                            return <button type="button" key={product.id} className={selected ? 'is-selected' : ''} onClick={() => onToggleProduct(product)}><span className="stock-product-icon"><Package size={16} /></span><span><strong>{product.name}</strong><small>{product.sku} · {product.unit}</small></span><span className="stock-product-cost"><small>{t(locale, 'price')}</small><strong>{money(priceForProduct(product, form.price_type_id))}</strong></span><span className="stock-product-check">{selected && <Check size={14} />}</span></button>;
+                            return <button type="button" key={product.id} disabled={!selected && !productInStock(product)} className={`${selected ? 'is-selected' : ''} ${!productInStock(product) ? 'is-out-of-stock' : ''}`} onClick={() => onToggleProduct(product)}><span className="stock-product-icon"><Package size={16} /></span><span><strong>{product.name}</strong><small>{product.sku} · {product.unit}</small><small className={!productInStock(product) ? 'order-stock-unavailable' : ''}>{productInStock(product) ? `${t(locale, 'availableStock')}: ${Number(product.available_stock).toLocaleString()} ${product.unit}` : t(locale, 'outOfStock')}</small></span><span className="stock-product-cost"><small>{t(locale, 'price')}</small><strong>{money(priceForProduct(product, form.price_type_id))}</strong></span><span className="stock-product-check">{selected && <Check size={14} />}</span></button>;
                         })}</div>
                     </section>}
 
@@ -1197,6 +1217,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
     const [saving, setSaving] = useState(false);
     const [showDetails, setShowDetails] = useState(false);
+    const [formError, setFormError] = useState('');
     const [wizardStep, setWizardStep] = useState(1);
     const [productSearch, setProductSearch] = useState('');
     const [refreshKey, setRefreshKey] = useState(0);
@@ -1302,9 +1323,10 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
         && form.delivery_address.trim()
         && (meta.app === 'client' || (form.area_id && form.route_id))
     );
-    const productStepComplete = selectedProductRows.length > 0;
+    const productStepComplete = selectedProductRows.length > 0 && selectedProductRows.every((item) => productInStock(meta.products.find((product) => Number(product.id) === Number(item.product_id))));
 
     const resetForm = () => {
+        setFormError('');
         setForm({
             customer_id: meta.app === 'client' ? meta.customers[0]?.id || '' : '',
             area_id: meta.app === 'client' ? meta.customers[0]?.area_id || '' : meta.areas[0]?.id || '',
@@ -1332,7 +1354,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
         }
 
         if (onShowForm) onShowForm();
-        else setMode('form');
+        else { setFormError(''); setMode('form'); }
     };
 
     const updateItem = (index, patch) => {
@@ -1340,6 +1362,8 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
     };
 
     const updateProductRow = (productId, patch) => {
+        const product = meta.products.find((item) => Number(item.id) === Number(productId));
+        if (!productInStock(product) && (Number(patch.quantity || 0) > 0 || Number(patch.foc_quantity || 0) > 0)) return;
         setForm((current) => {
             const rowIndex = current.items.findIndex((item) => Number(item.product_id) === Number(productId));
             if (rowIndex < 0) {
@@ -1377,7 +1401,9 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
             return;
         }
         const saveAs = event.nativeEvent.submitter?.value === 'draft' ? 'draft' : 'pending';
+        if (saving || meta.loading || !productStepComplete) return;
         setSaving(true);
+        setFormError('');
         setState((current) => ({ ...current, error: '' }));
 
         try {
@@ -1400,7 +1426,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                         if (Number(item.foc_quantity || 0) > 0) rows.push({ product_id: Number(item.product_id), quantity: Number(item.foc_quantity), item_type: 'foc', discount_amount: 0 });
                         return rows;
                     })
-                    : form.items.filter((item) => item.product_id).map((item) => ({
+                    : selectedProductRows.filter((item) => item.product_id).map((item) => ({
                         product_id: Number(item.product_id),
                         quantity: Number(item.quantity || 0),
                         item_type: item.item_type || 'sale',
@@ -1422,7 +1448,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
             setMode('list');
             onViewOrder?.(data.data.order.id);
         } catch (error) {
-            setState((current) => ({ ...current, error: requestMessage(error, locale) }));
+            setFormError(requestMessage(error, locale));
         } finally {
             setSaving(false);
         }
@@ -1445,7 +1471,9 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                 <div><small>{meta.app === 'client' ? t(locale, 'delivered') : t(locale, 'totalAmount')}</small><strong>{meta.app === 'client' ? Number(state.summary.delivered_count || 0) : money(state.summary.total_amount)}</strong></div>
             </section>
 
-            {(state.error || meta.error) && <div className="inline-error"><AlertCircle size={15} /> {state.error || meta.error}</div>}
+            {((mode === 'form' && formError) || state.error || meta.error) && <div className="inline-error"><AlertCircle size={15} /> {(mode === 'form' && formError) || state.error || meta.error}</div>}
+
+            {mode === 'form' && !meta.loading && <UnavailableOrderItems items={selectedProductRows} products={meta.products} locale={locale} />}
 
             {mode === 'form' ? (
                 <form className="mobile-order-form" onSubmit={submit}>
@@ -1487,9 +1515,9 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                                     <tbody>{visibleProducts.map((product) => {
                                         const row = form.items.find((item) => Number(item.product_id) === Number(product.id));
                                         return <tr className={Number(row?.quantity || 0) > 0 || Number(row?.foc_quantity || 0) > 0 ? 'has-value' : ''} key={product.id}>
-                                            <td><strong>{product.name}</strong><small><span>{product.sku} · {product.unit}</span><b>{money(priceForProduct(product, priceTypeId))}</b></small></td>
-                                            <td className="editable"><input aria-label={`${product.name} quantity`} type="number" min="0" step="1" inputMode="numeric" value={row?.quantity || ''} onChange={(event) => updateProductRow(product.id, { quantity: event.target.value })} /></td>
-                                            {meta.app === 'sales' && <td className="editable foc"><input aria-label={`${product.name} FOC quantity`} type="number" min="0" step="1" inputMode="numeric" value={row?.foc_quantity || ''} onChange={(event) => updateProductRow(product.id, { foc_quantity: event.target.value })} /></td>}
+                                            <td><strong>{product.name}</strong><small><span>{product.sku} · {product.unit}</span><b>{money(priceForProduct(product, priceTypeId))}</b></small><small className={!productInStock(product) ? 'order-stock-unavailable' : ''}>{productInStock(product) ? `${t(locale, 'availableStock')}: ${Number(product.available_stock).toLocaleString()} ${product.unit}` : t(locale, 'outOfStock')}</small>{!productInStock(product) && (Number(row?.quantity || 0) > 0 || Number(row?.foc_quantity || 0) > 0) && <button className="button" type="button" aria-label={`${t(locale, 'remove')} ${product.name}`} onClick={() => updateProductRow(product.id, { quantity: 0, foc_quantity: 0 })}>{t(locale, 'remove')}</button>}</td>
+                                            <td className="editable"><input aria-label={`${product.name} quantity`} disabled={!productInStock(product)} type="number" min="0" step="1" inputMode="numeric" value={row?.quantity || ''} onChange={(event) => updateProductRow(product.id, { quantity: event.target.value })} /></td>
+                                            {meta.app === 'sales' && <td className="editable foc"><input aria-label={`${product.name} FOC quantity`} disabled={!productInStock(product)} type="number" min="0" step="1" inputMode="numeric" value={row?.foc_quantity || ''} onChange={(event) => updateProductRow(product.id, { foc_quantity: event.target.value })} /></td>}
                                         </tr>;
                                     })}</tbody>
                                 </table>
@@ -1508,7 +1536,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                                 <header><strong>Final review</strong><span>{selectedCustomer?.shop_name || form.recipient_name}</span></header>
                                 <dl><div><dt>Destination</dt><dd>{form.delivery_address}</dd></div><div><dt>Products</dt><dd>{selectedProductRows.length}</dd></div><div><dt>Sale quantity</dt><dd>{Number(preview.saleQuantity || selectedProductRows.reduce((sum, item) => sum + Number(item.quantity || 0), 0)).toLocaleString()}</dd></div>{meta.app === 'sales' && <div><dt>FOC quantity</dt><dd>{Number(preview.focQuantity || 0).toLocaleString()}</dd></div>}<div><dt>Subtotal</dt><dd>{money(preview.subtotal)}</dd></div>{meta.app === 'sales' && <div><dt>Discount</dt><dd>-{money(preview.discount)}</dd></div>}<div className="total"><dt>Order total</dt><dd>{money(preview.total)}</dd></div></dl>
                             </section>
-                            <div className="sales-order-wizard-actions split two"><button className="button" type="submit" value="draft" disabled={saving || meta.loading}><Save size={16} /> {t(locale, 'saveDraft')}</button><button className="button primary" type="submit" value="pending" disabled={saving || meta.loading}><Save size={16} /> {editOrderId ? t(locale, 'updateOrder') : t(locale, 'saveMobileOrder')}</button></div>
+                            <div className="sales-order-wizard-actions split two"><button className="button" type="submit" value="draft" disabled={saving || meta.loading || !productStepComplete}><Save size={16} /> {t(locale, 'saveDraft')}</button><button className="button primary" type="submit" value="pending" disabled={saving || meta.loading || !productStepComplete}><Save size={16} /> {editOrderId ? t(locale, 'updateOrder') : t(locale, 'saveMobileOrder')}</button></div>
                         </section>}
                     </>
 
@@ -1644,9 +1672,9 @@ export function MobileOrderDetailPage({ appId, orderId, locale, onBack, onEdit, 
 
     return (
         <div className="mobile-master-stack mobile-order-detail-page">
-            <ShellBackButton onClick={onBack} label={t(locale, 'cancel')} />
+            <ShellBackButton onClick={onBack} label={appId === 'supervisor' ? (locale === 'my' ? 'အော်ဒါစာရင်းသို့ ပြန်ရန်' : 'Back to orders') : t(locale, 'cancel')} />
             {state.order && <ShellPageActions className="mobile-order-detail-bar-actions">
-                <button className="icon-button" type="button" title={t(locale, 'repeatOrder')} aria-label={t(locale, 'repeatOrder')} onClick={() => onRepeat?.(state.order.id)}><Copy size={16} /></button>
+                {onRepeat && <button className="icon-button" type="button" title={t(locale, 'repeatOrder')} aria-label={t(locale, 'repeatOrder')} onClick={() => onRepeat(state.order.id)}><Copy size={16} /></button>}
                 <button className="icon-button" type="button" title={t(locale, 'printOrder')} aria-label={t(locale, 'printOrder')} onClick={() => window.print()}><Printer size={16} /></button>
             </ShellPageActions>}
             <div className="mobile-master-heading">
@@ -1656,10 +1684,11 @@ export function MobileOrderDetailPage({ appId, orderId, locale, onBack, onEdit, 
                 {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={onBack} actionLabel={t(locale, 'cancel')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : (
                     <div>
                         <section className="mobile-order-detail-total">{appId !== 'client' && <small>{state.order.shop_name}</small>}<strong>{money(state.order.total)}</strong><span>{state.order.order_date} · <StatusBadge status={state.order.status} locale={locale} /></span></section>
-                        {['draft', 'pending'].includes(state.order.status) && state.order.source_app === 'sales' && <div className="mobile-order-detail-actions"><button className="button" type="button" onClick={() => onEdit?.(state.order.id)}><Pencil size={14} />{t(locale, 'editOrder')}</button><button className="button danger" type="button" disabled={processing} onClick={cancelMobileOrder}><Ban size={14} />{t(locale, 'cancelOrder')}</button></div>}
-                        <MobileOrderTimeline order={state.order} delivery={appId === 'client' ? state.order.delivery : null} locale={locale} />
+                        {appId === 'sales' && ['draft', 'pending'].includes(state.order.status) && state.order.source_app === 'sales' && <div className="mobile-order-detail-actions"><button className="button" type="button" onClick={() => onEdit?.(state.order.id)}><Pencil size={14} />{t(locale, 'editOrder')}</button><button className="button danger" type="button" disabled={processing} onClick={cancelMobileOrder}><Ban size={14} />{t(locale, 'cancelOrder')}</button></div>}
+                        <MobileOrderTimeline order={state.order} delivery={appId !== 'sales' ? state.order.delivery : null} locale={locale} />
                         <MobileOrderItemsTable items={state.items} order={state.order} locale={locale} />
                         <dl className="mobile-info-list">
+                            {appId === 'supervisor' && <div><dt>{locale === 'my' ? 'အရောင်းကိုယ်စားလှယ်' : 'Sales representative'}</dt><dd>{state.order.representative_code} · {state.order.representative_name || '-'}</dd></div>}
                             <div><dt>{t(locale, 'area')} / {t(locale, 'route')}</dt><dd>{state.order.area || '-'} / {state.order.route || '-'}</dd></div>
                             <div><dt>{t(locale, 'address')}</dt><dd>{state.order.delivery_address || '-'}</dd></div>
                             <div><dt>{t(locale, 'recipientPhone')}</dt><dd>{state.order.recipient_phone || '-'}</dd></div>
@@ -2319,7 +2348,7 @@ function WorkspaceState({ icon: Icon, title, action, actionLabel, loading = fals
     return <div className={`workspace-state ${compact ? 'compact' : ''}`}><Icon className={loading ? 'spin' : ''} size={22} /><strong>{title}</strong>{action && <button className="button" type="button" onClick={action}>{actionLabel}</button>}</div>;
 }
 
-function StatusBadge({ status, locale }) {
+export function StatusBadge({ status, locale }) {
     const family = ['confirmed', 'delivered', 'issued'].includes(status) ? 'success' : ['pending', 'draft', 'partially_delivered'].includes(status) ? 'warning' : ['cancelled', 'failed'].includes(status) ? 'danger' : ['invoiced', 'assigned', 'delivering', 'loading', 'on_route'].includes(status) ? 'info' : 'neutral';
     return <span className={`status ${family}`}>{status === 'loading' ? t(locale, 'loadingDelivery') : t(locale, status)}</span>;
 }

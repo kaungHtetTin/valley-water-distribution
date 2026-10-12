@@ -1,10 +1,10 @@
 {
-  "_DetailPage-a65cYBQW.js": {
-    "file": "assets/DetailPage-a65cYBQW.js",
+  "_DetailPage-BIPwrXKz.js": {
+    "file": "assets/DetailPage-BIPwrXKz.js",
     "name": "DetailPage",
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "resources/js/app.js"
     ]
   },
@@ -15,8 +15,8 @@
       "_jsx-runtime-CXUMngI_.js"
     ]
   },
-  "_ShellBackButton-CA8I4Q_D.js": {
-    "file": "assets/ShellBackButton-CA8I4Q_D.js",
+  "_ShellBackButton-6BivA0IO.js": {
+    "file": "assets/ShellBackButton-6BivA0IO.js",
     "name": "ShellBackButton",
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
@@ -224,7 +224,7 @@
     "src": "node_modules/leaflet/dist/images/marker-icon.png"
   },
   "resources/css/app.css": {
-    "file": "assets/app-BffkCgks.css",
+    "file": "assets/app-CgrXAIgu.css",
     "name": "app",
     "names": [
       "app.css"
@@ -233,7 +233,7 @@
     "isEntry": true
   },
   "resources/js/ProfileSettings.jsx": {
-    "file": "assets/ProfileSettings-DXzNyBIy.js",
+    "file": "assets/ProfileSettings-DXueUvYO.js",
     "name": "ProfileSettings",
     "src": "resources/js/ProfileSettings.jsx",
     "isDynamicEntry": true,
@@ -245,20 +245,34 @@
     ]
   },
   "resources/js/SupervisorApp.jsx": {
-    "file": "assets/SupervisorApp-z710Uo7M.js",
+    "file": "assets/SupervisorApp-CMy8UV1A.js",
     "name": "SupervisorApp",
     "src": "resources/js/SupervisorApp.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "_circle-alert-CntYHV5v.js",
       "_refresh-cw-BqJFk4sU.js",
       "resources/js/app.js"
     ]
   },
+  "resources/js/SupervisorOrders.jsx": {
+    "file": "assets/SupervisorOrders-qw9MmpJY.js",
+    "name": "SupervisorOrders",
+    "src": "resources/js/SupervisorOrders.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_jsx-runtime-CXUMngI_.js",
+      "_chevron-left-Bf6CaTSJ.js",
+      "_circle-alert-CntYHV5v.js",
+      "_refresh-cw-BqJFk4sU.js",
+      "resources/js/app.js",
+      "resources/js/phaseFour.jsx"
+    ]
+  },
   "resources/js/app.js": {
-    "file": "assets/app-BCST_E1J.js",
+    "file": "assets/app-baYIa0wL.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
@@ -280,11 +294,12 @@
       "resources/js/phaseKpi.jsx",
       "resources/js/phaseKpiReport.jsx",
       "resources/js/ProfileSettings.jsx",
-      "resources/js/SupervisorApp.jsx"
+      "resources/js/SupervisorApp.jsx",
+      "resources/js/SupervisorOrders.jsx"
     ]
   },
   "resources/js/phaseEight.jsx": {
-    "file": "assets/phaseEight-CuFqyQa-.js",
+    "file": "assets/phaseEight-D2hUUSBJ.js",
     "name": "phaseEight",
     "src": "resources/js/phaseEight.jsx",
     "isDynamicEntry": true,
@@ -302,7 +317,7 @@
     ]
   },
   "resources/js/phaseEleven.jsx": {
-    "file": "assets/phaseEleven-D8L8RxD6.js",
+    "file": "assets/phaseEleven-CCttcpNQ.js",
     "name": "phaseEleven",
     "src": "resources/js/phaseEleven.jsx",
     "isDynamicEntry": true,
@@ -316,13 +331,13 @@
     ]
   },
   "resources/js/phaseFive.jsx": {
-    "file": "assets/phaseFive-BUwhr-v-.js",
+    "file": "assets/phaseFive-DaGxcxyP.js",
     "name": "phaseFive",
     "src": "resources/js/phaseFive.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "_check-D69FzdvC.js",
       "_eye-C_hawfH4.js",
       "_pencil-768ysRAr.js",
@@ -332,18 +347,18 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js",
+      "_DetailPage-BIPwrXKz.js",
       "_printDocuments-GgKFa2sT.js"
     ]
   },
   "resources/js/phaseFour.jsx": {
-    "file": "assets/phaseFour-S-Vzsulk.js",
+    "file": "assets/phaseFour-BMWkA7qY.js",
     "name": "phaseFour",
     "src": "resources/js/phaseFour.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "_badge-check-p-8QsU9L.js",
       "_ban-CPkqYRJo.js",
       "_check-D69FzdvC.js",
@@ -357,12 +372,12 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js",
+      "_DetailPage-BIPwrXKz.js",
       "_printDocuments-GgKFa2sT.js"
     ]
   },
   "resources/js/phaseKpi.jsx": {
-    "file": "assets/phaseKpi-Cwua2PPT.js",
+    "file": "assets/phaseKpi-Dpb-JR1H.js",
     "name": "phaseKpi",
     "src": "resources/js/phaseKpi.jsx",
     "isDynamicEntry": true,
@@ -381,7 +396,7 @@
     ]
   },
   "resources/js/phaseKpiReport.jsx": {
-    "file": "assets/phaseKpiReport-DBAPm9Fr.js",
+    "file": "assets/phaseKpiReport-DVmuMeXH.js",
     "name": "phaseKpiReport",
     "src": "resources/js/phaseKpiReport.jsx",
     "isDynamicEntry": true,
@@ -397,7 +412,7 @@
     ]
   },
   "resources/js/phaseNine.jsx": {
-    "file": "assets/phaseNine-DwlACpWr.js",
+    "file": "assets/phaseNine-Caqr9V-H.js",
     "name": "phaseNine",
     "src": "resources/js/phaseNine.jsx",
     "isDynamicEntry": true,
@@ -411,13 +426,13 @@
     ]
   },
   "resources/js/phaseOne.jsx": {
-    "file": "assets/phaseOne-R8GKKO_6.js",
+    "file": "assets/phaseOne-xTah_km3.js",
     "name": "phaseOne",
     "src": "resources/js/phaseOne.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "_check-D69FzdvC.js",
       "_chevron-left-Bf6CaTSJ.js",
       "_circle-alert-CntYHV5v.js",
@@ -433,19 +448,19 @@
       "_trash-2-C1be3aAZ.js",
       "_trending-up-tpecsUoB.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js",
+      "_DetailPage-BIPwrXKz.js",
       "_MonthSelect-CYdgKt19.js",
       "_useLiveKpiRefresh-CQfUza8p.js"
     ]
   },
   "resources/js/phaseSeven.jsx": {
-    "file": "assets/phaseSeven-RmXY4-2J.js",
+    "file": "assets/phaseSeven-6PVSEPEV.js",
     "name": "phaseSeven",
     "src": "resources/js/phaseSeven.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "_arrow-up-right-CnApsDLQ.js",
       "_badge-check-p-8QsU9L.js",
       "_circle-alert-CntYHV5v.js",
@@ -458,18 +473,18 @@
       "_save-C3IYjdqE.js",
       "_trending-up-tpecsUoB.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js",
+      "_DetailPage-BIPwrXKz.js",
       "_printDocuments-GgKFa2sT.js"
     ]
   },
   "resources/js/phaseSix.jsx": {
-    "file": "assets/phaseSix-BMvW-6tl.js",
+    "file": "assets/phaseSix-D2ROi8Ih.js",
     "name": "phaseSix",
     "src": "resources/js/phaseSix.jsx",
     "isDynamicEntry": true,
     "imports": [
       "_jsx-runtime-CXUMngI_.js",
-      "_ShellBackButton-CA8I4Q_D.js",
+      "_ShellBackButton-6BivA0IO.js",
       "_ban-CPkqYRJo.js",
       "_check-D69FzdvC.js",
       "_leaflet-D3ExDc92.js",
@@ -479,11 +494,11 @@
       "_refresh-cw-BqJFk4sU.js",
       "_save-C3IYjdqE.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js"
+      "_DetailPage-BIPwrXKz.js"
     ]
   },
   "resources/js/phaseTen.jsx": {
-    "file": "assets/phaseTen-CQinG_Ds.js",
+    "file": "assets/phaseTen-Cmkoa7Eq.js",
     "name": "phaseTen",
     "src": "resources/js/phaseTen.jsx",
     "isDynamicEntry": true,
@@ -502,7 +517,7 @@
     ]
   },
   "resources/js/phaseThree.jsx": {
-    "file": "assets/phaseThree-Z2A7p4zF.js",
+    "file": "assets/phaseThree-Bj7sMFgv.js",
     "name": "phaseThree",
     "src": "resources/js/phaseThree.jsx",
     "isDynamicEntry": true,
@@ -519,13 +534,13 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js",
+      "_DetailPage-BIPwrXKz.js",
       "_printDocuments-GgKFa2sT.js",
       "_useLiveKpiRefresh-CQfUza8p.js"
     ]
   },
   "resources/js/phaseTwo.jsx": {
-    "file": "assets/phaseTwo-D2mV3dAw.js",
+    "file": "assets/phaseTwo-CNVJmPqX.js",
     "name": "phaseTwo",
     "src": "resources/js/phaseTwo.jsx",
     "isDynamicEntry": true,
@@ -542,7 +557,7 @@
       "_save-C3IYjdqE.js",
       "_trash-2-C1be3aAZ.js",
       "resources/js/app.js",
-      "_DetailPage-a65cYBQW.js"
+      "_DetailPage-BIPwrXKz.js"
     ]
   }
 }

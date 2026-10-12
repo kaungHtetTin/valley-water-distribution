@@ -113,6 +113,7 @@ const MobileKpiScreen = lazyNamed(phaseKpi, 'MobileKpiScreen');
 const KpiReportsScreen = lazyNamed(() => import('./phaseKpiReport'), 'KpiReportsScreen');
 const ProfileSettingsScreen = lazyNamed(() => import('./ProfileSettings'), 'ProfileSettingsScreen');
 const SupervisorHomeScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorHomeScreen');
+const SupervisorOrdersScreen = lazyNamed(() => import('./SupervisorOrders'), 'SupervisorOrdersScreen');
 const SupervisorTeamScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorTeamScreen');
 const SupervisorRepresentativeDetailScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorRepresentativeDetailScreen');
 
@@ -504,6 +505,7 @@ const mobileNav = {
     ],
     supervisor: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'supervisor.home.view' },
+        { labelKey: 'orders', view: 'orders', icon: ShoppingCart, permission: 'supervisor.orders.view' },
         { labelKey: 'team', view: 'team', icon: Users, permission: 'supervisor.team.view' },
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'supervisor.attendance.view' },
         { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'supervisor.kpi.view' },
@@ -1414,7 +1416,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const compactPrimaryViews = {
         client: ['home', 'orders'],
         sales: ['home', 'orders', 'new-order', 'customers'],
-        supervisor: ['home', 'team', 'attendance', 'kpi'],
+        supervisor: ['home', 'orders', 'team', 'kpi'],
         driver: ['home', 'tasks', 'gps', 'history'],
     };
     const supportsMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
@@ -1423,7 +1425,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
     const usesMenuNav = supportsMenuNav;
     const primaryNav = supportsMenuNav ? visibleNav.filter((item) => primaryViews.includes(item.view)) : visibleNav;
     const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
-    const mobileOrderId = ['client', 'sales'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
+    const mobileOrderId = ['client', 'sales', 'supervisor'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
     const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
     const supervisorMemberId = app.id === 'supervisor' ? resolveSupervisorMemberId(app.path, pathname) : null;
     const orderActionParams = ['client', 'sales'].includes(app.id) && ['orders', 'new-order'].includes(activeView) ? new URLSearchParams(window.location.search) : null;
@@ -1456,6 +1458,10 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
             </header>
 
             <section className="mobile-page">
+                {app.id === 'supervisor' && activeView === 'orders' && hasPermission(user, 'supervisor.orders.view') && <>
+                    <SupervisorOrdersScreen locale={locale} active={!mobileOrderId} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />
+                    {mobileOrderId && <MobileOrderDetailPage appId="supervisor" orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} />}
+                </>}
                 {['client', 'sales'].includes(app.id) && ['orders', 'new-order'].includes(activeView) && (mobileOrderId
                     ? <MobileOrderDetailPage appId={app.id} orderId={mobileOrderId} locale={locale} onBack={() => navigate(`${app.path}/orders`)} onEdit={(orderId) => navigate(`${app.path}/new-order?edit=${orderId}`)} onRepeat={(orderId) => navigate(`${app.path}/${app.id === 'sales' ? 'new-order' : 'orders'}?repeat=${orderId}`)} />
                     : <MobileOrdersScreen
@@ -1502,7 +1508,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     onViewAttendance={() => navigate(`${app.path}/attendance`)}
                     onViewKpi={() => navigate(`${app.path}/kpi`)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['team', 'attendance', 'kpi'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['orders', 'team', 'attendance', 'kpi'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
