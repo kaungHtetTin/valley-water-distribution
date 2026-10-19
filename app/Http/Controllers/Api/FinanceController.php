@@ -816,10 +816,10 @@ class FinanceController extends Controller
             : collect();
         $deliveryByCustomer = $deliveries->keyBy('customer_id');
         $customerQuery = DB::table('customers')->where('customers.is_active', true);
-        if ($scope['route_id']) {
-            $customerQuery->where('customers.route_id', $scope['route_id']);
-        } elseif ($scope['app'] === 'driver') {
+        if ($scope['app'] === 'driver') {
             $customerQuery->whereIn('customers.id', $deliveries->pluck('customer_id'));
+        } elseif ($scope['route_id']) {
+            $customerQuery->where('customers.route_id', $scope['route_id']);
         } else {
             $customerQuery->whereRaw('1 = 0');
         }
@@ -1049,7 +1049,12 @@ class FinanceController extends Controller
 
             return ['app' => 'client', 'customer_id' => $user->customer_id, 'employee_id' => null, 'route_id' => null];
         }
-        $app = $user->role === 'Sales Representative' ? 'sales' : 'driver';
+        $app = match ($user->role) {
+            'Sales Representative' => 'sales',
+            'Sales Supervisor' => 'supervisor',
+            'Driver' => 'driver',
+            default => abort(403),
+        };
         $permissionResource = $resource ?? 'finance';
         $this->authorizePermission($request, "{$app}.{$permissionResource}.{$action}");
         abort_unless($user->employee_id, 403);

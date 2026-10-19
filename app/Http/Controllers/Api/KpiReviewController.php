@@ -849,6 +849,7 @@ class KpiReviewController extends Controller
         abort_unless($result, 404);
         abort_unless($result->status === 'draft', 409, 'Only draft KPI reviews can be submitted.');
 
+        $this->syncCustomerAcquisitionActual($id);
         $this->recalculate($id);
         $missing = DB::table('kpi_result_items')->where('kpi_result_id', $id)->whereNull('achievement_percent')->count();
         abort_if($missing > 0, 422, 'Complete every target, actual, and manager score before submitting.');
@@ -872,6 +873,9 @@ class KpiReviewController extends Controller
         if ($request->user()?->role === 'Finance Manager') {
             abort_if($result->submitted_by === $request->user()->id, 409, 'The KPI review submitter cannot approve their own review.');
         }
+
+        $this->syncCustomerAcquisitionActual($id);
+        $this->recalculate($id);
 
         DB::table('kpi_results')->where('id', $id)->update([
             'status' => 'approved',
@@ -972,6 +976,30 @@ class KpiReviewController extends Controller
         }
     }
 
+    private function syncCustomerAcquisitionActual(int $resultId): void
+    {
+        $result = DB::table('kpi_results')
+            ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
+            ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
+            ->where('kpi_results.id', $resultId)->where('kpi_templates.code', 'SALES-REP-V1')
+            ->first(['kpi_results.employee_id', 'kpi_periods.period_start', 'kpi_periods.period_end']);
+        if (! $result) {
+            return;
+        }
+        $employeeId = (int) $result->employee_id;
+        $start = Carbon::parse($result->period_start)->startOfDay();
+        $end = Carbon::parse($result->period_end)->endOfDay();
+        $newCustomerCount = DB::table('customers')
+            ->join('users', 'customers.created_by', '=', 'users.id')
+            ->where('users.employee_id', $employeeId)
+            ->whereNotNull('customers.acquisition_approved_at')
+            ->where('customers.is_active', true)
+            ->whereNull('customers.deleted_at')
+            ->whereBetween('customers.created_at', [$start, $end])
+            ->count('customers.id');
+        $this->updateSourceMetric($resultId, 'SAL-NEW-CUSTOMER', $newCustomerCount, $newCustomerCount, "{$newCustomerCount} supervisor-approved active customer registration(s)");
+    }
+
     private function syncSalesActuals(int $resultId): void
     {
         $result = DB::table('kpi_results')
@@ -1003,14 +1031,7 @@ class KpiReviewController extends Controller
         }
         $this->updateSourceMetric($resultId, 'SAL-NET-SALES', $sales['quantity'], $sales['count'], $sales['note']);
 
-        $newCustomerCount = DB::table('customers')
-            ->join('users', 'customers.created_by', '=', 'users.id')
-            ->where('users.employee_id', $employeeId)
-            ->where('customers.is_active', true)
-            ->whereNull('customers.deleted_at')
-            ->whereBetween('customers.created_at', [$start, $end])
-            ->count('customers.id');
-        $this->updateSourceMetric($resultId, 'SAL-NEW-CUSTOMER', $newCustomerCount, $newCustomerCount, "{$newCustomerCount} active customer registration(s)");
+        $this->syncCustomerAcquisitionActual($resultId);
 
         $visitCount = DB::table('sales_route_visits')
             ->where('employee_id', $employeeId)

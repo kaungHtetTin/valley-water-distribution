@@ -70,7 +70,7 @@ class OrderController extends Controller
             'customers' => $customers,
             'products' => $products,
             'price_types' => DB::table('price_types')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'is_default']),
-            'areas' => DB::table('areas')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'is_default']),
+            'areas' => DB::table('areas')->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
             'routes' => DB::table('routes')->where('is_active', true)->orderBy('name')->get(['id', 'area_id', 'code', 'name']),
         ]);
     }

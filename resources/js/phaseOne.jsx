@@ -638,7 +638,17 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
     const dialogRef = useRef(null);
-    const visibleFields = definition.fields.filter((field) => !field.show_when || values[field.depends_on] === field.show_when);
+    const employeeForm = resourceKey === 'employees';
+    const visibleFields = definition.fields.filter((field) => (!employeeForm || values.employee_type || field.name === 'employee_type')
+        && (!field.show_when || values[field.depends_on] === field.show_when));
+    const formOptions = employeeForm ? { ...options, vehicles: (options.vehicles || []).filter((vehicle) => !vehicle.assigned_driver_id || String(vehicle.assigned_driver_id) === String(values.id)) } : options;
+    const employeeTypeHelp = {
+        office: locale === 'my' ? 'ရုံးဝင်ရောက်ခွင့် အခန်းကဏ္ဍနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Set the office access role and employment details.',
+        sales: locale === 'my' ? 'အရောင်းလမ်းကြောင်းနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Assign a sales route and enter employment details.',
+        sales_supervisor: locale === 'my' ? 'ကြီးကြပ်သူ အချက်အလက် ထည့်ပါ။ အဖွဲ့ဝင်များကို အသေးစိတ်စာမျက်နှာတွင် သတ်မှတ်နိုင်သည်။' : 'Enter supervisor details. Assign team members from the employee detail page.',
+        driver: locale === 'my' ? 'ယာဉ် သတ်မှတ်နိုင်သည်။ လမ်းကြောင်းအားလုံးမှ တာဝန်များကို လက်ခံနိုင်သည်။' : 'Assign an available vehicle. Drivers can receive tasks from all routes.',
+        warehouse: locale === 'my' ? 'ကုန်လှောင်ရုံဝန်ထမ်း၏ အချက်အလက်နှင့် လစာ သတ်မှတ်ပါ။' : 'Enter warehouse staff details and salary.',
+    };
 
     useEffect(() => {
         const previousOverflow = document.body.style.overflow;
@@ -689,7 +699,7 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
 
     return (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <form ref={dialogRef} className="master-dialog" role="dialog" aria-modal="true" aria-labelledby="master-form-title" onSubmit={submit}>
+            <form ref={dialogRef} className={`master-dialog ${employeeForm ? 'employee-type-form' : ''}`} role="dialog" aria-modal="true" aria-labelledby="master-form-title" onSubmit={submit}>
                 <header>
                     <div><p className="eyebrow">{editing.mode === 'create' ? text(locale, 'add') : text(locale, 'edit')}</p><h2 id="master-form-title">{resourceLabel(resourceKey, definition, locale)}</h2></div>
                     <button className="icon-button" type="button" aria-label={text(locale, 'cancel')} onClick={onClose}><X size={17} /></button>
@@ -697,21 +707,23 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
                 <div className="master-form-body">
                     <div className="master-form-grid">
                         {visibleFields.map((field) => (
-                            <MasterField key={field.name} field={field} value={values[field.name]} options={options} locale={locale} error={validationError(field.name, errors, locale)} onChange={(value) => {
+                            <MasterField key={field.name} field={field} value={values[field.name]} options={formOptions} locale={locale} error={validationError(field.name, errors, locale)} onChange={(value) => {
                                 if (resourceKey === 'employees' && field.name === 'base_salary') salaryEntered.current = value !== '';
                                 setValues((current) => ({
                                     ...current, [field.name]: value,
                                     ...(resourceKey === 'employees' && field.name === 'employee_type' && value !== 'driver' ? { assigned_vehicle_id: '' } : {}),
+                                    ...(resourceKey === 'employees' && field.name === 'employee_type' && value !== 'sales' ? { assigned_route_id: '' } : {}),
                                     ...(resourceKey === 'employees' && field.name === 'employee_type' ? { access_role: '', ...(!salaryEntered.current ? { base_salary: defaultSalary(value) } : {}) } : {}),
                                 }));
                             }} />
                         ))}
                     </div>
+                    {employeeForm && <p className="employee-type-help" aria-live="polite">{employeeTypeHelp[values.employee_type] || (locale === 'my' ? 'ဝန်ထမ်းအမျိုးအစားကို အရင်ရွေးပါ။ သက်ဆိုင်ရာ ဖြည့်စွက်ရန် အချက်များ ပေါ်လာမည်။' : 'Select an employee type first to show the relevant fields.')}</p>}
                     {message && <div className="inline-error"><AlertCircle size={15} /> {message}</div>}
                 </div>
                 <footer>
                     <button className="button" type="button" onClick={onClose}>{text(locale, 'cancel')}</button>
-                    <button className="button primary" type="submit" disabled={saving}><Save size={15} /> {text(locale, 'save')}</button>
+                    <button className="button primary" type="submit" disabled={saving || (employeeForm && !values.employee_type)}><Save size={15} /> {text(locale, 'save')}</button>
                 </footer>
             </form>
         </div>
@@ -1544,6 +1556,48 @@ function SupervisorTeamDialog({ supervisor, representatives, teamMembers, locale
     </div>;
 }
 
+function EmployeeCustomerVisits({ employee, locale, dateLabel, revision }) {
+    const [date, setDate] = useState('');
+    const [status, setStatus] = useState('all');
+    const [search, setSearch] = useState('');
+    const [refresh, setRefresh] = useState(0);
+    const [state, setState] = useState({ loading: true, error: '', customers: [], summary: {}, date: '' });
+
+    useEffect(() => {
+        let mounted = true;
+        setState((current) => ({ ...current, loading: true, error: '' }));
+        window.axios.get(`${apiBase('masterData')}/employees/${employee.id}/customer-visits`, { params: { date: date || undefined } })
+            .then(({ data }) => mounted && setState({ ...data.data, loading: false, error: '' }))
+            .catch((error) => mounted && setState((current) => ({ ...current, loading: false, error: requestError(error, locale, 'loadRecordsError') })));
+        return () => { mounted = false; };
+    }, [employee.id, employee.assigned_route_id, date, locale, refresh, revision]);
+
+    const customers = state.customers.filter((customer) => {
+        const visited = customer.visit_status === 'completed';
+        return (status === 'all' || (status === 'visited' ? visited : !visited))
+            && [customer.shop_name, customer.code, customer.contact_name, customer.phone].some((value) => String(value || '').toLowerCase().includes(search.trim().toLowerCase()));
+    });
+    const visitLabels = { planned: 'Not visited', in_progress: 'In progress', completed: 'Visited', skipped: 'Skipped' };
+
+    return <div className="customer-history-content employee-visits-content" role="tabpanel">
+        <div className="customer-section-heading"><div><p className="eyebrow">Assigned sales route</p><h2>{employee.assigned_route || 'No route assigned'}</h2></div><button className="icon-button" type="button" aria-label="Refresh customer visits" title="Refresh customer visits" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></div>
+        <div className="employee-visit-filters">
+            <label>Visit date<input type="date" value={date || state.date} onChange={(event) => setDate(event.target.value)} /></label>
+            <label className="employee-visit-search">Search customers<input type="search" value={search} placeholder="Shop, code, contact or phone" onChange={(event) => setSearch(event.target.value)} /></label>
+            <label>Visit status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All customers</option><option value="visited">Visited</option><option value="not_visited">Not visited</option></select></label>
+        </div>
+        {state.loading ? <WorkspaceState icon={RefreshCw} title="Loading customer visits" loading compact /> : state.error ? <WorkspaceState icon={AlertCircle} title={state.error} compact /> : <>
+            <div className="customer-credit-strip employee-visit-summary"><article><span>Route customers</span><strong>{state.summary.total || 0}</strong><small>Active assigned customers</small></article><article><span>Visited</span><strong>{state.summary.visited || 0}</strong><small>Completed on {dateLabel(state.date)}</small></article><article><span>Not visited</span><strong>{state.summary.not_visited || 0}</strong><small>Includes in progress and skipped</small></article></div>
+            {customers.length ? <div className="customer-history-table-wrap employee-visits-table-wrap" role="region" aria-label="Customer visit results" tabIndex={0}><table className="customer-history-table employee-visits-table"><thead><tr><th>Customer</th><th>Contact</th><th>Visit status</th><th>Visit date</th><th>Notes</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}>
+                <td><strong>{customer.shop_name}</strong><small>{customer.code}</small><small>{customer.address}</small></td>
+                <td>{customer.contact_name || '—'}<small>{customer.phone || '—'}</small></td>
+                <td><span className={`status ${{ completed: 'success', in_progress: 'info', skipped: 'warning', planned: 'neutral' }[customer.visit_status] || 'neutral'}`}>{visitLabels[customer.visit_status] || titleCase(customer.visit_status)}</span></td>
+                <td>{dateLabel(customer.completed_at || customer.started_at)}</td><td>{customer.notes || '—'}</td>
+            </tr>)}</tbody></table></div> : <WorkspaceState icon={Users} title={!employee.assigned_route_id ? 'Assign a sales route to see customer visits.' : !state.customers.length ? 'No active customers are assigned to this route.' : 'No customers match these filters.'} compact />}
+        </>}
+    </div>;
+}
+
 function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack, onEdit, revision = 0 }) {
     const managerScoreRequested = new URLSearchParams(window.location.search).get('manager-score') === '1';
     const [activeTab, setActiveTab] = useState(managerScoreRequested ? 'performance' : 'activity');
@@ -1700,7 +1754,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
 
             <section className="customer-history-panel employee-history-panel">
                 <div className="customer-history-tabs employee-history-tabs" role="tablist" aria-label="Employee information">
-                    {[['activity', 'Role activity'], ...(employee.employee_type === 'sales_supervisor' ? [['team', 'Sales representatives']] : []), ['attendance', 'Attendance'], ['payroll', 'Payroll'], ['performance', 'KPI performance']].map(([key, label]) => <button type="button" role="tab" aria-selected={activeTab === key} className={activeTab === key ? 'is-active' : ''} onClick={() => { setTargetOpen(false); closeManagerScores(); setActiveTab(key); }} key={key}>{label}</button>)}
+                    {[['activity', 'Role activity'], ...(employee.employee_type === 'sales' ? [['visits', 'Customer visits']] : []), ...(employee.employee_type === 'sales_supervisor' ? [['team', 'Sales representatives']] : []), ['attendance', 'Attendance'], ['payroll', 'Payroll'], ['performance', 'KPI performance']].map(([key, label]) => <button type="button" role="tab" aria-selected={activeTab === key} className={activeTab === key ? 'is-active' : ''} onClick={() => { setTargetOpen(false); closeManagerScores(); setActiveTab(key); }} key={key}>{label}</button>)}
                 </div>
 
                 {activeTab === 'activity' && <div className="customer-history-content" role="tabpanel">
@@ -1708,6 +1762,8 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                     <div className="customer-section-heading"><div><p className="eyebrow">{roleName} operations</p><h2>Recent activity</h2></div><span>Latest 30 records</span></div>
                     {state.activity.length ? <div className="customer-history-table-wrap"><table className="customer-history-table employee-activity-table"><thead><tr><th>Reference</th><th>Type</th><th>Date</th><th>Status</th><th className="numeric">Value</th></tr></thead><tbody>{state.activity.map((item) => <tr key={`${item.kind}-${item.id}`}><td><strong>{item.reference}</strong></td><td>{item.kind}</td><td>{dateLabel(item.date)}</td><td><span className={`status ${statusTone(item.status)}`}>{titleCase(item.status)}</span></td><td className="numeric"><strong>{item.unit ? `${Number(item.amount || 0).toLocaleString()} ${item.unit}` : money(item.amount)}</strong></td></tr>)}</tbody></table></div> : <WorkspaceState icon={TrendingUp} title={`No ${roleName.toLowerCase()} activity has been recorded.`} compact />}
                 </div>}
+
+                {activeTab === 'visits' && employee.employee_type === 'sales' && <EmployeeCustomerVisits employee={employee} locale={locale} dateLabel={dateLabel} revision={revision} />}
 
                 {activeTab === 'attendance' && <div className="customer-history-content" role="tabpanel">
                     <div className="customer-credit-strip employee-attendance-strip"><article><span>Accepted in month</span><strong>{state.attendanceLoading ? '…' : Number(state.attendanceSummary.accepted_this_month || 0).toLocaleString()}</strong><small>Valid attendance records</small></article><article><span>Rejected in month</span><strong>{state.attendanceLoading ? '…' : Number(state.attendanceSummary.rejected_this_month || 0).toLocaleString()}</strong><small>Rejected check-ins</small></article><article><span>Last attendance</span><strong>{state.attendanceLoading ? '…' : dateLabel(state.attendanceSummary.last_attendance_at)}</strong><small>Most recent submission</small></article></div>
@@ -2025,12 +2081,14 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState('all');
+    const emptyFilters = { joined_weekday: '', area_id: '', has_gps: '' };
+    const [visitFilters, setVisitFilters] = useState(emptyFilters);
+    const [draftVisitFilters, setDraftVisitFilters] = useState(emptyFilters);
     const [updating, setUpdating] = useState(null);
     const [gpsMessage, setGpsMessage] = useState('');
     const [state, setState] = useState({ loading: true, route: null, date: '', customers: [], summary: {}, error: '' });
     const visitsUrl = window.ValleyRuntime?.api?.mobileSalesVisits || '/api/mobile/sales-visits';
     const localized = (en, my) => locale === 'my' ? my : en;
-
     useEffect(() => {
         let mounted = true;
         setState((current) => ({ ...current, loading: true, error: '' }));
@@ -2039,13 +2097,11 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
             .catch((error) => mounted && setState((current) => ({ ...current, loading: false, error: requestError(error, locale, 'loadDataError') })));
         return () => { mounted = false; };
     }, [locale, refreshKey, visitsUrl]);
-
     const readCurrentPosition = () => new Promise((resolve, reject) => {
         if (!window.isSecureContext || !navigator.geolocation) {
             reject(new Error(localized('GPS is unavailable. Open the app through HTTPS or localhost and enable location access.', 'GPS အသုံးပြု၍မရပါ။ Location access ကိုဖွင့်ပြီး app ကို HTTPS သို့မဟုတ် localhost မှ အသုံးပြုပါ။')));
             return;
         }
-
         navigator.geolocation.getCurrentPosition(
             ({ coords }) => resolve({
                 latitude: coords.latitude,
@@ -2058,26 +2114,23 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
         );
     });
-
-    const updateVisit = async (customerId, status) => {
+    const updateVisit = async (customerId) => {
+        if (updating !== null) return;
+        const status = 'completed';
         setUpdating(customerId);
-        setGpsMessage(status === 'skipped' ? '' : localized('Getting current GPS position…', 'လက်ရှိ GPS တည်နေရာ ရယူနေသည်…'));
+        setGpsMessage(localized('Getting current GPS position…', 'လက်ရှိ GPS တည်နေရာ ရယူနေသည်…'));
         setState((current) => ({ ...current, error: '' }));
         try {
-            const position = status === 'skipped' ? {} : await readCurrentPosition();
+            const position = await readCurrentPosition();
             const { data } = await window.axios.post(`${visitsUrl}/customers/${customerId}`, { status, ...position });
             const visit = data.data.visit;
             setState((current) => {
                 const previous = current.customers.find((customer) => customer.id === customerId)?.visit_status || 'planned';
                 const summary = { ...current.summary, [previous]: Math.max(0, Number(current.summary?.[previous] || 0) - 1), [status]: Number(current.summary?.[status] || 0) + 1 };
-                const customers = current.customers.map((customer) => customer.id === customerId ? { ...customer, visit_status: status, visit_latitude: visit.completed_latitude || visit.started_latitude || customer.visit_latitude, visit_longitude: visit.completed_longitude || visit.started_longitude || customer.visit_longitude, visit_accuracy_m: visit.completed_accuracy_m || visit.started_accuracy_m || customer.visit_accuracy_m } : customer);
+                const customers = current.customers.map((customer) => customer.id === customerId ? { ...customer, visit_status: status, latitude: customer.latitude ?? visit.completed_latitude, longitude: customer.longitude ?? visit.completed_longitude, visit_latitude: visit.completed_latitude ?? customer.visit_latitude, visit_longitude: visit.completed_longitude ?? customer.visit_longitude, visit_accuracy_m: visit.completed_accuracy_m ?? customer.visit_accuracy_m } : customer);
                 return { ...current, customers, summary };
             });
-            setGpsMessage(status === 'completed'
-                ? localized('Visit completed and customer GPS saved.', 'လည်ပတ်မှု ပြီးဆုံးပြီး ဖောက်သည် GPS တည်နေရာ သိမ်းပြီးပါပြီ။')
-                : status === 'in_progress'
-                    ? localized('Visit started with GPS evidence.', 'GPS အထောက်အထားဖြင့် လည်ပတ်မှု စတင်ပြီးပါပြီ။')
-                    : localized('Visit skipped.', 'လည်ပတ်မှု ကျော်ထားပါသည်။'));
+            setGpsMessage(localized('Visit approved.', 'လည်ပတ်မှု အတည်ပြုပြီးပါပြီ။'));
         } catch (error) {
             setGpsMessage('');
             setState((current) => ({ ...current, error: error.response ? requestError(error, locale, 'saveError') : error.message }));
@@ -2085,43 +2138,50 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
             setUpdating(null);
         }
     };
-
     const query = search.trim().toLocaleLowerCase();
     const customers = (state.customers || []).filter((customer) => {
         const matchesSearch = !query || `${customer.code} ${customer.shop_name} ${customer.contact_name || ''} ${customer.address || ''}`.toLocaleLowerCase().includes(query);
         const matchesStatus = filter === 'all'
-            || (filter === 'pending' ? ['planned', 'in_progress'].includes(customer.visit_status) : customer.visit_status === filter);
-        return matchesSearch && matchesStatus;
+            || (filter === 'pending' ? customer.visit_status !== 'completed' : customer.visit_status === filter);
+        const joinedDay = customer.created_at ? new Date(String(customer.created_at).replace(' ', 'T')).getDay() : null;
+        const matchesWeekday = visitFilters.joined_weekday === '' || joinedDay === Number(visitFilters.joined_weekday);
+        const matchesArea = visitFilters.area_id === '' || String(customer.area_id) === visitFilters.area_id;
+        const hasGps = customer.latitude != null && customer.longitude != null;
+        const matchesGps = visitFilters.has_gps === '' || hasGps === (visitFilters.has_gps === '1');
+        return matchesSearch && matchesStatus && matchesWeekday && matchesArea && matchesGps;
     });
+    const areas = [...new Map(state.customers.filter((customer) => customer.area_id && customer.area).map((customer) => [String(customer.area_id), customer.area])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    const activeFilterCount = Object.values(visitFilters).filter((value) => value !== '').length;
     const total = Number(state.summary?.total || 0);
     const completed = Number(state.summary?.completed || 0);
-    const pending = Number(state.summary?.planned || 0) + Number(state.summary?.in_progress || 0);
+    const pending = Math.max(0, total - completed);
     const progress = total ? Math.round((completed / total) * 100) : 0;
-    const visitLabel = (status) => ({
-        planned: localized('Not started', 'မစတင်ရသေး'),
-        in_progress: localized('In progress', 'လုပ်ဆောင်နေ'),
-        completed: localized('Completed', 'ပြီးဆုံး'),
-        skipped: localized('Skipped', 'ကျော်ထား'),
-    })[status] || status;
-    const visitFamily = (status) => status === 'completed' ? 'success' : status === 'in_progress' ? 'warning' : status === 'skipped' ? 'danger' : 'neutral';
-    const positionText = (customer) => customer.visit_latitude && customer.visit_longitude
+    const visitLabel = (status) => status === 'completed' ? localized('Visited', 'လည်ပတ်ပြီး') : localized('Not visited', 'မလည်ပတ်ရသေး');
+    const visitFamily = (status) => status === 'completed' ? 'success' : 'neutral';
+    const positionText = (customer) => customer.visit_latitude != null && customer.visit_longitude != null
         ? `${Number(customer.visit_latitude).toFixed(6)}, ${Number(customer.visit_longitude).toFixed(6)}${customer.visit_accuracy_m ? ` · ±${Math.round(Number(customer.visit_accuracy_m))} m` : ''}`
         : '';
-
     if (state.loading && !state.route) return <WorkspaceState icon={RefreshCw} title={localized('Loading customer visits', 'ဖောက်သည်လည်ပတ်မှုများ ရယူနေသည်')} loading compact />;
     if (state.error && !state.route) return <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={text(locale, 'retry')} compact />;
-
-    return <div className="mobile-master-stack sales-route-page">
+    return <div className="mobile-master-stack sales-route-page sales-visits-compact">
         <div className="mobile-master-heading">
             <div><p className="eyebrow">{localized('Customer visits', 'ဖောက်သည်လည်ပတ်မှု')}</p><h1>{state.route?.name || localized('No route assigned', 'Route သတ်မှတ်မထားပါ')}</h1><span className="muted">{state.route?.code ? `${state.route.code} · ` : ''}{state.date}</span></div>
             <ShellPageActions><button className="icon-button" type="button" aria-label={localized('Refresh visits', 'ပြန်လည်ရယူရန်')} disabled={Boolean(updating)} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={17} /></button></ShellPageActions>
         </div>
         {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
         {gpsMessage && <div className="sales-visit-gps-note"><MapPinned size={15} /> {gpsMessage}</div>}
+        <form className="master-toolbar sales-customer-filters" aria-label={localized('Customer visit filters', 'ဖောက်သည်လည်ပတ်မှု စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setVisitFilters({ ...draftVisitFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
+            <label>{localized('Joined on (weekday)', 'စာရင်းသွင်းသည့် ရက်သတ္တပတ်နေ့')}<select value={draftVisitFilters.joined_weekday} onChange={(event) => setDraftVisitFilters((current) => ({ ...current, joined_weekday: event.target.value }))}><option value="">{localized('All days', 'နေ့အားလုံး')}</option>{[1, 2, 3, 4, 5, 6, 0].map((day) => <option value={day} key={day}>{new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long' }).format(new Date(2026, 0, 4 + day))}</option>)}</select></label>
+            <label>{localized('Area', 'ဧရိယာ')}<select value={draftVisitFilters.area_id} onChange={(event) => setDraftVisitFilters((current) => ({ ...current, area_id: event.target.value }))}><option value="">{localized('All areas', 'ဧရိယာအားလုံး')}</option>{areas.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label>
+            <label>{localized('GPS location', 'GPS တည်နေရာ')}<select value={draftVisitFilters.has_gps} onChange={(event) => setDraftVisitFilters((current) => ({ ...current, has_gps: event.target.value }))}><option value="">{localized('All locations', 'တည်နေရာအားလုံး')}</option><option value="1">{localized('GPS saved', 'GPS သိမ်းပြီး')}</option><option value="0">{localized('GPS missing', 'GPS မရှိသေး')}</option></select></label>
+            <button className="button primary" type="submit">{localized('Apply filters', 'စစ်ထုတ်မည်')}</button>
+            <button className="button" type="button" onClick={() => { setDraftVisitFilters(emptyFilters); setVisitFilters(emptyFilters); setFilter('all'); window.dispatchEvent(new Event('valley:close-filters')); }}>{localized('Reset filters', 'စစ်ထုတ်မှု ရှင်းလင်းမည်')}</button>
+        </form>
+        {activeFilterCount > 0 && <p className="sales-customer-filter-summary">{activeFilterCount} {localized('filters applied', 'စစ်ထုတ်မှု သတ်မှတ်ထားသည်')}</p>}
         <section className="sales-route-progress">
             <div><span>{localized('Today’s progress', 'ယနေ့ လုပ်ဆောင်မှု')}</span><strong>{completed} / {total}</strong></div>
             <div className="sales-route-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
-            <small>{progress}% {localized('completed', 'ပြီးဆုံး')} · {Number(state.summary?.in_progress || 0)} {localized('in progress', 'လုပ်ဆောင်နေ')}</small>
+            <small>{progress}% {localized('visited', 'လည်ပတ်ပြီး')} · {pending} {localized('not visited', 'မလည်ပတ်ရသေး')}</small>
         </section>
         <section className="mobile-master-section sales-route-stops">
             <div className="sales-route-tools">
@@ -2136,47 +2196,66 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
             {customers.length ? <div className="sales-route-stop-list">{customers.map((customer, index) => <article key={customer.id}>
                 <button className="sales-route-customer" type="button" onClick={() => onViewCustomer?.(customer.id)}>
                     <span className="sales-route-sequence">{index + 1}</span>
-                    <span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name || customer.phone || '—'}</small><small>{customer.address || customer.area || localized('No address', 'လိပ်စာမရှိ')}</small></span>
-                    <span className={`status ${visitFamily(customer.visit_status)}`}>{visitLabel(customer.visit_status)}</span><ChevronRight size={16} />
+                    <span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name || customer.phone || '—'}</small><small>{customer.address || customer.area || localized('No address', 'လိပ်စာမရှိ')}</small>{positionText(customer) && <small className="sales-visit-location" title={positionText(customer)}><MapPinned size={11} />{positionText(customer)}</small>}</span>
+                    <ChevronRight size={14} />
                 </button>
-                {positionText(customer) && <div className="sales-route-stop-location"><MapPinned size={13} /><span>{localized('Visit GPS', 'လည်ပတ်မှု GPS')}: {positionText(customer)}</span></div>}
                 <div className="sales-route-stop-actions">
-                    {['planned', 'skipped'].includes(customer.visit_status) && <button className="button primary route-primary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'in_progress')}><MapPinned size={14} />{updating === customer.id ? localized('Getting GPS…', 'GPS ရယူနေသည်…') : localized('Start visit', 'လည်ပတ်မှု စတင်')}</button>}
-                    {customer.visit_status === 'in_progress' && <button className="button primary route-primary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'completed')}><CheckCircle2 size={14} />{updating === customer.id ? localized('Getting GPS…', 'GPS ရယူနေသည်…') : localized('Complete & save GPS', 'ပြီးဆုံးပြီး GPS သိမ်းမည်')}</button>}
-                    {customer.visit_status === 'completed' && <span className="route-action-complete"><CheckCircle2 size={14} />{localized('Customer GPS saved', 'ဖောက်သည် GPS သိမ်းပြီး')}</span>}
-                    {['planned', 'in_progress'].includes(customer.visit_status) && <button className="button route-secondary-action" disabled={updating === customer.id} type="button" onClick={() => updateVisit(customer.id, 'skipped')}>{localized('Skip', 'ကျော်မည်')}</button>}
+                    {customer.visit_status !== 'completed' && <button className="button primary route-primary-action" disabled={updating !== null} type="button" onClick={() => updateVisit(customer.id)}><MapPinned size={14} />{updating === customer.id ? localized('Checking GPS…', 'GPS စစ်ဆေးနေသည်…') : localized('Visit', 'လည်ပတ်မည်')}</button>}
+                    {customer.visit_status === 'completed' && <span className={`status ${visitFamily(customer.visit_status)}`}><CheckCircle2 size={12} />{visitLabel(customer.visit_status)}</span>}
                 </div>
             </article>)}</div> : <WorkspaceState icon={Search} title={localized('No customer visits match this view.', 'ကိုက်ညီသော ဖောက်သည်လည်ပတ်မှု မရှိပါ။')} compact />}
         </section>
     </div>;
 }
 
+function customerJoinedDate(createdAt, locale) {
+    return createdAt ? new Date(createdAt).toLocaleDateString(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+}
+
 export function SalesMasterScreen({ locale, onViewCustomer }) {
     const [mode, setMode] = useState('list');
     const [search, setSearch] = useState('');
-    const [state, setState] = useState({ loading: true, items: [], route: null, error: '' });
+    const emptyFilters = { joined_weekday: '', joined_from: '', joined_to: '', is_active: '', area_id: '', has_gps: '', sort: 'name' };
+    const [filters, setFilters] = useState(emptyFilters);
+    const [draftFilters, setDraftFilters] = useState(emptyFilters);
+    const [state, setState] = useState({ loading: true, items: [], route: null, areas: [], error: '' });
     const [refreshKey, setRefreshKey] = useState(0);
+    const localized = (en, my) => locale === 'my' ? my : en;
+    const changeFilter = (key, value) => setDraftFilters((current) => ({ ...current, [key]: value }));
+    const activeFilterCount = Object.entries(filters).filter(([key, value]) => value !== '' && !(key === 'sort' && value === 'name')).length;
 
     useEffect(() => {
         let mounted = true;
         const timer = window.setTimeout(() => {
             setState((current) => ({ ...current, loading: true, error: '' }));
-            window.axios.get(`${apiBase('mobileMaster')}/customers`, { params: { search } })
-                .then(({ data }) => mounted && setState({ loading: false, items: data.data.items, route: data.data.route, error: '' }))
-                .catch((error) => mounted && setState({ loading: false, items: [], route: null, error: requestError(error, locale, 'loadCustomersError') }));
+            window.axios.get(`${apiBase('mobileMaster')}/customers`, { params: { search, ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '')) } })
+                .then(({ data }) => mounted && setState({ loading: false, items: data.data.items, route: data.data.route, areas: data.data.areas || [], error: '' }))
+                .catch((error) => mounted && setState((current) => ({ ...current, loading: false, items: [], error: requestError(error, locale, 'loadCustomersError') })));
         }, 220);
         return () => { mounted = false; window.clearTimeout(timer); };
-    }, [locale, refreshKey, search]);
+    }, [locale, refreshKey, search, filters]);
 
     return (
         <div className="mobile-master-stack">
             {mode === 'form' && <ShellBackButton onClick={() => setMode('list')} label={text(locale, 'cancel')} />}
             {mode !== 'form' && <ShellPageSearch><label className="shell-search-control"><Search size={15} aria-hidden="true" /><input type="search" value={search} aria-label={text(locale, 'search')} placeholder={text(locale, 'search')} onChange={(event) => setSearch(event.target.value)} /></label></ShellPageSearch>}
             <div className="mobile-master-heading"><div><p className="eyebrow">{text(locale, 'assignedRoute')}</p><h1>{state.route?.name || text(locale, 'assignedCustomers')}</h1></div></div>
-            {mode === 'form' ? <SalesCustomerForm locale={locale} onSaved={(customer) => { setState((current) => ({ ...current, items: [customer, ...current.items] })); setMode('list'); }} /> : (
+            {mode === 'form' ? <SalesCustomerForm locale={locale} onSaved={() => { setRefreshKey((key) => key + 1); setMode('list'); }} /> : (
                 <>
+                    <form className="master-toolbar sales-customer-filters" aria-label={localized('Customer filters', 'ဖောက်သည် စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setFilters({ ...draftFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
+                        <label>{localized('Joined on (weekday)', 'စာရင်းသွင်းသည့် ရက်သတ္တပတ်နေ့')}<select value={draftFilters.joined_weekday} onChange={(event) => changeFilter('joined_weekday', event.target.value)}><option value="">{localized('All days', 'နေ့အားလုံး')}</option>{[1, 2, 3, 4, 5, 6, 0].map((day) => <option value={day} key={day}>{new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long' }).format(new Date(2026, 0, 4 + day))}</option>)}</select></label>
+                        <label>{localized('Joined from', 'စာရင်းသွင်းသည့်နေ့မှ')}<input type="date" value={draftFilters.joined_from} max={draftFilters.joined_to || undefined} onChange={(event) => changeFilter('joined_from', event.target.value)} /></label>
+                        <label>{localized('Joined through', 'စာရင်းသွင်းသည့်နေ့အထိ')}<input type="date" value={draftFilters.joined_to} min={draftFilters.joined_from || undefined} onChange={(event) => changeFilter('joined_to', event.target.value)} /></label>
+                        <label>{localized('Customer status', 'ဖောက်သည် အခြေအနေ')}<select value={draftFilters.is_active} onChange={(event) => changeFilter('is_active', event.target.value)}><option value="">{localized('All statuses', 'အခြေအနေအားလုံး')}</option><option value="1">{localized('Active', 'အသုံးပြုနေ')}</option><option value="0">{localized('Inactive', 'အသုံးမပြုတော့')}</option></select></label>
+                        <label>{localized('Area', 'ဧရိယာ')}<select value={draftFilters.area_id} onChange={(event) => changeFilter('area_id', event.target.value)}><option value="">{localized('All areas', 'ဧရိယာအားလုံး')}</option>{state.areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+                        <label>{localized('GPS location', 'GPS တည်နေရာ')}<select value={draftFilters.has_gps} onChange={(event) => changeFilter('has_gps', event.target.value)}><option value="">{localized('All locations', 'တည်နေရာအားလုံး')}</option><option value="1">{localized('GPS saved', 'GPS သိမ်းပြီး')}</option><option value="0">{localized('GPS missing', 'GPS မရှိသေး')}</option></select></label>
+                        <label>{localized('Sort by', 'စီစဉ်ရန်')}<select value={draftFilters.sort} onChange={(event) => changeFilter('sort', event.target.value)}><option value="name">{localized('Customer name', 'ဖောက်သည်အမည်')}</option><option value="newest">{localized('Newest joined first', 'အသစ်ဆုံး အရင်')}</option><option value="oldest">{localized('Oldest joined first', 'အဟောင်းဆုံး အရင်')}</option></select></label>
+                        <button className="button primary" type="submit">{localized('Apply filters', 'စစ်ထုတ်မည်')}</button>
+                        <button className="button" type="button" onClick={() => { setDraftFilters(emptyFilters); setFilters(emptyFilters); window.dispatchEvent(new Event('valley:close-filters')); }}>{localized('Reset filters', 'စစ်ထုတ်မှု ရှင်းလင်းမည်')}</button>
+                    </form>
+                    {activeFilterCount > 0 && <p className="sales-customer-filter-summary">{activeFilterCount} {localized('view options applied', 'စစ်ထုတ်မှု သတ်မှတ်ထားသည်')}</p>}
                     {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={text(locale, 'retry')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={text(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={text(locale, 'empty')} compact /> : (
-                        <div className="customer-mobile-list">{state.items.map((customer) => <button type="button" key={customer.id} onClick={() => onViewCustomer?.(customer.id)}><span className="customer-initial">{customer.shop_name.slice(0, 1)}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name}</small><small>{customer.phone}</small></span><ChevronRight size={17} /></button>)}</div>
+                        <div className="customer-mobile-list">{state.items.map((customer) => <button type="button" key={customer.id} onClick={() => onViewCustomer?.(customer.id)}><span className="customer-initial">{customer.shop_name.slice(0, 1)}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name}</small><small>{customer.phone}</small><small>{locale === 'my' ? 'စာရင်းသွင်းသည့်နေ့' : 'Date joined'}: {customerJoinedDate(customer.created_at, locale)}</small></span><ChevronRight size={17} /></button>)}</div>
                     )}
                 </>
             )}
@@ -2206,7 +2285,7 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
     const initials = (customer.shop_name || customer.contact_name || 'C').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
     const hasLocation = customer.latitude !== null && customer.latitude !== undefined && customer.longitude !== null && customer.longitude !== undefined;
     const mapHref = hasLocation ? `https://www.google.com/maps?q=${customer.latitude},${customer.longitude}` : customer.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}` : null;
-    const joinedAt = customer.created_at ? new Date(customer.created_at).toLocaleDateString(locale === 'my' ? 'my-MM' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    const joinedAt = customerJoinedDate(customer.created_at, locale);
     const lastPurchase = state.summary.last_order_date ? new Date(`${state.summary.last_order_date}T00:00:00`).toLocaleDateString(locale === 'my' ? 'my-MM' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'No purchases';
     const recentOrders = state.orders.slice(0, 5);
 
@@ -2313,7 +2392,7 @@ function SalesCustomerForm({ locale, onSaved, customer = null, customerId = null
             const { data } = customerId
                 ? await window.axios.put(`${apiBase('mobileMaster')}/customers/${customerId}`, values)
                 : await window.axios.post(`${apiBase('mobileMaster')}/customers`, values);
-            setMessage(customerId ? 'Customer updated successfully.' : text(locale, 'registrationSuccess'));
+            setMessage(customerId ? 'Customer updated successfully.' : locale === 'my' ? 'ဖောက်သည်စာရင်းသွင်းပြီးပါပြီ။ KPI အတွက် ကြီးကြပ်သူ အတည်ပြုရန် လိုအပ်သည်။' : 'Customer registered. Pending supervisor approval for KPI credit.');
             window.setTimeout(() => onSaved(data.data.customer), 500);
         }
         catch (error) { setErrors(error.response?.data?.errors || {}); setMessage(requestError(error, locale, 'registerCustomerError')); }

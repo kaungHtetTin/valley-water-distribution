@@ -46,6 +46,67 @@ class SupervisorMobileTest extends TestCase
             ->assertJsonFragment(['code' => 'SAL-002']);
     }
 
+    public function test_supervisor_can_submit_own_outdoor_expense_for_office_review(): void
+    {
+        $this->seed();
+        $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
+        $this->actingAs($supervisor);
+        $this->getJson('/api/mobile/finance/meta')->assertOk()
+            ->assertJsonPath('data.app', 'supervisor')->assertJsonFragment(['travel']);
+        $created = $this->postJson('/api/mobile/finance/expenses', [
+            'expense_date' => '2026-08-31', 'category' => 'travel',
+            'description' => 'Team customer visit taxi fare', 'amount' => 3500,
+            'payment_method' => 'cash', 'notes' => 'Supervisor field visit',
+        ])->assertCreated()->assertJsonPath('data.expense.source_app', 'supervisor')
+            ->assertJsonPath('data.expense.status', 'submitted');
+        $expenseId = $created->json('data.expense_id');
+        $this->assertDatabaseHas('expenses', [
+            'id' => $expenseId, 'employee_id' => $supervisor->employee_id,
+            'submitted_by' => $supervisor->id, 'expense_type' => 'outdoor',
+        ]);
+        $this->getJson('/api/mobile/finance')->assertOk()
+            ->assertJsonCount(1, 'data.expenses')->assertJsonPath('data.expenses.0.id', $expenseId);
+        $this->postJson('/api/mobile/finance/collections', [])->assertForbidden();
+        $this->postJson("/api/finance/expenses/{$expenseId}/review", ['status' => 'approved'])->assertForbidden();
+
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $response = $this->getJson('/api/mobile/finance')->assertOk();
+        $this->assertNotContains($expenseId, collect($response->json('data.expenses'))->pluck('id')->all());
+
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $this->postJson("/api/finance/expenses/{$expenseId}/review", ['status' => 'approved'])
+            ->assertOk()->assertJsonPath('data.expense.status', 'approved');
+        $this->assertDatabaseHas('financial_transactions', ['reference_type' => 'expense', 'reference_id' => $expenseId, 'direction' => 'out']);
+    }
+
+    public function test_supervisor_can_view_assigned_representative_customer_visits_by_date(): void
+    {
+        $this->seed();
+        $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
+        $this->actingAs($supervisor);
+        $member = DB::table('employees')->where('code', 'SAL-001')->first();
+        $customerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
+        DB::table('sales_route_visits')->insert([
+            'employee_id' => $member->id, 'route_id' => $member->assigned_route_id,
+            'customer_id' => $customerId, 'visit_date' => '2026-08-31', 'status' => 'completed',
+            'completed_at' => '2026-08-31 09:00:00', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $url = "/api/mobile/supervisor/team/{$member->id}/customer-visits";
+        $response = $this->getJson($url)->assertOk()->assertJsonPath('data.date', '2026-08-31')
+            ->assertJsonPath('data.summary.total', 3)->assertJsonPath('data.summary.visited', 1)
+            ->assertJsonPath('data.summary.not_visited', 2);
+        $this->assertSame('completed', collect($response->json('data.customers'))->firstWhere('id', $customerId)['visit_status']);
+        $this->getJson($url.'?date=2026-08-30')->assertOk()->assertJsonPath('data.summary.visited', 0)
+            ->assertJsonPath('data.summary.not_visited', 3);
+        $this->getJson($url.'?date=invalid')->assertUnprocessable();
+        DB::table('employees')->where('id', $member->id)->update(['assigned_route_id' => null]);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.customers', [])->assertJsonPath('data.summary.total', 0);
+        DB::table('employees')->where('id', $member->id)->update(['supervisor_id' => null]);
+        $this->getJson($url)->assertNotFound();
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $this->getJson($url)->assertForbidden();
+    }
+
     public function test_non_supervisor_and_unlinked_supervisor_profiles_are_rejected(): void
     {
         $this->seed();

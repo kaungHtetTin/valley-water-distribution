@@ -346,6 +346,19 @@ class MasterDataController extends Controller
         ]);
     }
 
+    public function employeeCustomerVisits(Request $request, int $id)
+    {
+        $this->authorizeMasterResource($request, 'employees', 'view');
+        $validated = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
+        $employee = DB::table('employees')->whereNull('deleted_at')->find($id);
+        abort_unless($employee, 404);
+        abort_unless($employee->employee_type === 'sales', 422, 'Customer visits are available for sales employees only.');
+
+        $date = $validated['date'] ?? now()->toDateString();
+        return ApiResponse::success('Employee customer visits loaded.', app(\App\Services\CustomerVisitReport::class)
+            ->forEmployee($employee, $date));
+    }
+
     public function assignEmployeeVehicle(Request $request, int $id)
     {
         $this->authorizeMasterResource($request, 'employees', 'manage');
@@ -662,6 +675,9 @@ class MasterDataController extends Controller
         }
         $this->authorizeEmployeeAccountChange($request, $resource);
         $validated = $request->validate($this->rules($resource));
+        if ($resource === 'employees' && $validated['employee_type'] !== 'sales') {
+            $validated['assigned_route_id'] = null;
+        }
         $accessRole = $validated['access_role'] ?? null;
         $assignedVehicleId = $resource === 'employees' ? ($validated['assigned_vehicle_id'] ?? null) : null;
         $permissionIds = $validated['permission_ids'] ?? [];
@@ -712,6 +728,9 @@ class MasterDataController extends Controller
         $previousEmployeeType = $resource === 'employees' ? DB::table('employees')->where('id', $id)->value('employee_type') : null;
         $this->authorizeEmployeeAccountChange($request, $resource, $id);
         $validated = $request->validate($this->rules($resource, $id));
+        if ($resource === 'employees' && $validated['employee_type'] !== 'sales') {
+            $validated['assigned_route_id'] = null;
+        }
         $accessRole = $validated['access_role'] ?? null;
         $hasVehicleAssignment = $resource === 'employees' && array_key_exists('assigned_vehicle_id', $validated);
         $assignedVehicleId = $hasVehicleAssignment ? $validated['assigned_vehicle_id'] : null;
@@ -943,6 +962,7 @@ class MasterDataController extends Controller
             ],
             'employees' => [
                 'assigned_route_id' => ['nullable', 'integer', 'exists:routes,id'],
+                'assigned_vehicle_id' => ['nullable', 'integer', Rule::exists('vehicles', 'id')->where('is_active', true)],
                 'code' => ['nullable', 'string', 'max:30', $unique('employees', 'code')],
                 'name' => ['required', 'string', 'max:150'],
                 'employee_type' => ['required', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
@@ -1228,7 +1248,10 @@ class MasterDataController extends Controller
                 $query->whereNull('deleted_at');
             }
 
-            return $query->orderBy($definition[1])->get(['id', DB::raw("{$definition[1]} as label")]);
+            $columns = ['id', DB::raw("{$definition[1]} as label")];
+            if ($definition[0] === 'vehicles') $columns[] = 'assigned_driver_id';
+
+            return $query->orderBy($definition[1])->get($columns);
         })->all();
 
         $options['routes'] = DB::table('routes')->where('is_active', true)->orderBy('name')
@@ -1309,7 +1332,7 @@ class MasterDataController extends Controller
                 [$code, $name, ['name' => 'contact_name', 'label' => 'Contact name', 'type' => 'text'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
                 ['code', 'name', 'contact_name', 'phone', 'email', 'is_active'], ['code', 'name', 'contact_name', 'phone', 'email', 'address']),
             'employees' => $this->config('employees', 'Employees', 'Employee', 'Office, warehouse, sales, sales supervisor, and driver records.',
-                [['name' => 'assigned_route_id', 'label' => 'Assigned route', 'type' => 'select', 'source' => 'routes'], $code, $name, ['name' => 'employee_type', 'label' => 'Employee type', 'type' => 'select', 'required' => true, 'options' => ['office', 'sales', 'sales_supervisor', 'driver', 'warehouse']], ['name' => 'access_role', 'label' => 'Office access role', 'type' => 'select', 'options' => ['Office Staff', 'HR', 'Accountant', 'Finance Manager'], 'depends_on' => 'employee_type', 'show_when' => 'office'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'hire_date', 'label' => 'Hire date', 'type' => 'date'], ['name' => 'base_salary', 'label' => 'Base salary (MMK)', 'type' => 'number', 'min' => 0, 'max' => 999999999999.99], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
+                [['name' => 'employee_type', 'label' => 'Employee type', 'type' => 'select', 'required' => true, 'options' => ['office', 'sales', 'sales_supervisor', 'driver', 'warehouse']], $code, $name, ['name' => 'assigned_route_id', 'label' => 'Assigned route', 'type' => 'select', 'source' => 'routes', 'depends_on' => 'employee_type', 'show_when' => 'sales'], ['name' => 'assigned_vehicle_id', 'label' => 'Assigned vehicle', 'type' => 'select', 'source' => 'vehicles', 'depends_on' => 'employee_type', 'show_when' => 'driver'], ['name' => 'access_role', 'label' => 'Office access role', 'type' => 'select', 'options' => ['Office Staff', 'HR', 'Accountant', 'Finance Manager'], 'depends_on' => 'employee_type', 'show_when' => 'office'], ['name' => 'phone', 'label' => 'Phone', 'type' => 'text'], ['name' => 'email', 'label' => 'Email', 'type' => 'email'], ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'password_confirmation', 'label' => 'Confirm password', 'type' => 'password', 'autocomplete' => 'new-password'], ['name' => 'hire_date', 'label' => 'Hire date', 'type' => 'date'], ['name' => 'base_salary', 'label' => 'Base salary (MMK)', 'type' => 'number', 'min' => 0, 'max' => 999999999999.99], ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'], $active],
                 ['code', 'name', 'employee_type', 'assigned_route', 'assigned_vehicle', 'phone', 'is_active'], ['code', 'name', 'employee_type', 'phone', 'email'], ['assigned_route_id', 'employee_type'], ['assigned_route_id' => ['routes', 'name', 'assigned_route']]),
             'vehicles' => $this->config('vehicles', 'Vehicles', 'Vehicle', 'Delivery vehicles and assigned drivers.',
                 [$code, ['name' => 'plate_no', 'label' => 'Plate no.', 'type' => 'text', 'required' => true], ['name' => 'vehicle_type', 'label' => 'Vehicle type', 'type' => 'select', 'required' => true, 'options' => ['truck', 'van', 'motorbike', 'other']], ['name' => 'make', 'label' => 'Make', 'type' => 'text'], ['name' => 'model', 'label' => 'Model', 'type' => 'text'], ['name' => 'capacity', 'label' => 'Capacity', 'type' => 'number'], $active],

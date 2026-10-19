@@ -370,6 +370,55 @@ class PhaseOneMasterDataTest extends TestCase
             ->assertJsonPath('data.vehicle.code', 'VEH-001');
     }
 
+    public function test_sales_customers_can_be_filtered_by_joined_weekday_before_pagination(): void
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        DB::table('customers')->where('code', 'CUS-0001')->update(['created_at' => '2026-10-19 09:00:00']);
+        DB::table('customers')->where('code', 'CUS-0002')->update(['created_at' => '2026-10-18 10:00:00']);
+        DB::table('customers')->where('code', 'CUS-0003')->update(['created_at' => '2026-10-18 11:00:00']);
+        DB::table('customers')->where('code', 'CUS-0004')->update(['created_at' => '2026-10-18 12:00:00']);
+
+        $this->getJson('/api/mobile/master/customers?joined_weekday=1')->assertOk()
+            ->assertJsonPath('data.meta.total', 1)->assertJsonPath('data.items.0.code', 'CUS-0001');
+        $this->getJson('/api/mobile/master/customers?joined_weekday=0&per_page=1')->assertOk()
+            ->assertJsonPath('data.meta.total', 2)->assertJsonCount(1, 'data.items');
+        $this->getJson('/api/mobile/master/customers?joined_weekday=0&search=Cherry')->assertOk()
+            ->assertJsonPath('data.meta.total', 1)->assertJsonPath('data.items.0.code', 'CUS-0002');
+        $this->getJson('/api/mobile/master/customers?joined_weekday=2')->assertOk()->assertJsonPath('data.meta.total', 0);
+        $this->getJson('/api/mobile/master/customers?joined_weekday=')->assertOk()->assertJsonPath('data.meta.total', 3);
+        $this->getJson('/api/mobile/master/customers?joined_weekday=7')->assertUnprocessable()->assertJsonValidationErrors('joined_weekday');
+    }
+
+    public function test_sales_customer_filters_combine_dates_status_area_and_gps(): void
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $areaId = DB::table('customers')->where('code', 'CUS-0001')->value('area_id');
+        DB::table('customers')->where('code', 'CUS-0001')->update([
+            'created_at' => '2026-10-19 23:59:59', 'latitude' => 0, 'longitude' => 0, 'is_active' => true,
+        ]);
+        DB::table('customers')->where('code', 'CUS-0002')->update([
+            'created_at' => '2026-10-18 00:00:00', 'latitude' => null, 'longitude' => null, 'is_active' => false,
+        ]);
+        DB::table('customers')->where('code', 'CUS-0003')->update([
+            'created_at' => '2026-10-17 12:00:00', 'latitude' => 20, 'longitude' => null, 'is_active' => true,
+        ]);
+        $url = '/api/mobile/master/customers';
+        $this->getJson($url.'?joined_from=2026-10-18&joined_to=2026-10-19&is_active=1&has_gps=1&area_id='.$areaId)
+            ->assertOk()->assertJsonPath('data.meta.total', 1)->assertJsonPath('data.items.0.code', 'CUS-0001');
+        $this->getJson($url.'?joined_from=2026-10-18&joined_to=2026-10-18&is_active=0&has_gps=0')
+            ->assertOk()->assertJsonPath('data.items.0.code', 'CUS-0002')->assertJsonPath('data.meta.total', 1);
+        $this->getJson($url.'?has_gps=0')->assertOk()->assertJsonPath('data.meta.total', 2);
+        $this->getJson($url.'?sort=newest')->assertOk()->assertJsonPath('data.items.0.code', 'CUS-0001');
+        $this->getJson($url.'?sort=oldest')->assertOk()->assertJsonPath('data.items.0.code', 'CUS-0003');
+        $this->getJson($url.'?area_id=999999')->assertOk()->assertJsonPath('data.meta.total', 0)
+            ->assertJsonFragment(['id' => $areaId, 'name' => DB::table('areas')->where('id', $areaId)->value('name')]);
+        $this->getJson($url.'?joined_from=2026-10-19&joined_to=2026-10-18')->assertUnprocessable()->assertJsonValidationErrors('joined_to');
+        $this->getJson($url.'?has_gps=invalid&sort=invalid&is_active=invalid')->assertUnprocessable()
+            ->assertJsonValidationErrors(['has_gps', 'sort', 'is_active']);
+    }
+
     public function test_sales_user_can_view_assigned_customers_and_register_a_new_one()
     {
         $this->seed();

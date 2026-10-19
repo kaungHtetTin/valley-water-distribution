@@ -50,6 +50,15 @@ class MobileMasterDataController extends Controller
     public function assignedCustomers(Request $request)
     {
         $this->authorizePermission($request, 'sales.customers.view');
+        $validated = $request->validate([
+            'joined_weekday' => ['nullable', 'integer', 'between:0,6'],
+            'joined_from' => ['nullable', 'date_format:Y-m-d'],
+            'joined_to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('joined_from') ? ['after_or_equal:joined_from'] : [])],
+            'is_active' => ['nullable', 'boolean'],
+            'area_id' => ['nullable', 'integer', 'min:1'],
+            'has_gps' => ['nullable', 'boolean'],
+            'sort' => ['nullable', 'in:name,newest,oldest'],
+        ]);
         $employee = DB::table('employees')->find($request->user()->employee_id);
         abort_unless($employee, 404);
 
@@ -72,11 +81,44 @@ class MobileMasterDataController extends Controller
             $query->where('customers.is_active', $request->boolean('is_active'));
         }
 
-        $paginator = $query->orderBy('customers.shop_name')->paginate(min(max((int) $request->query('per_page', 10), 1), 50));
+        if (isset($validated['joined_weekday'])) {
+            $weekday = (int) $validated['joined_weekday'];
+            if (DB::connection()->getDriverName() === 'sqlite') {
+                $query->whereRaw("CAST(strftime('%w', customers.created_at) AS INTEGER) = ?", [$weekday]);
+            } else {
+                $query->whereRaw('DAYOFWEEK(customers.created_at) = ?', [$weekday + 1]);
+            }
+        }
+
+        if (! empty($validated['joined_from'])) {
+            $query->whereDate('customers.created_at', '>=', $validated['joined_from']);
+        }
+        if (! empty($validated['joined_to'])) {
+            $query->whereDate('customers.created_at', '<=', $validated['joined_to']);
+        }
+        if (! empty($validated['area_id'])) {
+            $query->where('customers.area_id', $validated['area_id']);
+        }
+        if (isset($validated['has_gps'])) {
+            if ($request->boolean('has_gps')) {
+                $query->whereNotNull('customers.latitude')->whereNotNull('customers.longitude');
+            } else {
+                $query->where(fn ($q) => $q->whereNull('customers.latitude')->orWhereNull('customers.longitude'));
+            }
+        }
+        match ($validated['sort'] ?? 'name') {
+            'newest' => $query->orderByDesc('customers.created_at')->orderByDesc('customers.id'),
+            'oldest' => $query->orderBy('customers.created_at')->orderBy('customers.id'),
+            default => $query->orderBy('customers.shop_name')->orderBy('customers.id'),
+        };
+        $paginator = $query->paginate(min(max((int) $request->query('per_page', 10), 1), 50));
 
         return ApiResponse::success('Assigned customers loaded.', [
             'items' => $paginator->items(),
             'route' => $employee->assigned_route_id ? DB::table('routes')->find($employee->assigned_route_id) : null,
+            'areas' => DB::table('areas')->join('customers', 'customers.area_id', '=', 'areas.id')
+                ->where('customers.route_id', $employee->assigned_route_id)
+                ->whereNull('customers.deleted_at')->distinct()->orderBy('areas.name')->get(['areas.id', 'areas.name']),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -121,6 +163,8 @@ class MobileMasterDataController extends Controller
                     'customers.longitude',
                     'customers.gps_accuracy_m',
                     'customers.gps_captured_at',
+                    'customers.created_at',
+                    'customers.area_id',
                     'areas.name as area',
                 ])
                 ->map(function ($customer) use ($visits) {
@@ -156,9 +200,9 @@ class MobileMasterDataController extends Controller
         abort_unless($request->user()->role === 'Sales Representative', 403);
 
         $validated = $request->validate([
-            'status' => ['required', 'in:in_progress,completed,skipped'],
-            'latitude' => ['required_unless:status,skipped', 'nullable', 'numeric', 'between:-90,90'],
-            'longitude' => ['required_unless:status,skipped', 'nullable', 'numeric', 'between:-180,180'],
+            'status' => ['sometimes', 'in:completed'],
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy_m' => ['nullable', 'numeric', 'min:0', 'max:10000'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
@@ -174,37 +218,44 @@ class MobileMasterDataController extends Controller
         abort_unless($customer, 404, 'Customer is not assigned to this sales route.');
 
         $date = now()->toDateString();
-        $existing = DB::table('sales_route_visits')
-            ->where('employee_id', $employee->id)
-            ->where('customer_id', $customer->id)
-            ->whereDate('visit_date', $date)
-            ->first();
-        abort_if($existing?->status === 'completed', 422, 'This visit is already completed.');
-        abort_if($validated['status'] === 'completed' && $existing?->status !== 'in_progress', 422, 'Start the visit before completing it.');
+        $visitId = DB::transaction(function () use ($customer, $date, $employee, $validated) {
+            // Serialize first-location capture and daily visits for this customer.
+            $customer = DB::table('customers')->where('id', $customer->id)->lockForUpdate()->first();
+            $existing = DB::table('sales_route_visits')
+                ->where('employee_id', $employee->id)
+                ->where('customer_id', $customer->id)
+                ->whereDate('visit_date', $date)
+                ->first();
+            if ($existing?->status === 'completed') {
+                return (int) $existing->id;
+            }
 
-        $visitId = DB::transaction(function () use ($customer, $date, $employee, $existing, $validated) {
+            $hasPosition = $customer->latitude !== null && $customer->longitude !== null;
+            if ($hasPosition) {
+                $distance = $this->distanceInMeters(
+                    (float) $validated['latitude'], (float) $validated['longitude'],
+                    (float) $customer->latitude, (float) $customer->longitude
+                );
+                abort_if($distance > 500, 422, 'Visit not approved. You must be within 500 m of the customer location.');
+            }
+
             $now = now();
             $values = [
                 'route_id' => $employee->assigned_route_id,
-                'status' => $validated['status'],
+                'status' => 'completed',
                 'notes' => $validated['notes'] ?? $existing?->notes,
+                'started_at' => $existing?->started_at ?? $now,
+                'started_latitude' => $existing?->started_latitude ?? $validated['latitude'],
+                'started_longitude' => $existing?->started_longitude ?? $validated['longitude'],
+                'started_accuracy_m' => $existing?->started_accuracy_m ?? $validated['accuracy_m'] ?? null,
+                'completed_at' => $now,
+                'completed_latitude' => $validated['latitude'],
+                'completed_longitude' => $validated['longitude'],
+                'completed_accuracy_m' => $validated['accuracy_m'] ?? null,
                 'updated_at' => $now,
             ];
 
-            if ($validated['status'] === 'in_progress') {
-                $values += [
-                    'started_at' => $now,
-                    'started_latitude' => $validated['latitude'],
-                    'started_longitude' => $validated['longitude'],
-                    'started_accuracy_m' => $validated['accuracy_m'] ?? null,
-                ];
-            } elseif ($validated['status'] === 'completed') {
-                $values += [
-                    'completed_at' => $now,
-                    'completed_latitude' => $validated['latitude'],
-                    'completed_longitude' => $validated['longitude'],
-                    'completed_accuracy_m' => $validated['accuracy_m'] ?? null,
-                ];
+            if (! $hasPosition) {
                 DB::table('customers')->where('id', $customer->id)->update([
                     'latitude' => $validated['latitude'],
                     'longitude' => $validated['longitude'],
@@ -228,7 +279,7 @@ class MobileMasterDataController extends Controller
             ]);
         });
 
-        return ApiResponse::success('Customer visit updated.', [
+        return ApiResponse::success('Customer visit approved.', [
             'visit' => DB::table('sales_route_visits')->find($visitId),
         ]);
     }
@@ -336,7 +387,7 @@ class MobileMasterDataController extends Controller
 
         $id = DB::table('customers')->insertGetId($validated);
 
-        return ApiResponse::success('Customer registration submitted.', [
+        return ApiResponse::success('Customer registered. Supervisor approval is required for acquisition KPI credit.', [
             'customer' => DB::table('customers')->find($id),
         ], 201);
     }

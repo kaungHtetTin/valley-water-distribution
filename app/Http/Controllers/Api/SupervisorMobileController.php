@@ -159,6 +159,107 @@ class SupervisorMobileController extends Controller
         ]);
     }
 
+    public function representativeVisits(Request $request, int $employee)
+    {
+        $user = $request->user();
+        abort_unless($user?->role === 'Sales Supervisor', 403);
+        abort_unless(in_array('supervisor.team.view', AppAccess::permissionsForRole($user->role), true), 403);
+        $supervisorId = $this->supervisorEmployeeId($user->employee_id);
+        $representative = DB::table('employees')->where('id', $employee)
+            ->where('supervisor_id', $supervisorId)->where('employee_type', 'sales')->whereNull('deleted_at')->first();
+        abort_unless($representative, 404, 'Sales representative was not found in your team.');
+        $validated = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
+
+        return ApiResponse::success('Representative customer visits loaded.', app(\App\Services\CustomerVisitReport::class)
+            ->forEmployee($representative, $validated['date'] ?? now()->toDateString()));
+    }
+
+    private function acquisitionSupervisor(Request $request): int
+    {
+        $user = $request->user();
+        abort_unless($user?->role === 'Sales Supervisor', 403);
+        $permissions = AppAccess::permissionsForRole($user->role);
+        abort_unless(in_array('supervisor.team.view', $permissions, true) && in_array('supervisor.customers.review', $permissions, true), 403);
+        return $this->supervisorEmployeeId($user->employee_id);
+    }
+
+    private function acquisitionMember(Request $request, int $employee): object
+    {
+        $supervisorId = $this->acquisitionSupervisor($request);
+        $member = DB::table('employees')->where('id', $employee)->where('supervisor_id', $supervisorId)
+            ->where('employee_type', 'sales')->whereNull('deleted_at')->first();
+        abort_unless($member, 404, 'Sales representative was not found in your team.');
+
+        return $member;
+    }
+
+    public function newCustomers(Request $request, ?int $employee = null)
+    {
+        $supervisorId = $this->acquisitionSupervisor($request);
+        $validated = $request->validate([
+            'status' => ['nullable', Rule::in(['pending', 'approved', 'all'])],
+            'employee_id' => ['nullable', 'integer'],
+        ]);
+        $team = $this->teamMembers($supervisorId);
+        $selected = $employee ?? ($validated['employee_id'] ?? null);
+        if ($selected !== null) $this->acquisitionMember($request, (int) $selected);
+        $memberIds = $selected !== null ? [(int) $selected] : $team->pluck('id')->all();
+        $query = DB::table('customers')->join('users as creators', 'customers.created_by', '=', 'creators.id')
+            ->join('employees as representatives', 'creators.employee_id', '=', 'representatives.id')
+            ->leftJoin('users as approvers', 'customers.acquisition_approved_by', '=', 'approvers.id')
+            ->whereIn('creators.employee_id', $memberIds)->whereNull('representatives.deleted_at')->whereNull('customers.deleted_at');
+        $status = $validated['status'] ?? 'pending';
+        if ($status === 'pending') {
+            $query->whereNull('customers.acquisition_approved_at');
+        } elseif ($status === 'approved') {
+            $query->whereNotNull('customers.acquisition_approved_at');
+        }
+        $items = $query->orderByDesc('customers.created_at')->orderByDesc('customers.id')
+            ->paginate(20, ['customers.id', 'customers.code', 'customers.shop_name', 'customers.contact_name',
+                'customers.phone', 'customers.address', 'customers.created_at', 'customers.is_active',
+                'customers.acquisition_approved_at', 'approvers.name as approved_by_name',
+                'representatives.id as employee_id', 'representatives.name as employee_name', 'representatives.code as employee_code']);
+
+        return ApiResponse::success('Customer registrations loaded.', [
+            'items' => $items->items(),
+            'team' => $team,
+            'meta' => ['current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'total' => $items->total()],
+        ]);
+    }
+
+    public function approveTeamCustomer(Request $request, int $customer)
+    {
+        $this->acquisitionSupervisor($request);
+        $employee = DB::table('customers')->join('users', 'customers.created_by', '=', 'users.id')
+            ->where('customers.id', $customer)->value('users.employee_id');
+        abort_unless($employee, 404, 'Customer registration was not found.');
+
+        return $this->approveNewCustomer($request, (int) $employee, $customer);
+    }
+
+    public function approveNewCustomer(Request $request, int $employee, int $customer)
+    {
+        $this->acquisitionMember($request, $employee);
+        $registration = DB::transaction(function () use ($request, $employee, $customer) {
+            $member = DB::table('employees')->where('id', $employee)->lockForUpdate()->first();
+            abort_unless($member && (int) $member->supervisor_id === (int) $request->user()->employee_id, 404);
+            $creatorIds = DB::table('users')->where('employee_id', $employee)->pluck('id');
+            $registration = DB::table('customers')->where('id', $customer)->whereIn('created_by', $creatorIds)
+                ->whereNull('deleted_at')->lockForUpdate()->first();
+            abort_unless($registration, 404, 'Customer was not registered by this representative.');
+            if (! $registration->acquisition_approved_at) {
+                DB::table('customers')->where('id', $customer)->update([
+                    'acquisition_approved_by' => $request->user()->id, 'acquisition_approved_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+            app(KpiReviewController::class)->refreshExistingMonthlyDrafts(Carbon::parse($registration->created_at)->format('Y-m'), [$employee]);
+
+            return DB::table('customers')->find($customer);
+        });
+
+        return ApiResponse::success('Customer acquisition approved for KPI credit.', ['customer' => $registration]);
+    }
+
     private function teamMembers(int $supervisorId)
     {
         return DB::table('employees')

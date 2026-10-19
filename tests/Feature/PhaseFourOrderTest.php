@@ -11,6 +11,28 @@ class PhaseFourOrderTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_office_can_load_order_setup_with_active_areas()
+    {
+        $this->seed();
+        $this->actingAs(User::where('email', 'office@valley.test')->firstOrFail());
+
+        $area = DB::table('areas')->where('is_active', true)->orderBy('name')->first();
+        DB::table('areas')->insert([
+            'code' => 'INACTIVE',
+            'name' => 'Inactive area',
+            'is_active' => false,
+        ]);
+
+        $response = $this->getJson('/api/orders/meta')
+            ->assertOk()
+            ->assertJsonPath('data.areas.0.id', $area->id)
+            ->assertJsonPath('data.areas.0.code', $area->code)
+            ->assertJsonPath('data.areas.0.name', $area->name);
+
+        $this->assertNotContains('INACTIVE', array_column($response->json('data.areas'), 'code'));
+        $this->assertContains('WSL', array_column($response->json('data.price_types'), 'code'));
+    }
+
     public function test_office_can_create_a_customer_independent_order_with_its_own_destination()
     {
         $this->seed();

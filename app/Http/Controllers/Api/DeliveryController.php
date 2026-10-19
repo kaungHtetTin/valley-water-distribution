@@ -91,6 +91,14 @@ class DeliveryController extends Controller
         $query = $this->baseQuery()->latest('deliveries.planned_date')->latest('deliveries.id');
         foreach (['status', 'warehouse_id', 'route_id', 'driver_id', 'vehicle_id'] as $filter) {
             if ($request->filled($filter)) {
+                if ($filter === 'route_id') {
+                    $query->where(function ($q) use ($request) {
+                        $q->where('deliveries.route_id', $request->query('route_id'))
+                            ->orWhereIn('deliveries.trip_id', DB::table('deliveries as route_stops')
+                                ->where('route_stops.route_id', $request->query('route_id'))->whereNotNull('route_stops.trip_id')->select('route_stops.trip_id'));
+                    });
+                    continue;
+                }
                 $column = $filter === 'status' ? DB::raw('COALESCE(delivery_trips.status, deliveries.status)') : "deliveries.{$filter}";
                 $query->where($column, $request->query($filter));
             }
@@ -117,7 +125,7 @@ class DeliveryController extends Controller
             'invoice_id' => ['nullable', 'required_without:invoice_ids', 'integer', 'exists:invoices,id'],
             'invoice_ids' => ['nullable', 'required_without:invoice_id', 'array', 'min:1'],
             'invoice_ids.*' => ['required', 'integer', 'distinct', 'exists:invoices,id'],
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'], 'route_id' => ['required', 'integer', 'exists:routes,id'],
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'], 'route_id' => ['nullable', 'integer', 'exists:routes,id'],
             'driver_id' => ['required', 'integer', 'exists:employees,id'], 'vehicle_id' => ['required', 'integer', 'exists:vehicles,id'],
             'planned_date' => ['required', 'date'], 'delivery_address' => ['nullable', 'string', 'max:500'], 'notes' => ['nullable', 'string', 'max:500'],
         ]);
@@ -129,14 +137,21 @@ class DeliveryController extends Controller
         abort_unless($invoices->every(fn ($invoice) => $invoice->status === 'issued'), 409, 'Only issued orders can be assigned to a delivery trip.');
         abort_unless($invoices->every(fn ($invoice) => $invoice->items->isNotEmpty()), 422, 'Every selected order requires invoice items.');
         abort_unless(DB::table('warehouses')->where('id', $validated['warehouse_id'])->where('is_active', true)->exists(), 422, 'Active warehouse is required.');
-        abort_unless(DB::table('routes')->where('id', $validated['route_id'])->where('is_active', true)->exists(), 422, 'Active route is required.');
-        $invoiceRouteIds = DB::table('invoices')->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')
-            ->whereIn('invoices.id', $invoiceIds)->selectRaw('COALESCE(invoices.route_id, orders.route_id) as effective_route_id')->get()->pluck('effective_route_id');
-        abort_unless($invoiceRouteIds->every(fn ($routeId) => (int) $routeId === (int) $validated['route_id']), 422, 'Every selected order must belong to the trip route.');
+        $invoiceRoutes = DB::table('invoices')->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')
+            ->leftJoin('customers', 'invoices.customer_id', '=', 'customers.id')
+            ->whereIn('invoices.id', $invoiceIds)
+            ->selectRaw('invoices.id, COALESCE(invoices.route_id, orders.route_id, customers.route_id) as effective_route_id')
+            ->get()->mapWithKeys(fn ($invoice) => [$invoice->id => $invoice->effective_route_id ?? ($validated['route_id'] ?? null)]);
+        $routeIds = $invoiceRoutes->values()->filter()->unique();
+        abort_unless($invoiceRoutes->every(fn ($routeId) => $routeId !== null)
+            && DB::table('routes')->whereIn('id', $routeIds)->where('is_active', true)->count() === $routeIds->count(),
+            422, 'Every selected order must have an active delivery route.');
+        // The trip keeps its first stop's route for compatibility; each stop retains its own route.
+        $validated['route_id'] = $invoiceRoutes[$invoiceIds->first()];
         abort_unless(DB::table('employees')->where('id', $validated['driver_id'])->where('employee_type', 'driver')->where('is_active', true)->exists(), 422, 'Active driver is required.');
         abort_unless(DB::table('vehicles')->where('id', $validated['vehicle_id'])->where('is_active', true)->exists(), 422, 'Active vehicle is required.');
         $plannedDate = Carbon::parse($validated['planned_date']);
-        [$trip, $deliveries] = DB::transaction(function () use ($invoices, $plannedDate, $request, $validated) {
+        [$trip, $deliveries] = DB::transaction(function () use ($invoices, $invoiceRoutes, $plannedDate, $request, $validated) {
             $trip = DeliveryTrip::create([
                 'code' => $this->nextTripCode($plannedDate),
                 'warehouse_id' => $validated['warehouse_id'],
@@ -164,7 +179,7 @@ class DeliveryController extends Controller
                     'customer_id' => $invoice->customer_id,
                     'area_id' => $invoice->area_id ?? $order?->area_id ?? $customer?->area_id,
                     'warehouse_id' => $validated['warehouse_id'],
-                    'route_id' => $validated['route_id'],
+                    'route_id' => $invoiceRoutes[$invoice->id],
                     'driver_id' => $validated['driver_id'],
                     'vehicle_id' => $validated['vehicle_id'],
                     'recipient_name' => $invoice->recipient_name ?? $order?->recipient_name ?? $customer?->shop_name,
@@ -212,7 +227,7 @@ class DeliveryController extends Controller
         $this->authorizePermission($request, self::MANAGE_PERMISSION);
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'route_id' => ['required', 'integer', 'exists:routes,id'],
+            'route_id' => ['nullable', 'integer', 'exists:routes,id'],
             'driver_id' => ['required', 'integer', 'exists:employees,id'],
             'vehicle_id' => ['required', 'integer', 'exists:vehicles,id'],
             'planned_date' => ['required', 'date'],
@@ -220,7 +235,6 @@ class DeliveryController extends Controller
         ]);
 
         abort_unless(DB::table('warehouses')->where('id', $validated['warehouse_id'])->where('is_active', true)->exists(), 422, 'Active warehouse is required.');
-        abort_unless(DB::table('routes')->where('id', $validated['route_id'])->where('is_active', true)->exists(), 422, 'Active route is required.');
         abort_unless(DB::table('employees')->where('id', $validated['driver_id'])->where('employee_type', 'driver')->where('is_active', true)->exists(), 422, 'Active driver is required.');
         abort_unless(DB::table('vehicles')->where('id', $validated['vehicle_id'])->where('is_active', true)->exists(), 422, 'Active vehicle is required.');
 
@@ -231,14 +245,8 @@ class DeliveryController extends Controller
                 ->get();
             abort_unless($deliveries->isNotEmpty() && $deliveries->every(fn ($item) => in_array($item->status, ['planned', 'assigned'], true) && (float) $item->loaded_quantity === 0.0), 409, 'Only a trip that has not started loading can be edited.');
 
-            $routeIds = DB::table('invoices')->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')
-                ->whereIn('invoices.id', $deliveries->pluck('invoice_id'))
-                ->selectRaw('COALESCE(invoices.route_id, orders.route_id) as route_id')->pluck('route_id');
-            abort_unless($routeIds->every(fn ($routeId) => (int) $routeId === (int) $validated['route_id']), 422, 'The selected route must match every order in this trip.');
-
             $shared = [
                 'warehouse_id' => $validated['warehouse_id'],
-                'route_id' => $validated['route_id'],
                 'driver_id' => $validated['driver_id'],
                 'vehicle_id' => $validated['vehicle_id'],
                 'planned_date' => Carbon::parse($validated['planned_date'])->toDateString(),
@@ -1268,6 +1276,10 @@ class DeliveryController extends Controller
             'items' => $stops->firstWhere('id', $delivery->id)['items'] ?? [],
             'trip' => [
                 'id' => (int) ($trip?->id ?? $record->id),
+                'route_name' => $stopRecords->pluck('route_name')->unique()->implode(' / '),
+                'routes' => $stopRecords->unique('route_id')->map(fn ($stop) => [
+                    'id' => $stop->route_id, 'code' => $stop->route_code, 'name' => $stop->route_name,
+                ])->values(),
                 'code' => $trip?->code ?? $record->code,
                 'status' => $trip?->status ?? $record->status,
                 'orders_count' => (int) ($trip?->orders_count ?? $stops->count()),
@@ -1338,10 +1350,16 @@ class DeliveryController extends Controller
                 $first = $stops->first();
                 $payload = $this->payload($first);
                 $customers = $stops->pluck('recipient_name_display')->filter()->unique()->values();
+                $routes = $stops->unique('route_id')->map(fn ($stop) => [
+                    'id' => $stop->route_id, 'code' => $stop->route_code, 'name' => $stop->route_name,
+                ])->values();
 
                 return array_merge($payload, [
                     'id' => $first->id,
                     'code' => $first->trip_code ?: $first->code,
+                    'routes' => $routes,
+                    'route_name' => $routes->pluck('name')->implode(' / '),
+                    'route_code' => $routes->pluck('code')->implode(' / '),
                     'status' => $first->trip_status ?: $first->status,
                     'orders_count' => $stops->count(),
                     'stops_count' => $stops->count(),

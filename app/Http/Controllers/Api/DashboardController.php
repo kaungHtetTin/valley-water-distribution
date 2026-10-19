@@ -336,7 +336,7 @@ class DashboardController extends Controller
                     'code' => $first->trip_code ?: $first->code,
                     'date' => $first->planned_date,
                     'status' => $first->trip_status ?: $first->status,
-                    'route_name' => $first->route_name,
+                    'route_name' => $stops->pluck('route_name')->unique()->implode(' / '),
                     'quantity' => (float) $stops->sum('delivered_quantity'),
                     'loaded_quantity' => (float) $stops->sum('loaded_quantity'),
                     'stops_count' => $stops->count(),

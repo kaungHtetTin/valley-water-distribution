@@ -62,6 +62,9 @@ class SetupSeeder extends Seeder
             'supervisor.profile' => ['view'],
             'supervisor.attendance' => ['view'],
             'supervisor.kpi' => ['view'],
+            'supervisor.finance' => ['view'],
+            'supervisor.expenses' => ['view', 'create'],
+            'supervisor.customers' => ['review'],
             'driver.home' => ['view'],
             'driver.profile' => ['view'],
             'driver.vehicle' => ['view'],
@@ -152,6 +155,8 @@ class SetupSeeder extends Seeder
                 'supervisor.home.view', 'supervisor.team.view', 'supervisor.profile.view',
                 'supervisor.orders.view',
                 'supervisor.attendance.view', 'supervisor.kpi.view',
+                'supervisor.finance.view', 'supervisor.expenses.view', 'supervisor.expenses.create',
+                'supervisor.customers.review',
             ],
             'Driver' => [
                 'driver.home.view', 'driver.profile.view', 'driver.vehicle.view', 'driver.load.view',

@@ -116,6 +116,7 @@ const SupervisorHomeScreen = lazyNamed(() => import('./SupervisorApp'), 'Supervi
 const SupervisorOrdersScreen = lazyNamed(() => import('./SupervisorOrders'), 'SupervisorOrdersScreen');
 const SupervisorTeamScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorTeamScreen');
 const SupervisorRepresentativeDetailScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorRepresentativeDetailScreen');
+const SupervisorNewCustomersScreen = lazyNamed(() => import('./SupervisorApp'), 'SupervisorNewCustomersScreen');
 
 const copy = {
     en: {
@@ -193,6 +194,7 @@ const copy = {
         customers: 'Customers',
         team: 'Team',
         customerVisits: 'Visits',
+        newCustomers: 'New customers',
         collections: 'Collections',
         expenses: 'Expenses',
         ledger: 'Ledger',
@@ -227,6 +229,7 @@ const copy = {
     },
     my: {
         brand: 'Valley Water',
+        newCustomers: 'ဖောက်သည်အသစ်များ',
         customerVisits: 'Visits',
         office: 'ရုံးအက်ပ်',
         client: 'ဖောက်သည်အက်ပ်',
@@ -509,6 +512,8 @@ const mobileNav = {
         { labelKey: 'team', view: 'team', icon: Users, permission: 'supervisor.team.view' },
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'supervisor.attendance.view' },
         { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'supervisor.kpi.view' },
+        { labelKey: 'expenses', view: 'expenses', icon: CreditCard, permission: 'supervisor.expenses.view' },
+        { labelKey: 'newCustomers', view: 'new-customers', icon: UserCheck, permission: 'supervisor.customers.review' },
     ],
     driver: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'driver.home.view' },
@@ -935,6 +940,21 @@ function normalizePath(path) {
 
 function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, pathname, navigate, onUserUpdated, branding, onBrandingUpdated }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const alerts = useActionAlerts('office', user, pathname);
+    const alertMenus = {
+        'pending-orders': 'orders',
+        'trip-planning': 'delivery-planning',
+        'collection-reviews': 'finance-outdoor-collections',
+        'expense-reviews': 'finance-expenses',
+        'vehicle-reviews': 'vehicle-costs',
+        'payroll-approvals': 'payroll-drafts',
+        'stock-alerts': 'stock-overview',
+    };
+    const menuCounts = alerts.items.reduce((counts, alert) => {
+        const menu = alertMenus[alert.id];
+        if (menu) counts[menu] = (counts[menu] || 0) + Number(alert.count || 0);
+        return counts;
+    }, {});
     const visibleOfficeNavGroups = officeNavGroups
         .map((group) => ({
             ...group,
@@ -1012,6 +1032,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                                     >
                                         <item.icon size={16} />
                                         <span>{locale === 'my' ? item.myLabel : item.label}</span>
+                                        {menuCounts[item.id] > 0 && <span className="nav-alert-badge" aria-label={`${menuCounts[item.id]} ${locale === 'my' ? 'လုပ်ဆောင်ရန် လိုအပ်သည်' : 'actions required'}`} title={`${menuCounts[item.id]} actions required`}>{menuCounts[item.id] > 99 ? '99+' : menuCounts[item.id]}</span>}
                                     </a>
                                 );
                             })}
@@ -1204,6 +1225,12 @@ function ShellFilterControl({ pathname }) {
     useEffect(() => {
         setOpen(false);
     }, [pathname]);
+
+    useEffect(() => {
+        const close = () => setOpen(false);
+        window.addEventListener('valley:close-filters', close);
+        return () => window.removeEventListener('valley:close-filters', close);
+    }, []);
 
     useEffect(() => {
         const workspace = document.querySelector('.app-root');
@@ -1493,7 +1520,8 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {app.id === 'driver' && activeView === 'history' && <MobileDriverExecutionScreen mode="history" locale={locale} />}
                 {app.id === 'client' && activeView === 'ledger' && <MobileFinanceScreen appId={app.id} mode="ledger" locale={locale} />}
                 {app.id === 'driver' && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
-                {['sales', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
+                {['sales', 'supervisor', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
+                {app.id === 'supervisor' && activeView === 'new-customers' && <SupervisorNewCustomersScreen locale={locale} />}
                 {app.id === 'driver' && activeView === 'vehicle' && <MobileVehicleOperationsScreen locale={locale} />}
                 {app.id === 'supervisor' && activeView === 'home' && <SupervisorHomeScreen locale={locale} onViewTeam={() => navigate(`${app.path}/team`)} onViewAttendance={() => navigate(`${app.path}/attendance`)} onViewKpi={() => navigate(`${app.path}/kpi`)} />}
                 {app.id !== 'supervisor' && activeView === 'home' && <MobileHomeDashboard
@@ -1508,7 +1536,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     onViewAttendance={() => navigate(`${app.path}/attendance`)}
                     onViewKpi={() => navigate(`${app.path}/kpi`)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['orders', 'team', 'attendance', 'kpi'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['orders', 'team', 'attendance', 'kpi', 'expenses', 'new-customers'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
@@ -1787,7 +1815,7 @@ function Brand({ t, compact = false, branding }) {
 function AppearanceControls({ appId, t, user, onLogout, locale, setLocale, theme, setTheme, onProfile, navigate, pathname }) {
     return (
         <div className="topbar-actions">
-            <ActionAlerts appId={appId} user={user} navigate={navigate} pathname={pathname} />
+            {appId !== 'office' && <ActionAlerts appId={appId} user={user} navigate={navigate} pathname={pathname} />}
             <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
                 {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
@@ -1803,10 +1831,8 @@ function AppearanceControls({ appId, t, user, onLogout, locale, setLocale, theme
     );
 }
 
-function ActionAlerts({ appId, user, navigate, pathname }) {
+function useActionAlerts(appId, user, pathname) {
     const [state, setState] = useState({ loading: true, total: 0, items: [] });
-    const [open, setOpen] = useState(false);
-    const rootRef = useRef(null);
 
     useEffect(() => {
         let mounted = true;
@@ -1824,13 +1850,26 @@ function ActionAlerts({ appId, user, navigate, pathname }) {
         load();
         timer = window.setInterval(load, 60000);
         window.addEventListener('focus', refresh);
+        const interceptor = window.axios.interceptors.response.use((response) => {
+            if (['post', 'put', 'patch', 'delete'].includes(response.config.method?.toLowerCase())) load();
+            return response;
+        });
 
         return () => {
             mounted = false;
             window.clearInterval(timer);
             window.removeEventListener('focus', refresh);
+            window.axios.interceptors.response.eject(interceptor);
         };
-    }, [appId, user.id, pathname]);
+    }, [appId, user.id, user.role, pathname]);
+
+    return state;
+}
+
+function ActionAlerts({ appId, user, navigate, pathname }) {
+    const state = useActionAlerts(appId, user, pathname);
+    const [open, setOpen] = useState(false);
+    const rootRef = useRef(null);
 
     useEffect(() => {
         if (!open) return undefined;

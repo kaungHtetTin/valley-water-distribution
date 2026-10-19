@@ -84,6 +84,7 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::put('/master-data/product-prices/matrix', [MasterDataController::class, 'updateProductPriceMatrix']);
     Route::get('/master-data/customers/{id}/detail', [MasterDataController::class, 'customerDetail'])->whereNumber('id');
     Route::get('/master-data/employees/{id}/detail', [MasterDataController::class, 'employeeDetail'])->whereNumber('id');
+    Route::get('/master-data/employees/{id}/customer-visits', [MasterDataController::class, 'employeeCustomerVisits'])->whereNumber('id');
     Route::put('/master-data/employees/{id}/vehicle', [MasterDataController::class, 'assignEmployeeVehicle'])->whereNumber('id');
     Route::put('/master-data/employees/{id}/sales-team', [MasterDataController::class, 'assignSupervisorTeam'])->whereNumber('id');
     Route::get('/master-data/{resource}', [MasterDataController::class, 'index']);
@@ -133,6 +134,11 @@ Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/mobile/supervisor', [SupervisorMobileController::class, 'overview']);
     Route::get('/mobile/supervisor/team', [SupervisorMobileController::class, 'team']);
     Route::get('/mobile/supervisor/team/{employee}', [SupervisorMobileController::class, 'representative'])->whereNumber('employee');
+    Route::get('/mobile/supervisor/team/{employee}/customer-visits', [SupervisorMobileController::class, 'representativeVisits'])->whereNumber('employee');
+    Route::get('/mobile/supervisor/team/{employee}/new-customers', [SupervisorMobileController::class, 'newCustomers'])->whereNumber('employee');
+    Route::get('/mobile/supervisor/new-customers', [SupervisorMobileController::class, 'newCustomers']);
+    Route::post('/mobile/supervisor/new-customers/{customer}/approve', [SupervisorMobileController::class, 'approveTeamCustomer'])->whereNumber('customer');
+    Route::post('/mobile/supervisor/team/{employee}/new-customers/{customer}/approve', [SupervisorMobileController::class, 'approveNewCustomer'])->whereNumber('employee')->whereNumber('customer');
 
     Route::get('/orders/meta', [OrderController::class, 'meta']);
     Route::get('/orders', [OrderController::class, 'index']);
