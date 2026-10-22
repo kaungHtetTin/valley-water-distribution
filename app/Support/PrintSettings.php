@@ -11,6 +11,7 @@ class PrintSettings
             'sales_invoice' => ['label' => 'Sales invoice', 'description' => 'Official customer invoice', 'paper_size' => 'A4', 'orientation' => 'portrait', 'design' => 'classic', 'show_signatures' => true],
             'payment_receipt' => ['label' => 'Payment receipt', 'description' => 'Cash and credit collection receipt', 'paper_size' => '80mm', 'orientation' => 'portrait', 'design' => 'compact', 'show_signatures' => false],
             'delivery_voucher' => ['label' => 'Delivery voucher', 'description' => 'Driver and customer delivery record', 'paper_size' => 'A5', 'orientation' => 'portrait', 'design' => 'compact', 'show_signatures' => true],
+            'trip_loading_sheet' => ['label' => 'Trip loading sheet', 'description' => 'Combined stock to load for all trip stops', 'paper_size' => 'A4', 'orientation' => 'portrait', 'design' => 'compact', 'show_signatures' => true],
             'sales_return' => ['label' => 'Sales return / credit note', 'description' => 'Returned products and customer credit', 'paper_size' => 'A4', 'orientation' => 'portrait', 'design' => 'classic', 'show_signatures' => true],
             'stock_receipt' => ['label' => 'Stock receipt / GRN', 'description' => 'Warehouse goods receipt', 'paper_size' => 'A4', 'orientation' => 'portrait', 'design' => 'compact', 'show_signatures' => true],
             'stock_transfer' => ['label' => 'Stock transfer voucher', 'description' => 'Warehouse-to-warehouse movement', 'paper_size' => 'A4', 'orientation' => 'landscape', 'design' => 'compact', 'show_signatures' => true],
@@ -47,6 +48,9 @@ class PrintSettings
                 $defaults[$key] = array_merge($defaults[$key], $value);
             }
         }
+
+        $defaults['trip_loading_sheet']['paper_size'] = 'A4';
+        $defaults['trip_loading_sheet']['orientation'] = 'portrait';
 
         return $defaults;
     }

@@ -71,24 +71,26 @@ const renderHtml = ({ company, setting, document }) => {
         dl > div { min-width: 0; padding: 2px 0; }
         dd { margin: 2px 0 0; font-weight: 700; overflow-wrap: anywhere; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { padding: ${setting.design === 'compact' ? '5px' : '7px'} 5px; border-bottom: 1px solid #d8dee8; text-align: right; }
+        th, td { padding: ${setting.design === 'compact' ? '5px' : '7px'} 5px; border-bottom: 1px solid #d8dee8; text-align: right; overflow-wrap: anywhere; }
         th:first-child, td:first-child { width: 44%; text-align: left; overflow-wrap: anywhere; }
+        td:first-child { white-space: pre-line; }
         thead { color: ${setting.design === 'minimal' ? '#172033' : '#fff'}; background: ${setting.design === 'minimal' ? '#f2f4f7' : escapeHtml(setting.accent_color || '#0b84a5')}; }
         tfoot th { border-top: 2px solid ${escapeHtml(setting.accent_color || '#0b84a5')}; }
         .notes { margin-top: 14px; }
         .notes p { white-space: pre-wrap; }
-        .signatures { display: grid; grid-template-columns: repeat(${compact ? '1' : '3'}, 1fr); gap: ${compact ? '24px' : '18px'}; margin-top: 42px; }
+        tr, .signatures { break-inside: avoid; }
+        .signatures { display: grid; grid-template-columns: repeat(${compact ? '1' : (document.signatures?.length || 3)}, 1fr); gap: ${compact ? '24px' : '18px'}; margin-top: 42px; }
         .signatures span { padding-top: 5px; border-top: 1px solid #667085; text-align: center; }
         .footer-note { margin-top: 18px; color: #667085; text-align: center; }
         .copy-number { display: block; margin-top: 8px; text-align: right; }
     </style></head><body>${copies}<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),120));<\/script></body></html>`;
 };
 
-export async function printConfiguredDocument(type, document) {
+export async function printConfiguredDocument(type, document, settingOverrides = {}) {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
         window.alert('Allow pop-ups to print this document.');
-        return;
+        return null;
     }
     printWindow.opener = null;
     printWindow.document.write('<!doctype html><title>Preparing print</title><p style="font:14px Segoe UI;padding:24px">Preparing document…</p>');
@@ -100,12 +102,15 @@ export async function printConfiguredDocument(type, document) {
         const { data } = settingsResponse;
         const setting = data.data.documents?.[type];
         if (!setting) throw new Error('Printing settings are unavailable for this document.');
+        const resolvedSetting = { ...setting, ...settingOverrides };
         printWindow.document.open();
-        printWindow.document.write(renderHtml({ company: data.data.company, setting, document: resolvedDocument }));
+        printWindow.document.write(renderHtml({ company: data.data.company, setting: resolvedSetting, document: resolvedDocument }));
         printWindow.document.close();
+        return { company: data.data.company, setting: resolvedSetting };
     } catch (error) {
         printWindow.document.open();
         printWindow.document.write(`<p style="font:14px Segoe UI;padding:24px">${escapeHtml(error.response?.data?.message || error.message || 'Unable to prepare this document.')}</p>`);
         printWindow.document.close();
+        return null;
     }
 }

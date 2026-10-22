@@ -832,7 +832,7 @@ function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandi
             <table className="master-table order-item-table order-detail-item-table">
                 <colgroup><col className="order-item-product-column" /><col className="order-item-quantity-column" /><col className="order-item-foc-column" /><col className="order-item-price-column" /><col className="order-item-discount-column" /><col className="order-item-total-column" /></colgroup>
                 <thead><tr><th scope="col">{t(locale, 'product')}</th><th scope="col" className="numeric">{t(locale, 'quantity')}</th><th scope="col" className="numeric">{t(locale, 'foc')}</th><th scope="col" className="numeric">{t(locale, 'price')}</th><th scope="col" className="numeric">{t(locale, 'discount')}</th><th scope="col" className="numeric">{t(locale, 'total')}</th></tr></thead>
-                <tbody>{itemRows.map((item) => <tr key={item.product_id}><td><strong>{item.product_name}</strong><span className="muted">{item.product_sku} · {item.unit}</span></td><td className="numeric">{Number(item.quantity).toLocaleString()}</td><td className="numeric">{Number(item.foc_quantity).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.discount_amount)}</td><td className="numeric"><strong>{money(item.line_total)}</strong></td></tr>)}</tbody>
+                <tbody>{itemRows.map((item) => <tr key={item.product_id}><td><strong>{item.product_name}</strong><span className="muted">{item.product_sku} · {item.unit}</span><small className="line-item-calculation">{itemQuantityPriceLabel(item)}</small></td><td className="numeric">{Number(item.quantity).toLocaleString()}</td><td className="numeric">{Number(item.foc_quantity).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.discount_amount)}</td><td className="numeric"><strong>{money(item.line_total)}</strong></td></tr>)}</tbody>
             </table>
         </div>
     </div>;
@@ -857,10 +857,10 @@ function OrderDetailPage({ viewing, locale, canManage, processingId, cancelCandi
         </dl>
         {!thermalPrint ? <table>
             <thead><tr><th>#</th><th>Product</th><th className="numeric">Qty</th><th className="numeric">FOC</th><th className="numeric">Price</th><th className="numeric">Discount</th><th className="numeric">Total</th></tr></thead>
-            <tbody>{itemRows.map((item, index) => <tr key={item.product_id}><td>{index + 1}</td><td><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></td><td className="numeric">{Number(item.quantity).toLocaleString()}</td><td className="numeric">{Number(item.foc_quantity).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.discount_amount)}</td><td className="numeric"><strong>{money(item.line_total)}</strong></td></tr>)}</tbody>
+            <tbody>{itemRows.map((item, index) => <tr key={item.product_id}><td>{index + 1}</td><td><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small><small className="line-item-calculation">{itemQuantityPriceLabel(item)}</small></td><td className="numeric">{Number(item.quantity).toLocaleString()}</td><td className="numeric">{Number(item.foc_quantity).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.discount_amount)}</td><td className="numeric"><strong>{money(item.line_total)}</strong></td></tr>)}</tbody>
             <tfoot><tr><th colSpan="6">Subtotal</th><td className="numeric">{money(state.order.subtotal)}</td></tr><tr><th colSpan="6">Discount</th><td className="numeric">{money(state.order.discount_total)}</td></tr><tr className="voucher-grand-total"><th colSpan="6">Total</th><td className="numeric">{money(state.order.total)}</td></tr></tfoot>
         </table> : <section className="voucher-thermal-items">
-            {itemRows.map((item) => <article key={item.product_id}><header><strong>{item.product_name}</strong><b>{money(item.line_total)}</b></header><small>{item.product_sku} · {item.unit}</small><p><span>{Number(item.quantity).toLocaleString()} × {money(item.unit_price)}</span>{Number(item.foc_quantity) > 0 && <span>FOC {Number(item.foc_quantity).toLocaleString()}</span>}{Number(item.discount_amount) > 0 && <span>Discount {money(item.discount_amount)}</span>}</p></article>)}
+            {itemRows.map((item) => <article key={item.product_id}><header><strong>{item.product_name}</strong><b>{money(item.line_total)}</b></header><small>{item.product_sku} · {item.unit}</small><p><span>{itemQuantityPriceLabel(item)}</span>{Number(item.foc_quantity) > 0 && <span>FOC {Number(item.foc_quantity).toLocaleString()}</span>}{Number(item.discount_amount) > 0 && <span>Discount {money(item.discount_amount)}</span>}</p></article>)}
             <dl><div><dt>Subtotal</dt><dd>{money(state.order.subtotal)}</dd></div><div><dt>Discount</dt><dd>{money(state.order.discount_total)}</dd></div><div><dt>Total</dt><dd>{money(state.order.total)}</dd></div></dl>
         </section>}
         {printSetting.show_notes && state.order.notes && <section><strong>Notes</strong><p>{state.order.notes}</p></section>}
@@ -1079,7 +1079,7 @@ function InvoiceDetailPage({ viewing, locale, canManage, processingId, onIssue, 
             ['Status', state.invoice.status || '-'],
         ],
         columns: ['Item', 'Qty', 'Price', 'Total'],
-        rows: state.items.map((item) => [`${item.product_name} · ${item.product_sku}`, Number(item.quantity).toLocaleString(), money(item.unit_price), money(item.line_total)]),
+        rows: state.items.map((item) => [`${item.product_name} · ${item.product_sku}\n${itemQuantityPriceLabel(item)}`, Number(item.quantity).toLocaleString(), money(item.unit_price), money(item.line_total)]),
         total: ['Total MMK', money(state.invoice.total)],
         notes: state.invoice.notes,
     });
@@ -1111,7 +1111,7 @@ function InvoiceDetailPage({ viewing, locale, canManage, processingId, onIssue, 
                         <div className="master-table-wrap">
                             <table className="master-table invoice-item-table">
                                 <thead><tr><th>{t(locale, 'product')}</th><th>{t(locale, 'quantity')}</th><th>{t(locale, 'price')}</th><th>{t(locale, 'total')}</th></tr></thead>
-                                <tbody>{state.items.map((item) => <tr key={item.id}><td><strong>{item.product_name}</strong><span className="muted">{item.product_sku} · {item.unit}</span></td><td className="numeric">{Number(item.quantity).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.line_total)}</td></tr>)}</tbody>
+                                <tbody>{state.items.map((item) => <tr key={item.id}><td><strong>{item.product_name}</strong><span className="muted">{item.product_sku} · {item.unit}</span><small className="line-item-calculation">{itemQuantityPriceLabel(item)}</small></td><td className="numeric">{Number(item.quantity).toLocaleString()}</td><td className="numeric">{money(item.unit_price)}</td><td className="numeric">{money(item.line_total)}</td></tr>)}</tbody>
                             </table>
                         </div>
                     </DetailPanel>
@@ -1762,7 +1762,7 @@ function MobileOrderItemsTable({ items, order, locale }) {
                     <caption><span>Order items</span><small>Amounts in MMK</small></caption>
                     <colgroup><col className="mobile-item-product-col" /><col className="mobile-item-qty-col" /><col className="mobile-item-foc-col" /><col className="mobile-item-money-col" /><col className="mobile-item-money-col" /><col className="mobile-item-money-col" /></colgroup>
                     <thead><tr><th>{t(locale, 'product')}</th><th>Qty</th><th>{t(locale, 'foc')}</th><th>{t(locale, 'price')}</th><th>Disc.</th><th>{t(locale, 'total')}</th></tr></thead>
-                    <tbody>{rows.map((item) => <tr key={item.product_id || item.product_sku}><td><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small></td><td>{Number(item.quantity).toLocaleString()}</td><td className={Number(item.foc_quantity) > 0 ? 'is-foc-value' : ''}>{Number(item.foc_quantity).toLocaleString()}</td><td>{Number(item.unit_price || 0).toLocaleString()}</td><td>{Number(item.discount_amount || 0).toLocaleString()}</td><td>{Number(item.line_total || 0).toLocaleString()}</td></tr>)}</tbody>
+                    <tbody>{rows.map((item) => <tr key={item.product_id || item.product_sku}><td><strong>{item.product_name}</strong><small>{item.product_sku} · {item.unit}</small><small className="line-item-calculation">{itemQuantityPriceLabel(item)}</small></td><td>{Number(item.quantity).toLocaleString()}</td><td className={Number(item.foc_quantity) > 0 ? 'is-foc-value' : ''}>{Number(item.foc_quantity).toLocaleString()}</td><td>{Number(item.unit_price || 0).toLocaleString()}</td><td>{Number(item.discount_amount || 0).toLocaleString()}</td><td>{Number(item.line_total || 0).toLocaleString()}</td></tr>)}</tbody>
                 </table>
             </div>
             <dl className="mobile-order-invoice-totals">
@@ -2473,6 +2473,11 @@ function adjustmentPreview(items) {
             total: carry.total + lineTotal,
         };
     }, { quantity: 0, total: 0 });
+}
+
+function itemQuantityPriceLabel(item) {
+    const quantity = Number(item.quantity || item.foc_quantity || 0);
+    return `Qty × price: ${quantity.toLocaleString()} × ${money(item.unit_price)}`;
 }
 
 function money(value) {
