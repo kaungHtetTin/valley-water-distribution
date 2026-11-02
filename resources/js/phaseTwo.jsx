@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { formatDateTime as uiDateTime, currentLocale } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
 import { usePageState } from './ui/usePageState';
@@ -358,7 +359,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
             <ShellPageActions>{canManage && <button className="button primary" type="button" onClick={openCreate}><Plus size={16} /> {t(locale, 'addLocation')}</button>}</ShellPageActions>
 
             <div className="master-panel">
-                <div className="master-toolbar">
+                <FilterToolbar as="div" className="master-toolbar">
                     <label className="master-search">
                         <Search size={15} />
                         <input value={filters.search} onChange={(event) => { setFilters((current) => ({ ...current, search: event.target.value })); setPage(1); }} placeholder={t(locale, 'searchLocations')} />
@@ -369,7 +370,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
                         <option value="0">{t(locale, 'inactive')}</option>
                     </select>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {message && <div className="inline-success"><CheckCircle2 size={15} /> {message}</div>}
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
@@ -513,7 +514,7 @@ export function AttendanceRecordsScreen({ locale, user, detailId = null, onNavig
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar attendance-record-toolbar">
+                <FilterToolbar as="div" className="master-toolbar attendance-record-toolbar">
                     <label className="master-search">
                         <Search size={15} />
                         <input value={filters.search} onChange={(event) => { setFilters((current) => ({ ...current, search: event.target.value })); setPage(1); }} placeholder={t(locale, 'searchRecords')} />
@@ -537,7 +538,7 @@ export function AttendanceRecordsScreen({ locale, user, detailId = null, onNavig
                         <input type="date" value={filters.date} onChange={(event) => { setFilters((current) => ({ ...current, date: event.target.value })); setPage(1); }} />
                     </label>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><Filter size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <TableLoading columns={6} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
@@ -637,7 +638,7 @@ export function AttendanceSummaryScreen({ locale }) {
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar attendance-summary-toolbar">
+                <FilterToolbar as="div" className="master-toolbar attendance-summary-toolbar">
                     <label className="master-search">
                         <Search size={15} />
                         <input value={filters.search} onChange={(event) => { setFilters((current) => ({ ...current, search: event.target.value })); setPage(1); }} placeholder={t(locale, 'searchSummary')} />
@@ -650,7 +651,7 @@ export function AttendanceSummaryScreen({ locale }) {
                     <label className="date-filter" title="From"><CalendarDays size={14} /><input type="date" value={filters.date_from} onChange={(event) => { setFilters((current) => ({ ...current, date_from: event.target.value })); setPage(1); }} /></label>
                     <label className="date-filter" title="To"><CalendarDays size={14} /><input type="date" value={filters.date_to} onChange={(event) => { setFilters((current) => ({ ...current, date_to: event.target.value })); setPage(1); }} /></label>
                     {(filters.date_from || filters.date_to) && <button className="button" type="button" onClick={resetDateRange}>{t(locale, 'showAll')}</button>}
-                </div>
+                </FilterToolbar>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <TableLoading columns={8} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (

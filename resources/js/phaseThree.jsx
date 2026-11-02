@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { formatDateTime as uiDateTime, currentLocale, TIME_ZONE, businessToday, formatMoney as uiMoney } from './ui/format.js';
 import { confirmAction, requestText } from './ui/ConfirmDialog';
 import { usePageState } from './ui/usePageState';
@@ -236,7 +237,7 @@ export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = f
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar payroll-toolbar">
+                <FilterToolbar as="div" className="master-toolbar payroll-toolbar">
                     <PayrollMonthSelectors value={filters.month} locale={locale} onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">{t(locale, 'allEmployeeTypes')}</option>
@@ -249,7 +250,7 @@ export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = f
                         <option value="paid">{t(locale, 'paid')}</option>
                     </select>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'empty')} compact /> : (
@@ -422,7 +423,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar payroll-toolbar payroll-adjustment-toolbar">
+                <FilterToolbar as="div" className="master-toolbar payroll-toolbar payroll-adjustment-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchAdjustments')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <PayrollMonthSelectors value={filters.month} locale={locale} onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'adjustmentType')} value={filters.adjustment_type} onChange={(event) => setFilters((current) => ({ ...current, adjustment_type: event.target.value }))}>
@@ -439,7 +440,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
                         <option value="void">{t(locale, 'void')}</option>
                     </select>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={t(locale, 'emptyAdjustments')} compact /> : (
@@ -562,7 +563,7 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar payroll-toolbar salary-history-toolbar">
+                <FilterToolbar as="div" className="master-toolbar payroll-toolbar salary-history-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchSalary')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <PayrollMonthSelectors value={filters.month} locale={locale} allowEmpty onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
@@ -574,7 +575,7 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
                         {employees.map((employee) => <option value={employee.id} key={employee.id}>{employee.label}</option>)}
                     </select>
                     {(filters.search || filters.month || filters.employee_type || filters.employee_id) && <button className="button" type="button" onClick={() => setFilters({ search: '', month: '', employee_type: '', employee_id: '' })}>{t(locale, 'showAll')}</button>}
-                </div>
+                </FilterToolbar>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={CircleDollarSign} title={t(locale, 'emptySalary')} compact /> : (
@@ -643,10 +644,10 @@ export function MobilePayrollHistoryScreen({ locale }) {
             </section>
 
             <section className="mobile-master-section">
-                <div className="mobile-payroll-filters">
+                <FilterToolbar as="div" className="mobile-payroll-filters">
                     <label><CalendarDays size={14} /><input aria-label={t(locale, 'month')} type="month" value={filters.month} onChange={(event) => setFilters({ month: event.target.value })} /></label>
                     {filters.month && <button className="button" type="button" onClick={() => setFilters({ month: '' })}>{t(locale, 'showAll')}</button>}
-                </div>
+                </FilterToolbar>
 
                 {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={t(locale, 'retry')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={CircleDollarSign} title={t(locale, 'emptySalary')} compact /> : (
                     <div className="mobile-payroll-list">

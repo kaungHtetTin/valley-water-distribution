@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { businessToday, formatDate as uiDate, currentLocale, formatMoney as uiMoney } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
 import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Clock3, RefreshCw, Save, Search, Send, Target, TrendingUp, Users, WalletCards, X } from 'lucide-react';
@@ -212,7 +213,7 @@ export function KpiTargetsScreen({ canManage = false, embedded = false }) {
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar kpi-target-toolbar">
+                <FilterToolbar as="div" className="master-toolbar kpi-target-toolbar">
                     <label className="master-search"><Search size={15} /><input value={filters.search} placeholder="Search KPI role or code" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select aria-label="Staff group" value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">All staff groups</option>
@@ -223,7 +224,7 @@ export function KpiTargetsScreen({ canManage = false, embedded = false }) {
                         <option value="office">Office</option>
                     </select>
                     <button className="icon-button" type="button" aria-label="Refresh" title="Refresh" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {state.success && <div className="inline-success"><BadgeCheck size={15} /> {state.success}</div>}
                 {state.error && !editing && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
@@ -411,7 +412,7 @@ export function KpiReviewsScreen({ canManage = false, canApprove = canManage }) 
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar kpi-review-toolbar">
+                <FilterToolbar as="div" className="master-toolbar kpi-review-toolbar">
                     <select aria-label="KPI role" value={filters.template_id} onChange={(event) => setFilters((current) => ({ ...current, template_id: event.target.value }))}>
                         <option value="">All KPI roles</option>
                         {templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}
@@ -424,7 +425,7 @@ export function KpiReviewsScreen({ canManage = false, canApprove = canManage }) 
                     </select>
                     <label className="master-search"><Search size={15} /><input value={filters.search} placeholder="Search employee" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <button className="icon-button" type="button" aria-label="Refresh" title="Refresh" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {state.loading ? <KpiState icon={RefreshCw} title="Loading KPI reviews" loading /> : state.items.length === 0 ? <KpiState icon={CircleGauge} title="No reviews for this month" message="Assign an active KPI role and targets to staff to include them automatically." /> : (

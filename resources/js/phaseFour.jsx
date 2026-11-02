@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { mobileText as mt } from './ui/mobileCopy.js';
 import { formatDateTime as uiDateTime, currentLocale, businessToday, formatMoney as uiMoney } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
@@ -586,8 +587,8 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar order-toolbar">
-                    <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchOrders')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
+                <FilterToolbar as="div" className="master-toolbar order-toolbar">
+                    <label className="master-search"><Search size={14} /><input aria-label={t(locale, 'searchOrders')} value={filters.search} placeholder={t(locale, 'searchOrders')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <label className="office-order-filter-field"><span>{mt("Status")}</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">{t(locale, 'allStatuses')}</option>{orderStatusTabs.filter(Boolean).map((status) => <option value={status} key={status}>{t(locale, status)}</option>)}</select></label>
                     <label className="office-order-filter-field"><span>{mt("Customer type")}</span><select value={filters.customer_scope} onChange={(event) => setFilters((current) => ({ ...current, customer_scope: event.target.value, customer_id: event.target.value === 'walk_in' ? '' : current.customer_id }))}><option value="">{mt("All customer types")}</option><option value="registered">{mt("Registered customers")}</option><option value="walk_in">{mt("Walk-in customers")}</option></select></label>
                     <label className="office-order-filter-field"><span>{mt("Customer")}</span><select disabled={filters.customer_scope === 'walk_in'} value={filters.customer_id} onChange={(event) => setFilters((current) => ({ ...current, customer_id: event.target.value, customer_scope: event.target.value ? 'registered' : current.customer_scope }))}><option value="">{t(locale, 'allCustomers')}</option>{meta.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.label}</option>)}</select></label>
@@ -604,7 +605,7 @@ export function OrdersScreen({ locale, canManage = false, creating = false, edit
                     <label className="office-order-filter-field"><span>Driver changes</span><select value={filters.driver_modified} onChange={(event) => setFilters((current) => ({ ...current, driver_modified: event.target.value }))}><option value="">All orders</option><option value="1">Modified by driver</option><option value="0">Not modified by driver</option></select></label>
                     <button className="button" type="button" onClick={() => setFilters(emptyFilters)}>{mt("Clear filters")}</button>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {cancelCandidate && <OrderCancelConfirmation order={cancelCandidate} locale={locale} processingId={processingId} onConfirm={cancelOrder} onDismiss={() => setCancelCandidate(null)} />}
                 {actionMessage && <div className="inline-success"><BadgeCheck size={15} /> {actionMessage}</div>}
@@ -1019,7 +1020,7 @@ export function InvoicesScreen({ locale, canManage = false, detailId = null, onN
                     value={filters.status}
                     onChange={(status) => setFilters((current) => ({ ...current, status }))}
                 />
-                <div className="master-toolbar invoice-toolbar">
+                <FilterToolbar as="div" className="master-toolbar invoice-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchInvoices')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select aria-label={t(locale, 'customer')} value={filters.customer_id} onChange={(event) => setFilters((current) => ({ ...current, customer_id: event.target.value }))}>
                         <option value="">{t(locale, 'allCustomers')}</option>
@@ -1027,7 +1028,7 @@ export function InvoicesScreen({ locale, canManage = false, detailId = null, onN
                     </select>
                     <label className="date-filter" title={t(locale, 'date')}><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {(state.error || meta.error) && <div className="inline-error"><AlertCircle size={15} /> {state.error || meta.error}</div>}
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={FileText} title={t(locale, 'empty')} compact /> : (
@@ -1559,7 +1560,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                 </form>
             ) : (
                 <section className="mobile-master-section">
-                    <div className="mobile-order-filters">
+                    <FilterToolbar as="div" className="mobile-order-filters">
                         <label className="mobile-search"><Search size={16} /><input value={filters.search} placeholder={t(locale, 'searchOrders')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                         <label className="mobile-order-filter-field"><span>{mt("Status")}</span><select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">{t(locale, 'allStatuses')}</option>{['draft', 'pending', 'confirmed', 'invoiced', 'assigned', 'delivering', 'delivered', 'cancelled'].map((status) => <option value={status} key={status}>{t(locale, status)}</option>)}</select></label>
                         <label className="mobile-order-filter-field"><span>{mt("Payment type")}</span><select aria-label={mt("Payment type")} value={filters.payment_type} onChange={(event) => setFilters((current) => ({ ...current, payment_type: event.target.value }))}><option value="">{mt("All payment types")}</option><option value="unsettled">{mt("Set at delivery")}</option><option value="cash">{mt("Cash")}</option><option value="credit">{mt("Credit")}</option></select></label>
@@ -1570,7 +1571,7 @@ export function MobileOrdersScreen({ appId, locale, initialMode = 'list', editOr
                         <label className="mobile-order-filter-field"><span>{mt("Minimum total (MMK)")}</span><input aria-label={mt("Minimum order total")} type="number" min="0" step="1" inputMode="numeric" value={filters.min_total} onChange={(event) => setFilters((current) => ({ ...current, min_total: event.target.value }))} /></label>
                         <label className="mobile-order-filter-field"><span>{mt("Maximum total (MMK)")}</span><input aria-label={mt("Maximum order total")} type="number" min={filters.min_total || 0} step="1" inputMode="numeric" value={filters.max_total} onChange={(event) => setFilters((current) => ({ ...current, max_total: event.target.value }))} /></label>
                         <button className="button" type="button" onClick={() => setFilters(emptyFilters)}>{mt("Clear filters")}</button>
-                    </div>
+                    </FilterToolbar>
                     {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={ShoppingCart} title={t(locale, 'empty')} compact /> : (
                         <div className="mobile-order-list">
                             {state.items.map((order) => (
@@ -2222,7 +2223,7 @@ function AdjustmentScreen({ type, title, hint, icon: Icon, actionLabel, locale, 
             </div>
 
             <div className="master-panel">
-                <div className="master-toolbar adjustment-toolbar">
+                <FilterToolbar as="div" className="master-toolbar adjustment-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchAdjustments')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select aria-label={t(locale, 'customer')} value={filters.customer_id} onChange={(event) => setFilters((current) => ({ ...current, customer_id: event.target.value }))}>
                         <option value="">{t(locale, 'allCustomers')}</option>
@@ -2230,7 +2231,7 @@ function AdjustmentScreen({ type, title, hint, icon: Icon, actionLabel, locale, 
                     </select>
                     <label className="date-filter" title={t(locale, 'entryDate')}><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label>
                     <button className="icon-button" type="button" aria-label={t(locale, 'refresh')} title={t(locale, 'refresh')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
 
                 {(state.error || meta.error) && <div className="inline-error"><AlertCircle size={15} /> {state.error || meta.error}</div>}
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Icon} title={t(locale, 'empty')} compact /> : (

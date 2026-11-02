@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { formatDate as uiDate, formatDateTime as uiDateTime, currentLocale, businessToday, formatMoney as uiMoney } from './ui/format.js';
 import { usePageState, useUpdateEffect } from './ui/usePageState';
 import { Archive, CalendarDays, Check, Eye, Pencil, Trash2, Package, Plus, Printer, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
@@ -554,7 +555,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                         <h2>{t(locale, movementConfig.panel)}</h2>
                     </div>
                 </div>
-                <div className="master-toolbar stock-toolbar">
+                <FilterToolbar as="div" className="master-toolbar stock-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, movementConfig.search)} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select value={filters.warehouse_id} onChange={(event) => setFilters((current) => ({ ...current, warehouse_id: event.target.value }))}>
                         <option value="">{t(locale, 'allWarehouses')}</option>
@@ -574,7 +575,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
                     </select>
                     <label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label>
                     <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
-                </div>
+                </FilterToolbar>
 
                 {state.loading ? (
                     <WorkspaceState icon={RefreshCw} title={t(locale, movementConfig.loading)} loading />
@@ -816,14 +817,14 @@ export function StockAdjustmentScreen({ locale, canManage = false, creating = fa
 
             <section className="master-panel">
                 <div className="master-panel-heading"><div><p className="eyebrow">{t(locale, 'movements')}</p><h2>{t(locale, 'adjustmentHistory')}</h2></div></div>
-                <div className="master-toolbar stock-toolbar stock-adjustment-toolbar">
+                <FilterToolbar as="div" className="master-toolbar stock-toolbar stock-adjustment-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={t(locale, 'searchAdjustments')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select aria-label={t(locale, 'warehouse')} value={filters.warehouse_id} onChange={(event) => setFilters((current) => ({ ...current, warehouse_id: event.target.value }))}><option value="">{t(locale, 'allWarehouses')}</option>{meta.warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.label}</option>)}</select>
                     <select aria-label={t(locale, 'product')} value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}><option value="">{t(locale, 'allProducts')}</option>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select>
                     <select aria-label={t(locale, 'adjustmentReason')} value={filters.adjustment_reason} onChange={(event) => setFilters((current) => ({ ...current, adjustment_reason: event.target.value }))}><option value="">All reasons</option>{adjustmentReasons.map((reason) => <option value={reason} key={reason}>{t(locale, reason)}</option>)}</select>
                     <label className="date-filter"><CalendarDays size={14} /><input aria-label={t(locale, 'date')} type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label>
                     <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
-                </div>
+                </FilterToolbar>
 
                 {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingAdjustments')} loading /> : state.items.length === 0 ? <WorkspaceState icon={SlidersHorizontal} title={t(locale, 'emptyAdjustments')} /> : <>
                     <div className="master-table-wrap stock-adjustment-table-wrap">
@@ -1050,7 +1051,7 @@ export function ClosingStockScreen({ locale, canManage = false, closingForm = fa
     return <section className="page stock-workspace">
         <div className="master-heading"><div><p className="eyebrow">Phase 5 · Warehouse Stock</p><h1>{t(locale, 'closingStock')}</h1><span className="muted">Warehouse-level physical count snapshots and their resulting variances.</span></div><ShellPageActions>{canManage && <button className="button primary" type="button" onClick={() => navigate(`${listPath}/new`)} disabled={meta.loading || Boolean(meta.error)}><Plus size={16} />New stock count</button>}</ShellPageActions></div>
         <div className="metrics stock-metrics"><Metric label="Stock counts" value={number(state.summary.records_count)} hint="Completed sessions" icon={Archive} /><Metric label={t(locale, 'increaseQuantity')} value={number(state.summary.in_quantity)} hint={t(locale, 'quantity')} icon={Package} /><Metric label={t(locale, 'decreaseQuantity')} value={number(state.summary.out_quantity)} hint={t(locale, 'quantity')} icon={Package} /><Metric label="Net variance value" value={money(state.summary.stock_value)} hint="MMK" icon={Archive} /></div>
-        <section className="master-panel"><div className="master-panel-heading"><div><p className="eyebrow">Physical counts</p><h2>Stock count history</h2></div></div><div className="master-toolbar stock-toolbar"><label className="master-search"><Search size={14} /><input value={filters.search} placeholder="Search count, warehouse or product" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label><select value={filters.warehouse_id} onChange={(event) => setFilters((current) => ({ ...current, warehouse_id: event.target.value }))}><option value="">{t(locale, 'allWarehouses')}</option>{meta.warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.label}</option>)}</select><select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}><option value="">{t(locale, 'allProducts')}</option>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select><label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label><button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button></div>
+        <section className="master-panel"><div className="master-panel-heading"><div><p className="eyebrow">Physical counts</p><h2>Stock count history</h2></div></div><FilterToolbar as="div" className="master-toolbar stock-toolbar"><label className="master-search"><Search size={14} /><input value={filters.search} placeholder="Search count, warehouse or product" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label><select value={filters.warehouse_id} onChange={(event) => setFilters((current) => ({ ...current, warehouse_id: event.target.value }))}><option value="">{t(locale, 'allWarehouses')}</option>{meta.warehouses.map((warehouse) => <option value={warehouse.id} key={warehouse.id}>{warehouse.label}</option>)}</select><select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}><option value="">{t(locale, 'allProducts')}</option>{meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}</select><label className="date-filter"><CalendarDays size={14} /><input type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} /></label><button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button></FilterToolbar>
             {state.loading ? <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingClosing')} loading /> : state.error || meta.error ? <WorkspaceState icon={RefreshCw} title={state.error || meta.error} action={() => setRefreshKey((value) => value + 1)} actionLabel={t(locale, 'retry')} /> : state.items.length === 0 ? <WorkspaceState icon={Package} title={t(locale, 'emptyClosing')} /> : <><div className="master-table-wrap"><table className="master-table closing-stock-table"><thead><tr><th>Count</th><th>{t(locale, 'warehouse')}</th><th>{t(locale, 'date')}</th><th>{t(locale, 'products')}</th><th>System qty</th><th>Counted qty</th><th>Added</th><th>Removed</th><th>Variance value</th></tr></thead><tbody>{state.items.map((count) => <tr className="clickable-row" key={count.id} tabIndex={0} onClick={() => navigate(`${listPath}/${count.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); navigate(`${listPath}/${count.id}`); } }}><td><strong>{count.code}</strong><span className="muted">{count.reference_code || '—'}</span></td><td><strong>{count.warehouse_code}</strong><span className="muted">{count.warehouse_name}</span></td><td>{formatDate(count.count_date)}</td><td className="numeric">{number(count.products_count)}</td><td className="numeric">{number(count.system_quantity)}</td><td className="numeric">{number(count.counted_quantity)}</td><td className="numeric text-success">{number(count.quantity_added)}</td><td className="numeric text-danger">{number(count.quantity_removed)}</td><td className="numeric"><strong>{money(count.variance_value)}</strong></td></tr>)}</tbody></table></div><Pagination meta={state.pageMeta} page={page} setPage={setPage} /></>}
         </section>
     </section>;
@@ -1220,13 +1221,13 @@ export function StockOverviewScreen({ view = 'balance', locale, onNavigate }) {
                     <div><p className="eyebrow">{showingValue ? t(locale, 'stockValue') : t(locale, 'balances')}</p><h2>{showingValue ? 'Value by warehouse' : 'Stock by warehouse'}</h2></div>
                     {showingValue && <span className="muted">{number(state.summary.balance_lines)} {t(locale, 'balanceLines')}</span>}
                 </div>
-                <div className="master-toolbar stock-toolbar">
+                <FilterToolbar as="div" className="master-toolbar stock-toolbar">
                     <label className="master-search"><Search size={14} /><input value={filters.search} placeholder={showingValue ? t(locale, 'searchValues') : t(locale, 'searchBalances')} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}>
                         <option value="">{t(locale, 'allProducts')}</option>
                         {meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}
                     </select>
-                </div>
+                </FilterToolbar>
 
                 {state.loading ? (
                     <WorkspaceState icon={RefreshCw} title={loadingTitle} loading />
@@ -1418,7 +1419,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
                         <h2>{t(locale, 'newTransfer')}</h2>
                     </div>
                 </div>
-                <div className="transfer-filter-toolbar" role="search" aria-label="Transfer filters">
+                <FilterToolbar as="div" className="transfer-filter-toolbar" role="search" aria-label="Transfer filters">
                     <div className="transfer-filter-scroll">
                         <div className="transfer-filter-fields">
                             <label className="transfer-filter-field transfer-filter-search-field">
@@ -1459,7 +1460,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
                         <button className="button" type="button" disabled={!Object.values(filters).some(Boolean)} onClick={() => setFilters(emptyTransferFilters)}><X size={15} />{t(locale, 'clearFilters')}</button>
                         <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
                     </div>
-                </div>
+                </FilterToolbar>
 
                 {state.loading ? (
                     <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingTransfers')} loading />
@@ -1604,7 +1605,7 @@ export function StockCardScreen({ locale }) {
                         <h2>{state.product?.name || t(locale, 'searchCard')}</h2>
                     </div>
                 </div>
-                <div className="master-toolbar stock-toolbar">
+                <FilterToolbar as="div" className="master-toolbar stock-toolbar">
                     <select value={filters.product_id} onChange={(event) => setFilters((current) => ({ ...current, product_id: event.target.value }))}>
                         {meta.products.map((product) => <option value={product.id} key={product.id}>{product.label}</option>)}
                     </select>
@@ -1615,7 +1616,7 @@ export function StockCardScreen({ locale }) {
                     <label className="date-filter"><span>{t(locale, 'dateFrom')}</span><input type="date" value={filters.date_from} onChange={(event) => setFilters((current) => ({ ...current, date_from: event.target.value }))} /></label>
                     <label className="date-filter"><span>{t(locale, 'dateTo')}</span><input type="date" value={filters.date_to} onChange={(event) => setFilters((current) => ({ ...current, date_to: event.target.value }))} /></label>
                     <button className="button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw size={15} />{t(locale, 'refresh')}</button>
-                </div>
+                </FilterToolbar>
 
                 {state.loading ? (
                     <WorkspaceState icon={RefreshCw} title={t(locale, 'loadingCard')} loading />

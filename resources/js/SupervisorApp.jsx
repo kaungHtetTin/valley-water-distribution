@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { mobileText as mt } from './ui/mobileCopy.js';
 import { currentLocale, formatMoney as uiMoney, formatDate as uiDate } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
@@ -224,12 +225,12 @@ export function SupervisorNewCustomersScreen({ locale = 'en' }) {
     const dateLabel = (value) => uiDate(value);
     return <div className="mobile-master-stack"><div className="mobile-master-heading"><div><p className="eyebrow">{my ? 'အဖွဲ့၏ ဖောက်သည်စာရင်းသွင်းမှု' : 'Team registrations'}</p><h1>{my ? 'ဖောက်သည်အသစ်များ' : mt("New customers")}</h1><span className="muted">{my ? 'အဖွဲ့ဝင်အားလုံး၏ ဖောက်သည်အသစ်များကို အတည်ပြုရန်' : 'Review new customers registered by your team'}</span></div></div><section className="mobile-master-section supervisor-member-visits">
         <ShellPageActions><button className="icon-button" type="button" aria-label={mt("Refresh registrations")} title={mt("Refresh registrations")} disabled={saving !== null} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={16} /></button></ShellPageActions>
-        <form className="master-toolbar sales-customer-filters" aria-label={my ? 'ဖောက်သည်အသစ် စစ်ထုတ်ရန်' : 'New customer approval filters'} onSubmit={(event) => { event.preventDefault(); setEmployeeId(draftFilters.employeeId); setStatus(draftFilters.status); setPage(1); window.dispatchEvent(new Event('valley:close-filters')); }}>
+        <FilterToolbar as="form" className="master-toolbar sales-customer-filters" aria-label={my ? 'ဖောက်သည်အသစ် စစ်ထုတ်ရန်' : 'New customer approval filters'} onSubmit={(event) => { event.preventDefault(); setEmployeeId(draftFilters.employeeId); setStatus(draftFilters.status); setPage(1); window.dispatchEvent(new Event('valley:close-filters')); }}>
             <label>{my ? 'အရောင်းကိုယ်စားလှယ်' : 'Sales representative'}<select value={draftFilters.employeeId} disabled={saving !== null} onChange={(event) => setDraftFilters((current) => ({ ...current, employeeId: event.target.value }))}><option value="">{my ? 'အဖွဲ့ဝင်အားလုံး' : 'All team members'}</option>{state.team.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.code}</option>)}</select></label>
             <label>{my ? 'အတည်ပြုမှု အခြေအနေ' : 'Acquisition approval'}<select value={draftFilters.status} disabled={saving !== null} onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))}><option value="pending">{my ? 'အတည်ပြုရန် ကျန်ရှိ' : 'Pending approval'}</option><option value="approved">{my ? 'အတည်ပြုပြီး' : mt("Approved")}</option><option value="all">{my ? 'အားလုံး' : 'All registrations'}</option></select></label>
             <button className="button primary" type="submit" disabled={saving !== null}>{my ? 'စစ်ထုတ်မည်' : mt("Apply filters")}</button>
             <button className="button" type="button" disabled={saving !== null} onClick={() => { setDraftFilters({ employeeId: '', status: 'pending' }); setEmployeeId(''); setStatus('pending'); setPage(1); window.dispatchEvent(new Event('valley:close-filters')); }}>{my ? 'စစ်ထုတ်မှု ရှင်းလင်းမည်' : mt("Reset filters")}</button>
-        </form>
+        </FilterToolbar>
         <p className="supervisor-acquisition-note">{my ? 'အတည်ပြုပြီး အသုံးပြုနေသော ဖောက်သည်အသစ်များကိုသာ စာရင်းသွင်းသည့်လ၏ KPI တွင် ရေတွက်မည်။' : 'Only approved, active registrations count toward acquisition KPI for the month the customer joined.'}</p>
         {success && <p className="inline-success supervisor-acquisition-note">{success}</p>}
         {state.error && <div className="inline-error supervisor-acquisition-note">{state.error}</div>}

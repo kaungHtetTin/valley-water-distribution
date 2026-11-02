@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { currentLocale, businessToday, formatMoney as uiMoney } from './ui/format.js';
 import { reportCopy } from './ui/reportCopy';
 import { usePageState } from './ui/usePageState';
@@ -74,7 +75,7 @@ export function OperationsReportScreen({ locale = 'en' }) {
         <header className="master-heading report-heading"><div><p className="eyebrow">{t('REPORTING')}</p><h1>{t('Operations report')}</h1><span className="muted">{t('Review sales, stock, cash, expenses, payroll, delivery, routes, customers, and staff from one report.')}</span></div><ShellPageActions className="report-actions"><button className="button" type="button" disabled={state.loading || Boolean(state.error)} onClick={() => window.open(exportUrl, '_blank')}><Download size={15} />{t('CSV')}</button><button className="button" type="button" disabled={state.loading || Boolean(state.error)} onClick={() => window.print()}><Printer size={15} />{t('Print')}</button></ShellPageActions></header>
 
         <section className="master-panel report-filter-panel">
-            <form className="report-filters" aria-label={t('Report filters')} data-filter-mode="apply" onSubmit={(event) => { event.preventDefault(); setApplied({ ...filters }); }}>
+            <FilterToolbar as="form" className="report-filters" aria-label={t('Report filters')} data-filter-mode="apply" onSubmit={(event) => { event.preventDefault(); setApplied({ ...filters }); }}>
                 <div className="report-filter-scroll"><div className="report-filter-fields"><div className="report-presets"><button type="button" onClick={() => applyPreset('day')}>{t('Today')}</button><button type="button" onClick={() => applyPreset('month')}>{t('This month')}</button><button type="button" onClick={() => applyPreset('year')}>{t('This year')}</button></div>
                 <label><span>{t('From')}</span><input type="date" value={filters.date_from} max={filters.date_to} onChange={(event) => setFilters((current) => ({ ...current, date_from: event.target.value }))} /></label>
                 <label><span>{t('To')}</span><input type="date" value={filters.date_to} min={filters.date_from} onChange={(event) => setFilters((current) => ({ ...current, date_to: event.target.value }))} /></label>
@@ -85,7 +86,7 @@ export function OperationsReportScreen({ locale = 'en' }) {
                 <Filter locale={locale} label={t('Driver')} value={filters.driver_id} options={meta.drivers} onChange={(value) => setFilters((current) => ({ ...current, driver_id: value }))} />
                 <Filter locale={locale} label={t('Vehicle')} value={filters.vehicle_id} options={meta.vehicles} onChange={(value) => setFilters((current) => ({ ...current, vehicle_id: value }))} />
                 </div></div><div className="report-filter-actions"><button className="button primary" disabled={state.loading}><RefreshCw size={15} className={state.loading ? 'spin' : ''} />{t('Run report')}</button><button className="button" type="button" onClick={() => { const next = { date_from: monthStart(), date_to: today(), route_id: '', customer_id: '', warehouse_id: '', employee_id: '', driver_id: '', vehicle_id: '' }; setFilters(next); setApplied(next); }}>{t('Clear filters')}</button></div>
-            </form><p className="filter-mode-hint" role="status">{t(JSON.stringify(filters) === JSON.stringify(applied) ? 'Filters applied' : 'Changes not applied')} · {t('Apply filters to update this report.')}</p>
+            </FilterToolbar><p className="filter-mode-hint" role="status">{t(JSON.stringify(filters) === JSON.stringify(applied) ? 'Filters applied' : 'Changes not applied')} · {t('Apply filters to update this report.')}</p>
         </section>
 
         {state.error && <p className="form-alert" role="alert">{state.error} <button className="button" onClick={() => setApplied({ ...applied })}>{t('Retry')}</button></p>}

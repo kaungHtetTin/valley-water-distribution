@@ -6905,12 +6905,32 @@ label input {
 
 /* Phase 8 · Vehicle operations */
 .vehicle-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
     gap: 12px;
 }
 
-/* The report toolbar is rendered in the shared filter drawer. Keep its
-   structural wrapper from leaving a bordered, shadowed strip in the page. */
+.vehicle-page > :is(.master-heading, .metrics, .master-panel) {
+    min-width: 0;
+    margin-block: 0;
+}
+
 .vehicle-report-filter-panel {
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    box-shadow: var(--shadow);
+}
+
+.vehicle-report-filter-panel > .filter-toolbar:not([data-shell-filter='true']) {
+    border-bottom: 0;
+    border-radius: inherit;
+}
+
+/* The mobile filter drawer must not leave an empty card in the page. */
+.vehicle-report-filter-panel:has(> [data-shell-filter='true']) {
     display: contents;
 }
 
@@ -15979,24 +15999,29 @@ body.filter-drawer-open::after {
 .transfer-filter-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
-    gap: 8px;
-    padding: 9px 12px;
+    align-items: start;
+    gap: 10px;
+    padding: 12px;
     border-bottom: 1px solid var(--color-border);
 }
 
 .transfer-filter-scroll {
     min-width: 0;
-    overflow: visible;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-color: var(--color-border) transparent;
+    scrollbar-width: thin;
 }
 
 .transfer-filter-fields {
     display: grid;
-    grid-template-columns: minmax(230px, 1.5fr) minmax(145px, 0.8fr) minmax(145px, 0.8fr) minmax(165px, 0.9fr) 148px;
-    width: 100%;
+    grid-template-columns: minmax(220px, 1fr) 170px 170px 180px 150px;
+    width: max-content;
+    min-width: 100%;
     align-items: end;
-    gap: 8px;
-    padding-bottom: 2px;
+    gap: 10px;
+    padding: 3px 3px 4px;
 }
 
 .transfer-filter-search-field {
@@ -16004,6 +16029,7 @@ body.filter-drawer-open::after {
 }
 
 .transfer-filter-search {
+    box-sizing: border-box;
     width: 100%;
     max-width: none;
     height: var(--admin-control-height);
@@ -16011,9 +16037,31 @@ body.filter-drawer-open::after {
     min-height: var(--admin-control-height);
 }
 
+.transfer-filter-search > svg {
+    flex-shrink: 0;
+}
+
+.transfer-filter-search input {
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: var(--admin-font-body);
+    font-weight: 400;
+}
+
+.transfer-filter-toolbar .transfer-filter-search input:focus,
+.transfer-filter-toolbar .transfer-filter-search input:focus-visible {
+    border: 0;
+    outline: 0;
+    box-shadow: none;
+}
+
 .transfer-filter-field {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
     color: var(--color-muted);
     font-size: var(--admin-font-meta);
@@ -16025,63 +16073,60 @@ body.filter-drawer-open::after {
     padding-inline: 2px;
     text-overflow: ellipsis;
     white-space: nowrap;
+    line-height: 1.25;
 }
 
 .transfer-filter-field > select,
 .transfer-filter-field > input {
+    box-sizing: border-box;
     width: 100%;
     height: var(--admin-control-height);
+    min-height: var(--admin-control-height);
     min-width: 0;
     padding: 0 10px;
     border: 1px solid var(--color-border);
     border-radius: 5px;
     color: var(--color-text);
     background-color: var(--color-surface);
-    font: inherit;
+    font-family: inherit;
+    font-size: var(--admin-font-body);
+    font-weight: 400;
 }
 
 .transfer-filter-actions {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding-bottom: 2px;
+    padding-top: calc(3px + var(--admin-font-meta) * 1.25 + 5px);
     white-space: nowrap;
 }
 
 .transfer-filter-actions .button {
+    box-sizing: border-box;
+    height: var(--admin-control-height);
     min-height: var(--admin-control-height);
     padding-inline: 12px;
 }
 
-.transfer-filter-toolbar :is(input, select, button):focus-visible,
-.transfer-filter-toolbar .master-search:focus-within {
+.transfer-filter-toolbar :is(input, select, button):focus-visible {
     outline: 2px solid color-mix(in srgb, var(--color-primary) 38%, transparent);
     outline-offset: 1px;
 }
 
-@media (max-width: 1280px) {
+.transfer-filter-toolbar .master-search:focus-within {
+    border-color: var(--color-primary);
+    outline: 0;
+    box-shadow: 0 0 0 2px var(--color-primary-soft);
+}
+
+@media (max-width: 760px) {
     .transfer-filter-toolbar {
         grid-template-columns: minmax(0, 1fr);
     }
 
     .transfer-filter-actions {
         justify-content: flex-end;
-    }
-}
-
-@media (max-width: 900px) {
-    .transfer-filter-scroll {
-        overflow-x: auto;
-        overflow-y: hidden;
-        overscroll-behavior-inline: contain;
-        scrollbar-color: var(--color-border) transparent;
-        scrollbar-width: thin;
-    }
-
-    .transfer-filter-fields {
-        grid-template-columns: 280px 170px 170px 190px 150px;
-        width: max-content;
-        min-width: 100%;
+        padding-top: 0;
     }
 }
 
@@ -16118,6 +16163,43 @@ body.filter-drawer-open::after {
     width: clamp(260px, 28vw, 420px);
     max-width: none;
     flex: 0 0 clamp(260px, 28vw, 420px);
+}
+
+.master-toolbar.order-toolbar:not([data-shell-filter='true']) {
+    align-items: flex-end;
+    gap: 10px;
+    padding-block: 12px;
+}
+
+.order-toolbar:not([data-shell-filter='true']) .master-search {
+    width: 280px;
+    min-width: 220px;
+    height: var(--admin-control-height);
+    min-height: var(--admin-control-height);
+    flex: 1 0 280px;
+}
+
+.order-toolbar .master-search > svg {
+    flex-shrink: 0;
+}
+
+.order-toolbar .master-search input {
+    padding: 0;
+    font-size: var(--admin-font-body);
+    font-weight: 400;
+}
+
+.order-toolbar:not([data-shell-filter='true']) > .office-order-filter-field {
+    width: 170px;
+    flex: 0 0 170px;
+    gap: 5px;
+}
+
+.order-toolbar .office-order-filter-field > :is(input, select) {
+    box-sizing: border-box;
+    height: var(--admin-control-height);
+    font-size: var(--admin-font-body);
+    font-weight: 400;
 }
 
 .master-toolbar > select,
@@ -17015,4 +17097,249 @@ body.filter-drawer-open::after {
     .sales-today-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .sales-today-metrics > :last-child { grid-column: 1 / -1; }
     .customer-balance-link { flex-wrap: wrap; }
+}
+
+/* Shared filter shell: only fields scroll; the scrollbar sits below the whole row. */
+.app-root .filter-toolbar:not([data-shell-filter='true']) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+    align-items: end;
+    gap: 8px 12px;
+    padding: 12px;
+    overflow: visible;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+.app-root .filter-toolbar.has-filter-actions:not([data-shell-filter='true']) {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.filter-toolbar > .filter-toolbar-viewport {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+}
+
+.filter-toolbar-viewport::-webkit-scrollbar { display: none; }
+
+.filter-toolbar .filter-toolbar-fields {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    align-items: flex-end;
+    gap: 10px;
+    padding: 3px;
+}
+
+.filter-toolbar .filter-toolbar-fields > * {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.filter-toolbar .filter-toolbar-fields > :is(label, select, input),
+.filter-toolbar .filter-toolbar-fields > .master-field {
+    width: 170px;
+    flex: 0 0 170px;
+}
+
+.filter-toolbar .filter-toolbar-fields > label:not(.master-search):not(.mobile-search):not(.date-filter),
+.filter-toolbar .filter-toolbar-fields > .master-field {
+    display: grid;
+    align-items: stretch;
+    align-content: end;
+    gap: 5px;
+    color: var(--color-muted);
+    font-size: var(--admin-font-meta);
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.filter-toolbar .filter-toolbar-fields > label > span:first-child:not(.master-search) {
+    padding: 0;
+    line-height: 1.25;
+}
+
+.filter-toolbar .filter-toolbar-fields :is(input, select) {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: var(--admin-control-height);
+    min-height: var(--admin-control-height);
+    padding: 0 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 5px;
+    color: var(--color-text);
+    background: var(--color-surface);
+    font-family: inherit;
+    font-size: var(--admin-font-body);
+    font-weight: 400;
+}
+
+.filter-toolbar .filter-toolbar-fields > :is(.master-search, .mobile-search),
+.filter-toolbar .filter-toolbar-fields > .transfer-filter-search-field {
+    width: 280px;
+    min-width: 220px;
+    max-width: none;
+    flex: 0 0 280px;
+}
+
+.filter-toolbar .filter-toolbar-fields > input {
+    width: 170px;
+    flex: 0 0 170px;
+}
+
+.filter-toolbar .filter-toolbar-fields > input:is([type='date'], [type='month'], [type='week']),
+.filter-toolbar .filter-toolbar-fields > label:has(> input:is([type='date'], [type='month'], [type='week'])) {
+    width: 160px;
+    flex: 0 0 160px;
+}
+
+.filter-toolbar .filter-toolbar-fields > input[type='number'] {
+    width: 140px;
+    flex: 0 0 140px;
+}
+
+.filter-toolbar .filter-toolbar-fields > select {
+    width: auto;
+    min-width: 140px;
+    max-width: 220px;
+    flex: 0 0 auto;
+    field-sizing: content;
+}
+
+.filter-toolbar .filter-toolbar-fields :is(.master-search, .mobile-search, .date-filter) {
+    box-sizing: border-box;
+    display: flex;
+    height: var(--admin-control-height);
+    min-height: var(--admin-control-height);
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 5px;
+    background: var(--color-surface);
+}
+
+.filter-toolbar .filter-toolbar-fields :is(.master-search, .mobile-search, .date-filter) > svg {
+    flex-shrink: 0;
+    color: var(--color-muted);
+}
+
+.filter-toolbar .filter-toolbar-fields :is(.master-search, .mobile-search, .date-filter) input,
+.filter-toolbar .filter-toolbar-fields :is(.master-search, .mobile-search, .date-filter) input:is(:focus, :focus-visible) {
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    outline: 0;
+    box-shadow: none;
+    background: transparent;
+}
+
+.filter-toolbar .filter-toolbar-fields :is(input, select):focus-visible {
+    outline: 0;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary-soft);
+}
+
+.filter-toolbar .filter-toolbar-fields :is(input, select):disabled {
+    color: var(--color-muted);
+    background: var(--color-soft);
+    cursor: not-allowed;
+}
+
+.filter-toolbar .filter-toolbar-fields :is(.master-search, .mobile-search, .date-filter):focus-within {
+    outline: 0;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary-soft);
+}
+
+.filter-toolbar > .filter-toolbar-actions {
+    display: flex;
+    width: auto;
+    align-items: center;
+    align-self: end;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 0 0 3px;
+    background: var(--color-surface);
+}
+
+.filter-toolbar .filter-toolbar-actions > :is(button, .button) {
+    box-sizing: border-box;
+    height: var(--admin-control-height);
+    min-height: var(--admin-control-height);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.filter-toolbar .filter-toolbar-actions > button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.filter-toolbar > .filter-toolbar-scrollbar {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    height: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-color: var(--color-border) var(--color-soft);
+    scrollbar-width: thin;
+}
+
+.filter-toolbar-scrollbar[hidden] { display: none; }
+.filter-toolbar-scrollbar:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.filter-toolbar > .inline-filter-hint { grid-column: 1 / -1; padding: 0 3px; white-space: normal; }
+
+[data-shell-filter='true'].filter-toolbar > .filter-toolbar-viewport {
+    overflow: visible;
+}
+
+[data-shell-filter='true'].filter-toolbar .filter-toolbar-fields {
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 3px;
+}
+
+[data-shell-filter='true'].filter-toolbar .filter-toolbar-fields > * {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none !important;
+    flex: none !important;
+}
+
+[data-shell-filter='true'].filter-toolbar > .filter-toolbar-scrollbar { display: none; }
+[data-shell-filter='true'].filter-toolbar > .filter-toolbar-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    margin-top: auto;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+@media (max-width: 760px) {
+    .app-root .filter-toolbar.has-filter-actions:not([data-shell-filter='true']) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .filter-toolbar > .filter-toolbar-actions { justify-content: flex-end; flex-wrap: wrap; }
+    .filter-toolbar .filter-toolbar-fields :is(input, select, .master-search, .mobile-search, .date-filter),
+    .filter-toolbar .filter-toolbar-actions > :is(button, .button) { height: 40px; min-height: 40px; }
+    .filter-toolbar .filter-toolbar-fields :is(.master-search, .mobile-search, .date-filter) input { height: 100%; min-height: 0; }
 }

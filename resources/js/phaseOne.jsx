@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { currentLocale, businessToday, formatMoney as uiMoney, formatDateTime as uiDateTime, TIME_ZONE } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
 import { usePageState } from './ui/usePageState';
@@ -369,7 +370,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
             )}</ShellPageActions>}
 
             <div className="master-panel">
-                {!hideListFilters && <div className="master-toolbar">
+                {!hideListFilters && <FilterToolbar as="div" className="master-toolbar">
                     <label className="master-search">
                         <Search size={15} />
                         <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={text(locale, 'search')} />
@@ -423,7 +424,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
                     <button className="icon-button" type="button" aria-label={text(locale, 'retry')} title={text(locale, 'retry')} onClick={() => setRefreshKey((key) => key + 1)}>
                         <RefreshCw size={15} />
                     </button>
-                </div>}
+                </FilterToolbar>}
 
                 {records.error && <div className="inline-error"><AlertCircle size={15} /> {records.error}</div>}
                 {records.loading ? (
@@ -604,10 +605,10 @@ function ProductPriceMatrix({ definition, locale, canManage, embedded = false })
                 <button className="button primary" type="button" disabled={!dirtyCount || saving} onClick={saveAll}><Save size={15} />{saving ? 'Saving…' : text(locale, 'saveAllPrices')}</button>
             </>}</ShellPageActions>
             <div className="master-panel price-matrix-panel">
-                <div className="master-toolbar">
+                <FilterToolbar as="div" className="master-toolbar">
                     <label className="master-search"><Search size={15} /><input disabled={Boolean(dirtyCount) || saving} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={text(locale, 'search')} /></label>
                     <button className="icon-button" type="button" disabled={Boolean(dirtyCount) || saving} aria-label={text(locale, 'retry')} title={text(locale, 'retry')} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
-                </div>
+                </FilterToolbar>
                 {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
                 {message && <div className="inline-success"><CheckCircle2 size={15} /> {message}</div>}
                 {state.loading ? <TableLoading columns={state.priceTypes.length + 1} /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={text(locale, 'empty')} compact /> : (
@@ -2174,13 +2175,13 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
         </div>
         {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}
         {gpsMessage && <div className="sales-visit-gps-note"><MapPinned size={15} /> {gpsMessage}</div>}
-        <form className="master-toolbar sales-customer-filters" aria-label={localized('Customer visit filters', 'ဖောက်သည်လည်ပတ်မှု စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setVisitFilters({ ...draftVisitFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
+        <FilterToolbar as="form" className="master-toolbar sales-customer-filters" aria-label={localized('Customer visit filters', 'ဖောက်သည်လည်ပတ်မှု စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setVisitFilters({ ...draftVisitFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
             <label>{localized('Joined on (weekday)', 'စာရင်းသွင်းသည့် ရက်သတ္တပတ်နေ့')}<select value={draftVisitFilters.joined_weekday} onChange={(event) => setDraftVisitFilters((current) => ({ ...current, joined_weekday: event.target.value }))}><option value="">{localized('All days', 'နေ့အားလုံး')}</option>{[1, 2, 3, 4, 5, 6, 0].map((day) => <option value={day} key={day}>{new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long' }).format(new Date(2026, 0, 4 + day))}</option>)}</select></label>
             <label>{localized('Area', 'ဧရိယာ')}<select value={draftVisitFilters.area_id} onChange={(event) => setDraftVisitFilters((current) => ({ ...current, area_id: event.target.value }))}><option value="">{localized('All areas', 'ဧရိယာအားလုံး')}</option>{areas.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label>
             <label>{localized('GPS location', 'GPS တည်နေရာ')}<select value={draftVisitFilters.has_gps} onChange={(event) => setDraftVisitFilters((current) => ({ ...current, has_gps: event.target.value }))}><option value="">{localized('All locations', 'တည်နေရာအားလုံး')}</option><option value="1">{localized('GPS saved', 'GPS သိမ်းပြီး')}</option><option value="0">{localized('GPS missing', 'GPS မရှိသေး')}</option></select></label>
             <button className="button primary" type="submit">{localized('Apply filters', 'စစ်ထုတ်မည်')}</button>
             <button className="button" type="button" onClick={() => { setDraftVisitFilters(emptyFilters); setVisitFilters(emptyFilters); setFilter('all'); window.dispatchEvent(new Event('valley:close-filters')); }}>{localized('Reset filters', 'စစ်ထုတ်မှု ရှင်းလင်းမည်')}</button>
-        </form>
+        </FilterToolbar>
         {activeFilterCount > 0 && <p className="sales-customer-filter-summary">{activeFilterCount} {localized('filters applied', 'စစ်ထုတ်မှု သတ်မှတ်ထားသည်')}</p>}
         <section className="sales-route-progress">
             <div><span>{localized('Today’s progress', 'ယနေ့ လုပ်ဆောင်မှု')}</span><strong>{completed} / {total}</strong></div>
@@ -2248,7 +2249,7 @@ export function SalesMasterScreen({ locale, onViewCustomer }) {
             <div className="mobile-master-heading"><div><p className="eyebrow">{text(locale, 'assignedRoute')}</p><h1>{state.route?.name || text(locale, 'assignedCustomers')}</h1></div></div>
             {mode === 'form' ? <SalesCustomerForm locale={locale} onSaved={() => { setRefreshKey((key) => key + 1); setMode('list'); }} /> : (
                 <>
-                    <form className="master-toolbar sales-customer-filters" aria-label={localized('Customer filters', 'ဖောက်သည် စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setFilters({ ...draftFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
+                    <FilterToolbar as="form" className="master-toolbar sales-customer-filters" aria-label={localized('Customer filters', 'ဖောက်သည် စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setFilters({ ...draftFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
                         <label>{fieldLabel({ name: 'service_day', label: 'Service day' }, locale)}<select value={draftFilters.service_day} onChange={(event) => changeFilter('service_day', event.target.value)}><option value="">{text(locale, 'allServiceDays')}</option>{serviceDays.map((day) => <option key={day} value={day}>{optionLabel(day, locale)}</option>)}</select></label>
                         <label>{localized('Joined on (weekday)', 'စာရင်းသွင်းသည့် ရက်သတ္တပတ်နေ့')}<select value={draftFilters.joined_weekday} onChange={(event) => changeFilter('joined_weekday', event.target.value)}><option value="">{localized('All days', 'နေ့အားလုံး')}</option>{[1, 2, 3, 4, 5, 6, 0].map((day) => <option value={day} key={day}>{new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long' }).format(new Date(2026, 0, 4 + day))}</option>)}</select></label>
                         <label>{localized('Joined from', 'စာရင်းသွင်းသည့်နေ့မှ')}<input type="date" value={draftFilters.joined_from} max={draftFilters.joined_to || undefined} onChange={(event) => changeFilter('joined_from', event.target.value)} /></label>
@@ -2259,7 +2260,7 @@ export function SalesMasterScreen({ locale, onViewCustomer }) {
                         <label>{localized('Sort by', 'စီစဉ်ရန်')}<select value={draftFilters.sort} onChange={(event) => changeFilter('sort', event.target.value)}><option value="name">{localized('Customer name', 'ဖောက်သည်အမည်')}</option><option value="newest">{localized('Newest joined first', 'အသစ်ဆုံး အရင်')}</option><option value="oldest">{localized('Oldest joined first', 'အဟောင်းဆုံး အရင်')}</option></select></label>
                         <button className="button primary" type="submit">{localized('Apply filters', 'စစ်ထုတ်မည်')}</button>
                         <button className="button" type="button" onClick={() => { setDraftFilters(emptyFilters); setFilters(emptyFilters); window.dispatchEvent(new Event('valley:close-filters')); }}>{localized('Reset filters', 'စစ်ထုတ်မှု ရှင်းလင်းမည်')}</button>
-                    </form>
+                    </FilterToolbar>
                     {activeFilterCount > 0 && <p className="sales-customer-filter-summary">{activeFilterCount} {localized('view options applied', 'စစ်ထုတ်မှု သတ်မှတ်ထားသည်')}</p>}
                     {state.error ? <WorkspaceState icon={AlertCircle} title={state.error} action={() => setRefreshKey((key) => key + 1)} actionLabel={text(locale, 'retry')} compact /> : state.loading ? <WorkspaceState icon={RefreshCw} title={text(locale, 'loading')} loading compact /> : state.items.length === 0 ? <WorkspaceState icon={Search} title={text(locale, 'empty')} compact /> : (
                         <div className="customer-mobile-list">{state.items.map((customer) => <button type="button" key={customer.id} onClick={() => onViewCustomer?.(customer.id)}><span className="customer-initial">{customer.shop_name.slice(0, 1)}</span><span><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name}</small><small>{customer.phone}</small><small>{locale === 'my' ? 'စာရင်းသွင်းသည့်နေ့' : 'Date joined'}: {customerJoinedDate(customer.created_at, locale)}</small></span><ChevronRight size={17} /></button>)}</div>

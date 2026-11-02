@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { businessToday, currentLocale, formatMoney as uiMoney } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
 import { AlertCircle, BadgeCheck, CalendarDays, ChevronDown, CircleGauge, Download, Printer, RefreshCw, Search, TrendingUp, Users, WalletCards } from 'lucide-react';
@@ -97,7 +98,7 @@ export function KpiReportsScreen() {
             </div>
 
             <div className="master-panel kpi-report-filter-panel">
-                <form className="kpi-report-filters" aria-label="KPI report filters" onSubmit={applyFilters}>
+                <FilterToolbar as="form" className="kpi-report-filters" aria-label="KPI report filters" onSubmit={applyFilters}>
                     <div className="kpi-report-filter-scroll">
                         <div className="kpi-report-filter-fields">
                             <label><span>Period</span><select value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value }))}><option value="month">Monthly</option><option value="year">Yearly</option></select></label>
@@ -117,7 +118,7 @@ export function KpiReportsScreen() {
                         <button className="button" type="button" disabled={state.loading || state.data.reviews.length === 0} onClick={() => window.print()}><Printer size={15} /> Print</button>
                         <button className="icon-button" type="button" aria-label="Refresh report" title="Refresh report" disabled={state.loading} onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw className={state.loading ? 'spin' : ''} size={15} /></button>
                     </ShellPageActions>
-                </form>
+                </FilterToolbar>
             </div>
 
             {state.error && <div className="inline-error"><AlertCircle size={15} /> {state.error}</div>}

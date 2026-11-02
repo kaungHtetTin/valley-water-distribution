@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { currentLocale, TIME_ZONE, businessToday, formatMoney as uiMoney, formatDate as uiDate } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
 import { usePageState } from './ui/usePageState';
@@ -56,7 +57,7 @@ const costFilterDefaults = { search: '', status: '', vehicle_id: '', delivery_id
 
 function VehicleCostFilters({ filters, setFilters, meta, onRefresh }) {
     const update = (key, value) => setFilters((current) => ({ ...current, [key]: value, page: 1 }));
-    return <div className="master-toolbar vehicle-cost-filters">
+    return <FilterToolbar as="div" className="master-toolbar vehicle-cost-filters">
         <label className="master-search"><Search size={14} /><input placeholder="Search record, vehicle, delivery, vendor or reference" value={filters.search} onChange={(event) => update('search', event.target.value)} /></label>
         <Field label="Vehicle"><select value={filters.vehicle_id} onChange={(event) => update('vehicle_id', event.target.value)}><option value="">All vehicles</option>{meta.vehicles.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></Field>
         <Field label="Delivery"><select value={filters.delivery_id} onChange={(event) => update('delivery_id', event.target.value)}><option value="">All deliveries</option>{meta.deliveries.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></Field>
@@ -78,7 +79,7 @@ function VehicleCostFilters({ filters, setFilters, meta, onRefresh }) {
         <Field label="Rows per page"><select value={filters.per_page} onChange={(event) => update('per_page', Number(event.target.value))}><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></Field>
         <button className="button" type="button" onClick={() => setFilters({ ...costFilterDefaults })}><X size={14} />Clear filters</button>
         <button className="button" type="button" onClick={onRefresh}><RefreshCw size={14} />Refresh</button>
-    </div>;
+    </FilterToolbar>;
 }
 
 export function VehicleCostsScreen({ locale = 'en', type = '', canManage = false, onNavigate }) {
@@ -128,7 +129,7 @@ function ReportFilters({ filters, setFilters, meta, onRun, mode = 'performance',
     const update = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
     const monthly = mode === 'monthly';
     const routeHistory = mode === 'route';
-    return <div className="master-toolbar vehicle-report-filters">
+    return <FilterToolbar as="div" className="master-toolbar vehicle-report-filters">
         {!monthly && <label className="master-search"><Search size={14} /><input placeholder="Search vehicle, route, driver or customer" value={filters.search || ''} onChange={(event) => update('search', event.target.value)} /></label>}
         {monthly ? <><Field label="Year"><input type="number" min="2020" max="2100" value={filters.year} onChange={(event) => update('year', event.target.value)} /></Field><Field label="From month"><select value={filters.month_from} onChange={(event) => update('month_from', event.target.value)}><option value="">Start of year</option>{Array.from({ length: 12 }, (_, index) => <option value={index + 1} key={index + 1}>{new Date(Date.UTC(2000, index, 15)).toLocaleDateString(currentLocale(), { timeZone: TIME_ZONE, month: 'long' })}</option>)}</select></Field><Field label="To month"><select value={filters.month_to} onChange={(event) => update('month_to', event.target.value)}><option value="">End of year</option>{Array.from({ length: 12 }, (_, index) => <option value={index + 1} key={index + 1}>{new Date(Date.UTC(2000, index, 15)).toLocaleDateString(currentLocale(), { timeZone: TIME_ZONE, month: 'long' })}</option>)}</select></Field></> : <><Field label="From"><input type="date" value={filters.date_from} onChange={(event) => update('date_from', event.target.value)} /></Field><Field label="To"><input type="date" value={filters.date_to} onChange={(event) => update('date_to', event.target.value)} /></Field></>}
         <Field label="Vehicle"><select value={filters.vehicle_id || ''} onChange={(event) => update('vehicle_id', event.target.value)}><option value="">All vehicles</option>{meta.vehicles.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></Field>
@@ -139,7 +140,7 @@ function ReportFilters({ filters, setFilters, meta, onRun, mode = 'performance',
         {!monthly && !routeHistory && <><Field label="Minimum deliveries"><input type="number" min="0" value={filters.deliveries_min} onChange={(event) => update('deliveries_min', event.target.value)} /></Field><Field label="Maximum deliveries"><input type="number" min="0" value={filters.deliveries_max} onChange={(event) => update('deliveries_max', event.target.value)} /></Field><Field label="Minimum completion %"><input type="number" min="0" max="100" value={filters.completion_min} onChange={(event) => update('completion_min', event.target.value)} /></Field><Field label="Maximum completion %"><input type="number" min="0" max="100" value={filters.completion_max} onChange={(event) => update('completion_max', event.target.value)} /></Field><Field label="Minimum delivered quantity"><input type="number" min="0" value={filters.delivered_min} onChange={(event) => update('delivered_min', event.target.value)} /></Field><Field label="Maximum delivered quantity"><input type="number" min="0" value={filters.delivered_max} onChange={(event) => update('delivered_max', event.target.value)} /></Field><Field label="Minimum distance"><input type="number" min="0" value={filters.distance_min} onChange={(event) => update('distance_min', event.target.value)} /></Field><Field label="Maximum distance"><input type="number" min="0" value={filters.distance_max} onChange={(event) => update('distance_max', event.target.value)} /></Field><Field label="Minimum operating cost"><input type="number" min="0" value={filters.cost_min} onChange={(event) => update('cost_min', event.target.value)} /></Field><Field label="Maximum operating cost"><input type="number" min="0" value={filters.cost_max} onChange={(event) => update('cost_max', event.target.value)} /></Field><Field label="Minimum cost / km"><input type="number" min="0" value={filters.cost_per_km_min} onChange={(event) => update('cost_per_km_min', event.target.value)} /></Field><Field label="Maximum cost / km"><input type="number" min="0" value={filters.cost_per_km_max} onChange={(event) => update('cost_per_km_max', event.target.value)} /></Field></>}
         <button className="button" type="button" onClick={() => setFilters({ ...defaults })}><X size={14} />Clear filters</button>
         <button className="button primary" type="button" onClick={onRun}><RefreshCw size={14} />Run report</button>
-    </div>;
+    </FilterToolbar>;
 }
 
 function useVehicleMeta() {

@@ -1246,6 +1246,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
 }
 
 const shellFilterSelector = [
+    '.filter-toolbar',
     '.master-toolbar',
     '.transfer-filter-toolbar',
     '.mobile-order-filters',
@@ -1302,7 +1303,7 @@ function ShellFilterControl({ pathname, locale }) {
             });
             setAvailable(false); setOpen(false); setSearchSources([]); setRefreshSources([]);
             const syncInline = () => {
-                const next = [...workspace.querySelectorAll('.master-toolbar, .transfer-filter-toolbar')];
+                const next = [...workspace.querySelectorAll('.filter-toolbar')];
                 setInlineToolbars((current) => current.length === next.length && current.every((node, index) => node === next[index]) ? current : next);
             };
             syncInline();

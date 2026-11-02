@@ -1,3 +1,4 @@
+import { FilterToolbar } from './ui/FilterToolbar';
 import { formatMoney as uiMoney } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
 import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw, Search, ShoppingCart } from 'lucide-react';
@@ -66,7 +67,7 @@ export function SupervisorOrdersScreen({ locale = 'en', active = true, onViewOrd
     return <div hidden={!active} ref={list}>
         <div className="mobile-master-stack supervisor-orders-page">
             <div className="mobile-master-heading"><div><p className="eyebrow">{label('Assigned team', 'သတ်မှတ်ထားသောအဖွဲ့')}</p><h1>{label('Team orders', 'အဖွဲ့အော်ဒါများ')}</h1><span className="muted">{label('Orders submitted by your sales representatives', 'သင့်အဖွဲ့မှ အရောင်းကိုယ်စားလှယ်များ တင်ထားသောအော်ဒါများ')}</span></div><button className="icon-button" type="button" aria-label={label('Refresh orders', 'အော်ဒါများ ပြန်ရယူရန်')} disabled={state.loading} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={17} /></button></div>
-            {active && <form className="mobile-order-filters" onSubmit={apply}>
+            {active && <FilterToolbar as="form" className="mobile-order-filters" onSubmit={apply}>
                 <label className="mobile-search"><Search size={16} /><input aria-label={label('Search team orders', 'အဖွဲ့အော်ဒါ ရှာရန်')} type="search" placeholder={label('Order, customer or address', 'အော်ဒါ၊ ဖောက်သည် သို့မဟုတ် လိပ်စာ')} value={draft.search} onChange={(event) => update('search', event.target.value)} /></label>
                 {select('representative_id', label('Representative', 'အရောင်းကိုယ်စားလှယ်'), label('All team members', 'အဖွဲ့ဝင်အားလုံး'), setup.representatives.map((member) => [member.id, `${member.code} · ${member.name}`]))}
                 {select('route_id', label('Route', 'လမ်းကြောင်း'), label('All routes', 'လမ်းကြောင်းအားလုံး'), setup.routes.map((route) => [route.id, `${route.code} · ${route.name}`]))}
@@ -80,7 +81,7 @@ export function SupervisorOrdersScreen({ locale = 'en', active = true, onViewOrd
                 {['min_total', 'max_total'].map((name) => <label className="mobile-order-filter-field" key={name}><span>{name === 'min_total' ? label('Minimum total (MMK)', 'အနည်းဆုံးတန်ဖိုး (ကျပ်)') : label('Maximum total (MMK)', 'အများဆုံးတန်ဖိုး (ကျပ်)')}</span><input aria-label={name === 'min_total' ? label('Minimum total (MMK)', 'အနည်းဆုံးတန်ဖိုး (ကျပ်)') : label('Maximum total (MMK)', 'အများဆုံးတန်ဖိုး (ကျပ်)')} type="number" min={name === 'max_total' ? draft.min_total || 0 : 0} step="1" value={draft[name]} onChange={(event) => update(name, event.target.value)} /></label>)}
                 <button className="button primary" type="submit" disabled={state.loading}>{label('Apply filters', 'စစ်ထုတ်ရန်')}</button>
                 <button className="button" type="button" onClick={clear}>{label('Clear filters', 'စစ်ထုတ်မှု ရှင်းရန်')}</button>
-            </form>}
+            </FilterToolbar>}
             {setupError && <div className="inline-error"><AlertCircle size={16} />{setupError}</div>}
             <section className="supervisor-kpi-summary" aria-label={label('Filtered order summary', 'အော်ဒါအကျဉ်းချုပ်')}>
                 <article><span>{label('Orders', 'အော်ဒါများ')}</span><strong>{state.summary.orders_count || 0}</strong></article>
