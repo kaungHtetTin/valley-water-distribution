@@ -36,7 +36,7 @@
 
 .report-filter-panel form {
     display: grid;
-    grid-template-columns: repeat(6, minmax(130px, 1fr));
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: end;
 }
@@ -45,6 +45,66 @@
     display: grid;
     gap: 5px;
     min-width: 0;
+}
+
+.report-filter-scroll {
+    min-width: 0;
+    overflow-x: auto;
+    padding: 3px 3px 10px;
+}
+
+.report-filter-fields {
+    display: flex;
+    align-items: end;
+    gap: var(--admin-section-gap);
+    width: max-content;
+    min-width: 100%;
+}
+
+.report-filter-fields > label {
+    flex: 0 0 150px;
+    width: 150px;
+}
+
+.report-filter-fields :is(input, select) {
+    min-height: var(--admin-control-height);
+    padding: 0 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.report-filter-actions {
+    display: flex;
+    align-items: end;
+    align-self: end;
+    gap: 8px;
+    padding-bottom: 10px;
+}
+
+.filter-mode-hint {
+    margin: 4px 0 0;
+    color: var(--color-muted);
+    font-size: var(--admin-font-meta);
+}
+
+.confirmation-backdrop { z-index: 150; }
+.confirmation-dialog { max-width: 480px; }
+.confirmation-body { padding: 16px; overflow-y: auto; }
+.confirmation-body p { margin: 0 0 12px; line-height: 1.6; }
+.confirmation-dialog .button.danger { color: white; background: var(--color-danger); border-color: var(--color-danger); }
+
+.report-metrics[aria-busy='true'] { opacity: .6; }
+
+@media (max-width: 760px) {
+    .report-filter-panel form { grid-template-columns: minmax(0, 1fr); }
+    .report-filter-scroll { overflow: visible; padding: 0; }
+    .report-filter-fields { width: 100%; flex-direction: column; align-items: stretch; }
+    .report-filter-fields > label { width: 100%; flex: none; }
+    .report-filter-actions { flex-wrap: wrap; padding-bottom: 0; }
+    .report-filter-actions .button { flex: 1; }
+    .report-presets { flex-wrap: wrap; }
 }
 
 .report-filter-panel label > span {
@@ -60,7 +120,7 @@
 }
 
 .report-presets {
-    grid-column: span 2;
+    flex: 0 0 auto;
 }
 
 .report-presets button,
@@ -75,7 +135,7 @@
 }
 
 .report-presets button {
-    min-height: 38px;
+    min-height: var(--admin-control-height);
     padding: 0 12px;
 }
 
@@ -1236,6 +1296,12 @@ button:disabled {
 }
 
 .app-root {
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --shadow-sm: 0 1px 3px rgb(15 23 42 / 6%);
+    --shadow-lg: 0 14px 38px rgb(15 23 42 / 16%);
+    --color-surface-muted: var(--color-soft);
     --admin-sidebar-width: 204px;
     --admin-topbar-height: 44px;
     --admin-page-pad: 14px;
@@ -1576,13 +1642,12 @@ td span,
 }
 
 .mobile-top-actions .shell-page-action-group .button {
-    width: var(--admin-control-height);
+    width: auto;
     min-width: var(--admin-control-height);
-    padding: 0;
+    padding: 0 8px;
     justify-content: center;
-    gap: 0;
-    overflow: hidden;
-    font-size: 0;
+    gap: 5px;
+    font-size: 12px;
 }
 
 .mobile-top-actions .shell-page-action-group .button svg {
@@ -12435,6 +12500,7 @@ body.printing-preview-open {
 .master-form-grid > label:not(.toggle-field) > select,
 .master-form-grid > label:not(.toggle-field) > textarea,
 .mobile-customer-form input,
+.mobile-customer-form select,
 .mobile-customer-form textarea {
     border: 1px solid var(--color-border);
     border-radius: 5px;
@@ -13455,6 +13521,7 @@ body.printing-preview-open {
 .master-form-grid > label:not(.toggle-field) > select:focus,
 .master-form-grid > label:not(.toggle-field) > textarea:focus,
 .mobile-customer-form input:focus,
+.mobile-customer-form select:focus,
 .mobile-customer-form textarea:focus {
     border-color: var(--color-primary);
     outline: 0;
@@ -13467,6 +13534,7 @@ body.printing-preview-open {
 .master-form-grid > label:not(.toggle-field) > select:focus-visible,
 .master-form-grid > label:not(.toggle-field) > textarea:focus-visible,
 .mobile-customer-form input:focus-visible,
+.mobile-customer-form select:focus-visible,
 .mobile-customer-form textarea:focus-visible {
     outline: 0;
     box-shadow: inset 0 0 0 1px var(--color-primary);
@@ -14370,6 +14438,7 @@ body.printing-preview-open {
 }
 
 .mobile-customer-form input,
+.mobile-customer-form select,
 .mobile-customer-form textarea {
     width: 100%;
     min-height: 44px;
@@ -15620,10 +15689,26 @@ body.printing-preview-open {
 
 /* Shared horizontal search and filter toolbar */
 .shell-filter-trigger {
+    position: relative;
     flex: 0 0 auto;
     width: var(--admin-control-height);
     min-height: var(--admin-control-height);
 }
+
+.filter-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 17px;
+    padding: 2px 4px;
+    border-radius: 10px;
+    background: var(--color-primary);
+    color: white;
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+.inline-filter-hint { white-space: nowrap; padding-inline: 4px; }
 
 .shell-filter-trigger.is-active {
     border-color: var(--color-primary);
@@ -15645,17 +15730,6 @@ body.printing-preview-open {
     grid-column: -2 / -1;
 }
 
-.master-heading > button:has(.lucide-plus),
-.mobile-master-heading > button:has(.lucide-plus) {
-    width: var(--admin-control-height);
-    min-width: var(--admin-control-height);
-    height: var(--admin-control-height);
-    min-height: var(--admin-control-height);
-    justify-content: center;
-    gap: 0;
-    padding: 0;
-    font-size: 0;
-}
 
 .master-heading > button:has(.lucide-plus) svg,
 .mobile-master-heading > button:has(.lucide-plus) svg {
@@ -15666,7 +15740,7 @@ body.printing-preview-open {
 .filter-drawer-scrim {
     position: fixed;
     inset: 0;
-    z-index: 1190;
+    z-index: 110;
     padding: 0;
     border: 0;
     background: rgb(10 19 24 / 42%);
@@ -15675,11 +15749,11 @@ body.printing-preview-open {
 
 .filter-drawer-header {
     position: fixed;
-    z-index: 1210;
+    z-index: 113;
     top: 0;
     right: 0;
     display: none;
-    width: min(var(--admin-sidebar-width), 92vw);
+    width: min(360px, 92vw);
     height: 68px;
     align-items: center;
     justify-content: space-between;
@@ -15714,14 +15788,14 @@ body.printing-preview-open {
 
 [data-shell-filter='true'] {
     position: fixed !important;
-    z-index: 1200 !important;
+    z-index: 112 !important;
     top: 68px !important;
     right: 0 !important;
     bottom: auto !important;
     left: auto !important;
     display: none !important;
     box-sizing: border-box !important;
-    width: min(var(--admin-sidebar-width), 92vw) !important;
+    width: min(360px, 92vw) !important;
     max-width: none !important;
     height: calc(100vh - 68px) !important;
     height: calc(100dvh - 68px) !important;
@@ -15875,11 +15949,11 @@ body.filter-drawer-open {
 
 body.filter-drawer-open::after {
     position: fixed;
-    z-index: 1195;
+    z-index: 111;
     top: 68px;
     right: 0;
     bottom: 0;
-    width: min(var(--admin-sidebar-width), 92vw);
+    width: min(360px, 92vw);
     background: var(--color-surface);
     content: '';
 }
@@ -15895,9 +15969,9 @@ body.filter-drawer-open::after {
     }
 
     .mobile-master-heading > button:has(.lucide-plus) {
-        width: 40px;
+        width: auto;
         min-width: 40px;
-        height: 40px;
+        height: auto;
         min-height: 40px;
     }
 }
@@ -16873,4 +16947,72 @@ body.filter-drawer-open::after {
     .attendance-settings .branding-settings-heading { padding: 12px; }
     .attendance-settings-schedule .master-field { max-width: none; }
     .attendance-settings-schedule input[type="time"] { min-height: 40px; }
+}
+
+/* Shared touch sizing also applies when field apps run in a desktop browser. */
+.app-root:not([data-app='office']) :is(button, select, input:not([type='checkbox']):not([type='radio']):not([type='hidden'])) {
+    min-height: 40px;
+}
+.app-root:not([data-app='office']) .icon-button { min-width: 40px; }
+@media (max-width: 760px) {
+    .app-root :is(button, select, input:not([type='checkbox']):not([type='radio']):not([type='hidden'])) { min-height: 40px; }
+    .app-root .icon-button { min-width: 40px; }
+    .shell-page-actions { max-width: 65vw; overflow-x: auto; }
+}
+[data-shell-filter='true'] .report-filter-fields { width: 100%; min-width: 0; flex-direction: column; align-items: stretch; }
+[data-shell-filter='true'] .report-filter-fields > label { width: 100%; flex: none; }
+[data-shell-filter='true'] .report-filter-scroll { overflow: visible; padding: 0; }
+[data-shell-filter='true'] .report-filter-actions { flex-wrap: wrap; padding: 0; }
+
+/* Public storefront and task-focused mobile workspaces. */
+.public-topbar { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
+.public-topbar > a { display: flex; align-items: center; gap: 7px; margin-right: auto; text-decoration: none; color: var(--color-primary); }
+.public-topbar .button { padding-inline: 9px; }
+.public-welcome-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 22px 18px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.public-welcome-hero > :is(h1, p) { flex: 0 0 100%; margin: 0; line-height: 1.6; }
+.public-welcome-hero h1 { font-size: 25px; line-height: 1.4; }
+.public-welcome-hero > svg { color: var(--color-primary); }
+.public-welcome-hero .button { min-height: 44px; }
+.public-products { display: grid; gap: 14px; padding-block: 12px; }
+.public-products h1 { margin: 0; font-size: 23px; }
+.public-products p { margin-block: 5px; line-height: 1.7; }
+.public-product-search { min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.public-product-search input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--color-text); }
+.public-product-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.public-product-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.public-product-card h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.public-product-icon { display: grid; place-items: center; width: 54px; height: 54px; border-radius: var(--radius-lg); background: var(--color-primary-soft); color: var(--color-primary); }
+.public-product-card .button { margin-top: auto; width: 100%; }
+.public-account-links { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; }
+.public-account-links h1 { width: 100%; margin: 0; }
+.mobile-task-link { display: flex; width: 100%; align-items: center; gap: 12px; padding: 13px; border: 0; border-bottom: 1px solid var(--color-border); background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
+.mobile-task-link > span { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.mobile-task-link small { color: var(--color-muted); }
+.mobile-task-link > svg { flex-shrink: 0; color: var(--color-primary); }
+.mobile-task-link > strong { font-variant-numeric: tabular-nums; }
+.customer-home h2 { margin: 12px; font-size: 17px; }
+.customer-recent-orders > p { margin: 12px; }
+.customer-balance-link { border: 1px solid var(--color-border); background: var(--color-surface); }
+.mobile-priority-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-block: 12px; }
+.mobile-priority-actions .button { flex: 1; min-height: 44px; }
+.sales-today { padding: 16px; }
+.sales-today h1 { margin: 5px 0; font-size: 22px; }
+.sales-today-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sales-today-metrics > :is(button, article) { display: grid; align-content: start; gap: 7px; min-width: 0; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-soft); color: var(--color-text); text-align: left; }
+.sales-today-metrics button { cursor: pointer; }
+.sales-today-metrics span { color: var(--color-muted); font-size: 11px; }
+.sales-today-metrics strong { font-size: 15px; overflow-wrap: anywhere; }
+.supervisor-team-actions > h2 { padding: 14px 12px 0; margin: 0; font-size: 17px; }
+.supervisor-personal-actions { padding: 14px; }
+.supervisor-personal-actions summary, .driver-stop-customer-location summary { cursor: pointer; padding: 10px; font-weight: 700; min-height: 44px; }
+.driver-stop-customer-location { margin-top: 16px; }
+.nav-count { display: inline-block; min-width: 17px; margin-left: 4px; padding: 1px 4px; border-radius: 9px; background: var(--color-danger); color: white; font-size: 10px; }
+.mobile-performance-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 420px) {
+    .public-topbar { gap: 5px; padding: 10px; }
+    .public-topbar strong { font-size: 14px; }
+    .public-topbar .button { padding-inline: 6px; font-size: 11px; }
+    .sales-today-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sales-today-metrics > :last-child { grid-column: 1 / -1; }
+    .customer-balance-link { flex-wrap: wrap; }
 }

@@ -1,3 +1,9 @@
+import { PublicWelcome, ProductCatalog } from './PublicApp';
+import { setFormattingLocale } from './ui/format.js';
+import { ConfirmationHost } from './ui/ConfirmDialog';
+import { useOverlayAccessibility } from './ui/useOverlayAccessibility';
+import { usePageScroll } from './ui/usePageScroll';
+import { clearPageState } from './ui/usePageState';
 ﻿import './bootstrap';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -122,7 +128,10 @@ const copy = {
     en: {
         brand: 'Valley Water',
         office: 'Office App',
-        client: 'Client App',
+        client: 'Valley Water',
+        products: 'Products',
+        account: 'Account',
+        approvals: 'Approvals',
         sales: 'Sales App',
         supervisor: 'Supervisor App',
         salary: 'Salary',
@@ -135,10 +144,10 @@ const copy = {
         plannedPhase: 'This workflow is reserved for a later roadmap phase.',
         overview: 'Foundation and UI Shell',
         officeHint: 'Compact operations console for owner, admin, and office staff.',
-        clientHint: 'Customer app shell for orders with delivery tracking and account balance.',
+        clientHint: 'Order water for your home or business.',
         salesHint: 'Sales performance, customer management, and field orders.',
         supervisorHint: 'Mobile team oversight for sales supervisors.',
-        driverHint: 'Driver app shell for assigned loads, delivery route, and status updates.',
+        driverHint: 'Your deliveries, route stops, and trip progress.',
         newDemoOrder: 'New demo order',
         demoNav: 'Demo Navigation',
         visibleStates: 'Visible States',
@@ -177,7 +186,7 @@ const copy = {
         orders: 'Orders',
         deliveries: 'Deliveries',
         profile: 'Profile',
-        menu: 'Menu',
+        menu: 'More',
         accountSettings: 'Account & settings',
         profileSettings: 'Profile & settings',
         profileSettingsHint: 'Edit profile, photo and password',
@@ -215,10 +224,10 @@ const copy = {
         authRequired: 'Sign in to continue',
         createAccount: 'Create account',
         createNewAccount: 'Create new account',
-        customerRegistration: 'Create your customer account',
-        customerRegistrationHint: 'Enter your delivery contact details. Area and route will be assigned by office staff.',
+        customerRegistration: 'Create your Valley Water account',
+        customerRegistrationHint: 'Enter your contact details and delivery address to start ordering water.',
         contactName: 'Contact name',
-        shopName: 'Shop or business name',
+        shopName: 'Name or business name',
         phone: 'Phone',
         deliveryAddress: 'Delivery address',
         confirmPassword: 'Confirm password',
@@ -229,10 +238,17 @@ const copy = {
     },
     my: {
         brand: 'Valley Water',
+        products: 'ပစ္စည်းများ',
+        account: 'အကောင့်',
+        approvals: 'အတည်ပြုရန်',
+        menu: 'အခြား',
+        supervisor: 'အရောင်းကြီးကြပ်သူ',
+        ledger: 'ငွေပေးချေမှုနှင့် လက်ကျန်',
+        salary: 'လစာ',
         newCustomers: 'ဖောက်သည်အသစ်များ',
-        customerVisits: 'Visits',
+        customerVisits: 'လည်ပတ်မှုများ',
         office: 'ရုံးအက်ပ်',
-        client: 'ဖောက်သည်အက်ပ်',
+        client: 'Valley Water',
         sales: 'အရောင်းအက်ပ်',
         driver: 'ယာဉ်မောင်းအက်ပ်',
         dashboard: 'ဒက်ရှ်ဘုတ်',
@@ -241,7 +257,7 @@ const copy = {
         theme: 'အပြင်အဆင်',
         overview: 'အခြေခံနှင့် UI Shell',
         officeHint: 'ပိုင်ရှင်၊ အက်ဒမင်နှင့် ရုံးဝန်ထမ်းများအတွက် console။',
-        clientHint: 'အော်ဒါ၊ ပို့ဆောင်မှုအခြေအနေ နှင့် ငွေလက်ကျန်အတွက် ဖောက်သည် app shell။',
+        clientHint: 'အိမ်နှင့် လုပ်ငန်းအတွက် ရေသန့်မှာယူပါ။',
         salesHint: 'အရောင်းစွမ်းဆောင်ရည်၊ ဖောက်သည်စီမံမှုနှင့် အော်ဒါတင်ခြင်းအတွက် အရောင်း app။',
         driverHint: 'သတ်မှတ်ထားသော load၊ route နှင့် status update များအတွက် driver app shell။',
         newDemoOrder: 'Demo order အသစ်',
@@ -491,6 +507,9 @@ const officeNavGroups = [
 
 const mobileNav = {
     client: [
+        { labelKey: 'products', view: 'products', icon: Droplets, permission: 'client.home.view' },
+        { labelKey: 'account', view: 'account', icon: User, permission: null },
+        { labelKey: 'newOrder', view: 'new-order', icon: ShoppingCart, permission: 'client.orders.create' },
         { labelKey: 'home', view: 'home', icon: Home, permission: 'client.home.view' },
         { labelKey: 'orders', view: 'orders', icon: ReceiptText, permission: 'client.orders.view' },
         { labelKey: 'ledger', view: 'ledger', icon: WalletCards, permission: 'client.finance.view' },
@@ -513,7 +532,7 @@ const mobileNav = {
         { labelKey: 'attendance', view: 'attendance', icon: CalendarDays, permission: 'supervisor.attendance.view' },
         { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'supervisor.kpi.view' },
         { labelKey: 'expenses', view: 'expenses', icon: CreditCard, permission: 'supervisor.expenses.view' },
-        { labelKey: 'newCustomers', view: 'new-customers', icon: UserCheck, permission: 'supervisor.customers.review' },
+        { labelKey: 'approvals', view: 'new-customers', icon: UserCheck, permission: 'supervisor.customers.review' },
     ],
     driver: [
         { labelKey: 'home', view: 'home', icon: Home, permission: 'driver.home.view' },
@@ -521,7 +540,7 @@ const mobileNav = {
         { labelKey: 'kpiReport', view: 'kpi', icon: CircleGauge, permission: 'driver.payroll.view' },
         { labelKey: 'salary', view: 'salary', icon: CreditCard, permission: 'driver.payroll.view' },
         { labelKey: 'vehicle', view: 'vehicle', icon: Truck, permission: 'driver.vehicle-costs.view' },
-        { labelKey: 'tasks', view: 'tasks', icon: ClipboardList, permission: 'driver.load.view' },
+        { labelKey: 'deliveries', view: 'tasks', icon: ClipboardList, permission: 'driver.load.view' },
         { labelKey: 'gps', view: 'gps', icon: MapPinned, permission: 'driver.route.update' },
         { labelKey: 'history', view: 'history', icon: CheckCircle2, permission: 'driver.confirm.view' },
         { labelKey: 'collections', view: 'collections', icon: WalletCards, permission: 'driver.collections.view' },
@@ -584,6 +603,7 @@ const mobileData = {
 };
 
 function App() {
+    useOverlayAccessibility();
     const callbackAuthError = new URLSearchParams(window.location.search).get('auth_error') || '';
     const [pathname, setPathname] = useState(() => window.location.pathname);
     const [online, setOnline] = useState(() => window.navigator.onLine);
@@ -632,8 +652,10 @@ function App() {
             document.removeEventListener('wheel', preventNumericWheelStep, true);
         };
     }, []);
+    usePageScroll(pathname);
     const [theme, setTheme] = useState(() => window.localStorage.getItem('valley-theme') || 'light');
     const [locale, setLocale] = useState(() => window.localStorage.getItem('valley-locale') || 'en');
+    setFormattingLocale(locale);
     const [auth, setAuth] = useState({ loading: true, user: null, errors: {}, message: callbackAuthError });
     const [branding, setBranding] = useState({ name: 'Valley Water', logo_url: null, primary_color: '#0b84a5', default_theme: 'light' });
     const t = { ...copy.en, ...copy[locale] };
@@ -641,6 +663,7 @@ function App() {
     const attendanceToken = resolveAttendanceToken(pathname);
     const selectedApp = appConfig[activeApp];
     const passwordResetting = normalizePath(pathname).includes('/reset-password/');
+    useEffect(() => { document.title = activeApp === 'client' ? 'Valley Water' : `${t[activeApp]} | Valley Water`; }, [activeApp, locale]);
     const rootStyle = useMemo(() => ({ '--color-primary': activeApp === 'office' ? branding.primary_color : selectedApp.accent }), [activeApp, branding.primary_color, selectedApp.accent]);
 
     useEffect(() => window.localStorage.setItem('valley-theme', theme), [theme]);
@@ -744,6 +767,11 @@ function App() {
             const user = response.data.data.user;
             setAuth({ loading: false, user, errors: {}, message: '', submitting: false });
 
+            if (activeApp === 'client') {
+                let product = new URLSearchParams(window.location.search).get('product');
+                try { product ||= window.sessionStorage.getItem('valley:public-product'); window.sessionStorage.removeItem('valley:public-product'); } catch {}
+                navigate(product && /^\d+$/.test(product) ? `${selectedApp.path}/new-order?product=${product}` : `${selectedApp.path}/home`);
+            }
             if (user.default_app && user.default_app !== activeApp) {
                 window.location.assign(appConfig[user.default_app].path);
             }
@@ -812,6 +840,7 @@ function App() {
 
     const handleLogout = async () => {
         await window.axios.post(authRoute('logout', '/api/auth/logout'));
+        clearPageState();
         setAuth({ loading: false, user: null, errors: {}, message: '' });
     };
 
@@ -826,6 +855,19 @@ function App() {
             // The local preference still keeps the interface usable if the request fails.
         }
     };
+
+    useEffect(() => {
+        if (!auth.user || activeApp !== 'client') return;
+        const path = new URL(selectedApp.path, window.location.origin).pathname;
+        if (![path, `${path}/`, `${path}/home`].includes(pathname)) return;
+        let product;
+        try { product = window.sessionStorage.getItem('valley:public-product'); window.sessionStorage.removeItem('valley:public-product'); } catch {}
+        if (product && /^\d+$/.test(product)) {
+            const destination = `${path}/new-order?product=${product}`;
+            window.history.replaceState({}, '', destination);
+            setPathname(`${path}/new-order`);
+        }
+    }, [auth.user?.id, activeApp, pathname]);
 
     const navigate = (href) => {
         const destination = new URL(href, window.location.origin);
@@ -851,6 +893,8 @@ function App() {
                 <PublicAttendanceScreen token={attendanceToken} locale={locale} setLocale={handleLocaleChange} />
             ) : auth.loading ? (
                 <AppLoading t={t} />
+            ) : !auth.user && activeApp === 'client' && ['', 'home', 'products'].includes(normalizePath(pathname).slice(normalizePath(new URL(selectedApp.path, window.location.origin).pathname).length).replace(/^\//, '')) && !callbackAuthError ? (
+                <PublicWelcome locale={locale} theme={theme} setLocale={handleLocaleChange} setTheme={setTheme} navigate={navigate} path={selectedApp.path} />
             ) : !auth.user || passwordResetting ? (
                 <AuthScreen
                     app={selectedApp}
@@ -895,6 +939,7 @@ function App() {
                     onUserUpdated={(user) => setAuth((current) => ({ ...current, user }))}
                 />
             )}
+            <ConfirmationHost />
         </div>
     );
 }
@@ -1051,7 +1096,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     </button>
                     <div id="shell-page-search" className="shell-page-search" aria-live="polite" />
                     <div id="shell-page-actions" className="shell-page-actions" aria-live="polite" />
-                    <ShellFilterControl pathname={pathname} />
+                    <ShellFilterControl pathname={pathname} locale={locale} />
                     <AppearanceControls
                         appId="office"
                         t={t}
@@ -1213,8 +1258,21 @@ const shellFilterSelector = [
     '.status-tabs',
 ].join(', ');
 
-function ShellFilterControl({ pathname }) {
+function ShellFilterControl({ pathname, locale }) {
+    const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches || document.querySelector('.app-root')?.dataset.app !== 'office');
+    useEffect(() => {
+        const media = window.matchMedia('(max-width: 760px)');
+        const sync = () => setMobile(media.matches || document.querySelector('.app-root')?.dataset.app !== 'office');
+        sync();
+        media.addEventListener('change', sync);
+        return () => media.removeEventListener('change', sync);
+    }, [pathname]);
+    const labels = locale === 'my'
+        ? { filters: 'စစ်ထုတ်ရန်', close: 'ပိတ်ရန်', options: 'ကြည့်ရှုရန် ရွေးချယ်စရာများ', live: 'စစ်ထုတ်မှုများ အလိုအလျောက် သက်ရောက်သည်', apply: 'ရလဒ်များ ပြောင်းလဲရန် စစ်ထုတ်မှုများကို အသုံးပြုပါ' }
+        : { filters: 'Filters', close: 'Close filters', options: 'View options', live: 'Filters update results automatically', apply: 'Apply filters to update results' };
     const [available, setAvailable] = useState(false);
+    const [activeFilters, setActiveFilters] = useState(0);
+    const [inlineToolbars, setInlineToolbars] = useState([]);
     const [open, setOpen] = useState(false);
     const [refreshSources, setRefreshSources] = useState([]);
     const [searchSources, setSearchSources] = useState([]);
@@ -1236,6 +1294,23 @@ function ShellFilterControl({ pathname }) {
         const workspace = document.querySelector('.app-root');
         if (!workspace) return undefined;
 
+        if (!mobile) {
+            workspace.querySelectorAll('[data-shell-filter], [data-shell-search-source], [data-shell-refresh-source], [data-shell-toolbar-empty]').forEach((node) => {
+                delete node.dataset.shellFilter; delete node.dataset.shellSearchSource;
+                delete node.dataset.shellRefreshSource; delete node.dataset.shellToolbarEmpty;
+                node.removeAttribute('aria-hidden'); node.inert = false;
+            });
+            setAvailable(false); setOpen(false); setSearchSources([]); setRefreshSources([]);
+            const syncInline = () => {
+                const next = [...workspace.querySelectorAll('.master-toolbar, .transfer-filter-toolbar')];
+                setInlineToolbars((current) => current.length === next.length && current.every((node, index) => node === next[index]) ? current : next);
+            };
+            syncInline();
+            const observer = new MutationObserver(syncInline);
+            observer.observe(workspace, { childList: true, subtree: true });
+            return () => observer.disconnect();
+        }
+        setInlineToolbars([]);
         const sync = () => {
             const toolbars = [...workspace.querySelectorAll(shellFilterSelector)];
             const nextRefreshSources = [];
@@ -1308,19 +1383,28 @@ function ShellFilterControl({ pathname }) {
             ));
             const filterToolbars = toolbars.filter((toolbar) => toolbar.dataset.shellFilter === 'true');
             setAvailable(filterToolbars.length > 0);
+            const controls = new Set(filterToolbars.flatMap((toolbar) => [...toolbar.querySelectorAll('input, select, textarea')]));
+            setActiveFilters([...controls].filter((control) => !control.closest('[data-shell-search-source]') && !['hidden', 'button', 'submit'].includes(control.type) && (['checkbox', 'radio'].includes(control.type) ? control.checked : String(control.value || '').trim() !== '')).length);
             if (filterToolbars.length === 0) setOpen(false);
         };
 
         sync();
         const observer = new MutationObserver(sync);
         observer.observe(workspace, { childList: true, subtree: true });
+        let frame;
+        const updateCount = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(sync); };
+        workspace.addEventListener('input', updateCount);
+        workspace.addEventListener('change', updateCount);
         return () => {
+            cancelAnimationFrame(frame);
+            workspace.removeEventListener('input', updateCount);
+            workspace.removeEventListener('change', updateCount);
             observer.disconnect();
             workspace.querySelectorAll('[data-shell-refresh-source="true"]').forEach((button) => delete button.dataset.shellRefreshSource);
             workspace.querySelectorAll('[data-shell-search-source="true"]').forEach((container) => delete container.dataset.shellSearchSource);
             workspace.querySelectorAll('[data-shell-toolbar-empty="true"]').forEach((toolbar) => delete toolbar.dataset.shellToolbarEmpty);
         };
-    }, [pathname, open]);
+    }, [pathname, open, mobile]);
 
     useEffect(() => {
         document.body.classList.toggle('filter-drawer-open', available && open);
@@ -1330,9 +1414,27 @@ function ShellFilterControl({ pathname }) {
     useEffect(() => {
         if (!open) return undefined;
         window.requestAnimationFrame(() => closeRef.current?.focus());
-        const closeOnEscape = (event) => event.key === 'Escape' && setOpen(false);
-        window.addEventListener('keydown', closeOnEscape);
-        return () => window.removeEventListener('keydown', closeOnEscape);
+        const items = () => [...document.querySelectorAll('.filter-drawer-header button, [data-shell-filter="true"] input, [data-shell-filter="true"] select, [data-shell-filter="true"] textarea, [data-shell-filter="true"] button')].filter((node) => !node.disabled && node.getClientRects().length && !node.closest('[inert]'));
+        const keydown = (event) => {
+            if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+            if (event.key === 'Escape') { event.preventDefault(); setOpen(false); }
+            if (event.key !== 'Tab') return;
+            const controls = items();
+            const index = controls.indexOf(document.activeElement);
+            event.preventDefault();
+            const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+            controls[next]?.focus();
+        };
+        const containFocus = (event) => {
+            if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+            if (!event.target.closest('.filter-drawer-header, [data-shell-filter="true"]')) closeRef.current?.focus();
+        };
+        window.addEventListener('keydown', keydown);
+        document.addEventListener('focusin', containFocus);
+        return () => {
+            window.removeEventListener('keydown', keydown);
+            document.removeEventListener('focusin', containFocus);
+        };
     }, [open]);
 
     useEffect(() => {
@@ -1342,6 +1444,7 @@ function ShellFilterControl({ pathname }) {
 
     return (
         <>
+            {inlineToolbars.map((toolbar, index) => createPortal(<span className="filter-mode-hint inline-filter-hint">{toolbar.tagName === 'FORM' || toolbar.dataset.filterMode === 'apply' ? labels.apply : labels.live}</span>, toolbar, `filter-hint-${index}`))}
             {searchSources.length > 0 && (
                 <ShellPageSearch>
                     <ShellSearchControl source={searchSources[0]} pathname={pathname} />
@@ -1367,17 +1470,17 @@ function ShellFilterControl({ pathname }) {
                     })}
                 </ShellPageActions>
             )}
-            {available && <button ref={triggerRef} className={`icon-button shell-filter-trigger ${open ? 'is-active' : ''}`} type="button" aria-label="Filters" title="Filters" aria-expanded={open} aria-controls="shell-filter-drawer-1" onPointerDown={(event) => { if (event.currentTarget.closest('.mobile-app-topbar')?.querySelector('.shell-search-control:focus-within')) event.preventDefault(); }} onClick={() => setOpen((value) => !value)}>
-                <ListFilter size={16} />
+            {available && <button ref={triggerRef} className={`icon-button shell-filter-trigger ${open ? 'is-active' : ''}`} type="button" aria-label={`${labels.filters}${activeFilters ? ` (${activeFilters})` : ''}`} title={labels.filters} aria-expanded={open} aria-controls="shell-filter-drawer-1" onPointerDown={(event) => { if (event.currentTarget.closest('.mobile-app-topbar')?.querySelector('.shell-search-control:focus-within')) event.preventDefault(); }} onClick={() => setOpen((value) => !value)}>
+                <ListFilter size={16} />{activeFilters > 0 && <span className="filter-count">{activeFilters}</span>}
             </button>}
             {available && document.querySelector('.app-root') && createPortal(<>
-                {open && <button className="filter-drawer-scrim" type="button" aria-label="Close filters" onClick={() => setOpen(false)} />}
+                {open && <button className="filter-drawer-scrim" type="button" aria-label={labels.close} onClick={() => setOpen(false)} />}
                 <div className="filter-drawer-header" aria-hidden={!open}>
                     <div>
-                        <span>View options</span>
-                        <strong>Filters</strong>
+                        <span>{labels.options}</span>
+                        <strong>{labels.filters}</strong>
                     </div>
-                    <button ref={closeRef} className="icon-button" type="button" aria-label="Close filters" title="Close filters" onClick={() => setOpen(false)}>
+                    <button ref={closeRef} className="icon-button" type="button" aria-label={labels.close} title={labels.close} onClick={() => setOpen(false)}>
                         <X size={18} />
                     </button>
                 </div>
@@ -1438,19 +1541,20 @@ function ShellSearchControl({ source, pathname }) {
 }
 
 function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme, pathname, navigate, onUserUpdated }) {
+    const mobileAlerts = useActionAlerts(app.id, user, pathname);
     const visibleNav = mobileNav[app.id].filter((item) => hasPermission(user, item.permission));
     const activeView = resolveMobileView(app.id, pathname);
     const compactPrimaryViews = {
-        client: ['home', 'orders'],
-        sales: ['home', 'orders', 'new-order', 'customers'],
-        supervisor: ['home', 'orders', 'team', 'kpi'],
-        driver: ['home', 'tasks', 'gps', 'history'],
+        client: ['home', 'products', 'orders', 'account'],
+        sales: ['home', 'visits', 'orders', 'customers'],
+        supervisor: ['home', 'team', 'orders', 'new-customers'],
+        driver: ['home', 'tasks', 'history'],
     };
     const supportsMenuNav = Object.hasOwn(compactPrimaryViews, app.id);
     const primaryViews = compactPrimaryViews[app.id] || [];
     const menuNav = supportsMenuNav ? visibleNav.filter((item) => !primaryViews.includes(item.view)) : [];
-    const usesMenuNav = supportsMenuNav;
-    const primaryNav = supportsMenuNav ? visibleNav.filter((item) => primaryViews.includes(item.view)) : visibleNav;
+    const usesMenuNav = supportsMenuNav && app.id !== 'client';
+    const primaryNav = supportsMenuNav ? primaryViews.map((view) => visibleNav.find((item) => item.view === view)).filter(Boolean) : visibleNav;
     const menuActive = activeView === 'menu' || activeView === 'account' || menuNav.some((item) => item.view === activeView);
     const mobileOrderId = ['client', 'sales', 'supervisor'].includes(app.id) ? resolveMobileOrderId(app.path, pathname) : null;
     const salesCustomerId = app.id === 'sales' ? resolveSalesCustomerId(app.path, pathname) : null;
@@ -1467,11 +1571,8 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 <div id="shell-page-search" className="shell-page-search" aria-live="polite" />
                 <div className="mobile-top-actions">
                     <div id="shell-page-actions" className="shell-page-actions" aria-live="polite" />
-                    <ShellFilterControl pathname={pathname} />
-                    <ActionAlerts appId={app.id} user={user} navigate={navigate} pathname={pathname} />
-                    <button className="icon-button" type="button" aria-label={t.theme} title={t.theme} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
-                        {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-                    </button>
+                    <ShellFilterControl pathname={pathname} locale={locale} />
+                    <ActionAlertsView state={mobileAlerts} appId={app.id} navigate={navigate} pathname={pathname} />
                     <ProfileMenu
                         user={user}
                         t={t}
@@ -1497,17 +1598,22 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                         initialMode={activeView === 'new-order' ? 'form' : 'list'}
                         editOrderId={orderActionParams?.get('edit')}
                         repeatOrderId={orderActionParams?.get('repeat')}
-                        onShowForm={app.id === 'sales' ? () => navigate(`${app.path}/new-order`) : undefined}
-                        onShowList={app.id === 'sales' ? () => navigate(`${app.path}/orders`) : undefined}
+                        initialProductId={orderActionParams?.get('product')}
+                        onShowForm={() => navigate(`${app.path}/new-order`)}
+                        onShowList={() => navigate(`${app.path}/orders`)}
                         onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)}
                     />)}
+                {app.id === 'client' && activeView === 'products' && <ProductCatalog locale={locale} onOrder={(id) => navigate(`${app.path}/new-order?product=${id}`)} />}
                 {app.id === 'client' && activeView === 'profile' && <ClientMasterScreen locale={locale} />}
                 {app.id === 'sales' && activeView === 'customers' && (salesCustomerId
                     ? <SalesCustomerDetailPage customerId={salesCustomerId} locale={locale} onBack={() => navigate(`${app.path}/customers`)} onViewOrder={(orderId) => navigate(`${app.path}/orders/${orderId}`)} />
                     : <SalesMasterScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />)}
                 {app.id === 'sales' && activeView === 'visits' && <SalesVisitsScreen locale={locale} onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)} />}
                 {usesMenuNav && activeView === 'menu' && <MobileMenuScreen app={app} items={menuNav} t={t} navigate={navigate} user={user} onLogout={onLogout} locale={locale} setLocale={setLocale} theme={theme} setTheme={setTheme} />}
-                {activeView === 'account' && <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />}
+                {activeView === 'account' && <>
+                    {app.id === 'client' && <section className="public-account-links"><button className="button" onClick={() => navigate(`${app.path}/ledger`)}>{locale === 'my' ? '\u1004\u103d\u1031\u1015\u1031\u1038\u1001\u103b\u1031\u1019\u103e\u102f' : 'Payments & balance'}</button><button className="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{t.theme}</button></section>}
+                    <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} title={app.id === 'client' ? (locale === 'my' ? '\u1000\u103b\u103d\u1014\u103a\u102f\u1015\u103a\u104f\u1021\u1000\u1031\u102c\u1004\u1037\u103a' : 'My account') : undefined} />
+                </>}
                 {['sales', 'supervisor', 'driver'].includes(app.id) && activeView === 'attendance' && <MobileAttendanceHistoryScreen locale={locale} />}
                 {['sales', 'supervisor', 'driver'].includes(app.id) && activeView === 'kpi' && <MobileKpiScreen locale={locale} />}
                 {['sales', 'driver'].includes(app.id) && activeView === 'salary' && <MobilePayrollHistoryScreen locale={locale} />}
@@ -1515,28 +1621,34 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                     ? <SupervisorRepresentativeDetailScreen memberId={supervisorMemberId} locale={locale} onBack={() => navigate(`${app.path}/team`)} />
                     : <SupervisorTeamScreen locale={locale} onViewMember={(memberId) => navigate(`${app.path}/team/${memberId}`)} />)}
                 {app.id === 'driver' && activeView === 'profile' && <DriverMasterScreen locale={locale} />}
-                {app.id === 'driver' && activeView === 'tasks' && <MobileDriverExecutionScreen mode="tasks" locale={locale} />}
-                {app.id === 'driver' && activeView === 'gps' && <MobileDriverGpsScreen locale={locale} />}
-                {app.id === 'driver' && activeView === 'history' && <MobileDriverExecutionScreen mode="history" locale={locale} />}
+                {app.id === 'driver' && activeView === 'tasks' && <MobileDriverExecutionScreen mode="tasks" locale={locale} pathname={pathname} onNavigate={navigate} appPath={app.path} />}
+                {app.id === 'driver' && activeView === 'gps' && <MobileDriverGpsScreen locale={locale} onBack={() => { const id = new URLSearchParams(window.location.search).get('trip'); navigate(`${app.path}/tasks${id && /^\d+$/.test(id) ? `/${id}` : ''}`); }} />}
+                {app.id === 'driver' && activeView === 'history' && <MobileDriverExecutionScreen mode="history" locale={locale} pathname={pathname} onNavigate={navigate} appPath={app.path} />}
                 {app.id === 'client' && activeView === 'ledger' && <MobileFinanceScreen appId={app.id} mode="ledger" locale={locale} />}
                 {app.id === 'driver' && activeView === 'collections' && <MobileFinanceScreen appId={app.id} mode="collections" locale={locale} />}
                 {['sales', 'supervisor', 'driver'].includes(app.id) && activeView === 'expenses' && <MobileFinanceScreen appId={app.id} mode="expenses" locale={locale} />}
                 {app.id === 'supervisor' && activeView === 'new-customers' && <SupervisorNewCustomersScreen locale={locale} />}
                 {app.id === 'driver' && activeView === 'vehicle' && <MobileVehicleOperationsScreen locale={locale} />}
-                {app.id === 'supervisor' && activeView === 'home' && <SupervisorHomeScreen locale={locale} onViewTeam={() => navigate(`${app.path}/team`)} onViewAttendance={() => navigate(`${app.path}/attendance`)} onViewKpi={() => navigate(`${app.path}/kpi`)} />}
+                {app.id === 'supervisor' && activeView === 'home' && <SupervisorHomeScreen locale={locale} onViewTeam={() => navigate(`${app.path}/team`)} onViewAttendance={() => navigate(`${app.path}/attendance`)} onViewKpi={() => navigate(`${app.path}/kpi`)} onViewApprovals={() => navigate(`${app.path}/new-customers`)} onViewOrders={() => navigate(`${app.path}/orders`)} />}
                 {app.id !== 'supervisor' && activeView === 'home' && <MobileHomeDashboard
                     appId={app.id}
                     locale={locale}
                     quickLinks={[]}
                     onNavigate={(event, href) => navigateAppPage(event, href, navigate)}
                     onViewOrders={() => navigate(`${app.path}/orders`)}
+                    onCreateOrder={() => navigate(`${app.path}/new-order`)}
+                    onViewProducts={() => navigate(`${app.path}/products`)}
+                    onViewBalance={() => navigate(`${app.path}/ledger`)}
+                    onViewVisits={() => navigate(`${app.path}/visits`)}
+                    onViewOrder={(id) => navigate(`${app.path}/orders/${id}`)}
+                    onViewTrip={(id) => navigate(`${app.path}/tasks/${id}`)}
                     onViewCustomer={(customerId) => navigate(`${app.path}/customers/${customerId}`)}
                     onViewTasks={() => navigate(`${app.path}/tasks`)}
                     onViewGps={() => navigate(`${app.path}/gps`)}
                     onViewAttendance={() => navigate(`${app.path}/attendance`)}
                     onViewKpi={() => navigate(`${app.path}/kpi`)}
                 />}
-                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['orders', 'team', 'attendance', 'kpi', 'expenses', 'new-customers'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
+                {!((activeView === 'home') || ['account', 'menu'].includes(activeView) || (app.id === 'client' && ['orders', 'new-order', 'products', 'profile', 'ledger'].includes(activeView)) || (app.id === 'sales' && ['orders', 'new-order', 'customers', 'visits', 'attendance', 'kpi', 'salary', 'expenses'].includes(activeView)) || (app.id === 'supervisor' && ['orders', 'team', 'attendance', 'kpi', 'expenses', 'new-customers'].includes(activeView)) || (app.id === 'driver' && ['profile', 'tasks', 'gps', 'history', 'attendance', 'kpi', 'salary', 'collections', 'expenses', 'vehicle'].includes(activeView))) && (
                     <MobilePlaceholderScreen app={app} view={activeView} t={t} />
                 )}
             </section>
@@ -1545,7 +1657,7 @@ function MobileApp({ app, t, user, onLogout, locale, setLocale, theme, setTheme,
                 {primaryNav.map(({ labelKey, view, icon: Icon }) => (
                     <a className={view === activeView ? 'is-active' : ''} href={`${app.path}/${view}`} onClick={(event) => navigateAppPage(event, `${app.path}/${view}`, navigate)} aria-current={view === activeView ? 'page' : undefined} key={labelKey}>
                         <Icon size={17} />
-                        <span>{t[labelKey]}</span>
+                        <span>{app.id === 'client' && labelKey === 'orders' ? (locale === 'my' ? '\u1000\u103b\u103d\u1014\u103a\u102f\u1015\u103a\u104f\u1021\u1031\u102c\u103a\u1012\u102b\u1019\u103b\u102c\u1038' : 'My orders') : t[labelKey]}{view === 'new-customers' && mobileAlerts.total > 0 && <b className="nav-count">{mobileAlerts.total}</b>}</span>
                     </a>
                 ))}
                 {usesMenuNav && (
@@ -1797,7 +1909,7 @@ function resolveOfficeMasterDetailId(pathname, resource) {
     return resolveOfficeDetailId(pathname, `/master/${resource}`);
 }
 
-function Brand({ t, compact = false, branding }) {
+function Brand({ t, compact = false, branding, publicFacing = resolveAppFromPath() === 'client' }) {
     const businessName = branding?.name || t.brand;
     return (
         <div className={`brand ${compact ? 'compact' : ''}`}>
@@ -1806,7 +1918,7 @@ function Brand({ t, compact = false, branding }) {
             </div>
             <div>
                 <strong>{businessName}</strong>
-                {!compact && <span>{t.roleNav}</span>}
+                {!compact && <span>{publicFacing ? t.clientHint : t.roleNav}</span>}
             </div>
         </div>
     );
@@ -1868,6 +1980,10 @@ function useActionAlerts(appId, user, pathname) {
 
 function ActionAlerts({ appId, user, navigate, pathname }) {
     const state = useActionAlerts(appId, user, pathname);
+    return <ActionAlertsView state={state} appId={appId} navigate={navigate} pathname={pathname} />;
+}
+
+function ActionAlertsView({ state, appId, navigate, pathname }) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef(null);
 
@@ -2068,7 +2184,7 @@ function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin,
     return (
         <main className="auth-screen">
             <header className="auth-header">
-                <Brand t={t} />
+                <Brand t={t} publicFacing={app.id === 'client'} />
                 <div className="mobile-top-actions">
                     <Segmented
                         label={t.language}
@@ -2085,6 +2201,7 @@ function AuthScreen({ app, t, locale, setLocale, theme, setTheme, auth, onLogin,
                     </button>
                 </div>
             </header>
+            {app.id === 'client' && <a className="auth-text-action" href={`${app.path}/products`}>{locale === 'my' ? '\u1015\u1005\u1039\u1005\u100a\u103a\u1038\u1019\u103b\u102c\u1038 \u1000\u103c\u100a\u1037\u103a\u101b\u1014\u103a' : 'Back to water products'}</a>}
             <section className="auth-card-wrap">
                 <div>
                     <h1>{title}</h1>

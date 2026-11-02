@@ -72,6 +72,9 @@ Route::prefix('api/auth')->group(function () {
     Route::put('/password', [AppAuthController::class, 'password'])->middleware(['auth', 'audit.api', 'throttle:6,1']);
 });
 
+Route::get('/api/public/products', \App\Http\Controllers\Api\PublicCatalogController::class)
+    ->middleware('throttle:60,1');
+
 Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/action-alerts', [ActionAlertController::class, 'index']);
     Route::get('/settings/company', [CompanySettingsController::class, 'show']);

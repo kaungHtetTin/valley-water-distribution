@@ -1,3 +1,6 @@
+import { formatDateTime as uiDateTime, currentLocale, TIME_ZONE, businessToday, formatMoney as uiMoney } from './ui/format.js';
+import { confirmAction, requestText } from './ui/ConfirmDialog';
+import { usePageState } from './ui/usePageState';
 import { AlertCircle, BadgeCheck, CalendarDays, CircleDollarSign, Download, Pencil, Plus, Printer, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useLiveKpiRefresh } from './useLiveKpiRefresh';
@@ -88,7 +91,7 @@ const payrollMonthOptions = [
 const payrollYearOptions = Array.from({ length: new Date().getFullYear() - 2019 }, (_, index) => String(new Date().getFullYear() - index));
 
 function PayrollMonthSelectors({ value, onChange, locale, allowEmpty = false }) {
-    const current = new Date().toISOString().slice(0, 7);
+    const current = businessToday().slice(0, 7);
     const year = value?.slice(0, 4) || '';
     const month = value?.slice(5, 7) || '';
     const changeYear = (nextYear) => onChange(nextYear ? `${nextYear}-${month || current.slice(5, 7)}` : '');
@@ -110,8 +113,8 @@ function requestMessage(error, locale, fallbackKey = 'loading') {
 }
 
 export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = false, canPay = false, detailId = null, onNavigate }) {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const [filters, setFilters] = useState({ month: currentMonth, status: '', employee_type: '' });
+    const currentMonth = businessToday().slice(0, 7);
+    const [filters, setFilters] = usePageState('phaseThree:filters:1', { month: currentMonth, status: '', employee_type: '' });
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
     const [viewing, setViewing] = useState(null);
     const [generating, setGenerating] = useState(false);
@@ -163,11 +166,11 @@ export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = f
     const transitionPayroll = async (payroll, action) => {
         if (!(action === 'approve' ? canApprove : canPay) || processingId) return;
 
-        if (action === 'approve' && !window.confirm(t(locale, 'approveConfirm'))) return;
-        if (action === 'mark-paid' && !window.confirm(t(locale, 'payConfirm'))) return;
+        if (action === 'approve' && !await confirmAction(t(locale, 'approveConfirm'))) return;
+        if (action === 'mark-paid' && !await confirmAction(t(locale, 'payConfirm'))) return;
 
         const paymentReference = action === 'mark-paid'
-            ? window.prompt(t(locale, 'paymentReferencePrompt'), payroll.payment_reference || '')
+            ? await requestText(t(locale, 'paymentReferencePrompt'), payroll.payment_reference || '')
             : undefined;
 
         if (paymentReference === null) return;
@@ -188,7 +191,7 @@ export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = f
 
     const deletePayroll = async (payroll) => {
         if (!canPrepare || processingId || payroll.status !== 'draft') return;
-        if (!window.confirm(t(locale, 'deletePayrollConfirm'))) return;
+        if (!await confirmAction(t(locale, 'deletePayrollConfirm'), { danger: true })) return;
 
         setProcessingId(payroll.id);
         setState((current) => ({ ...current, error: '' }));
@@ -286,14 +289,14 @@ const blankAdjustmentForm = {
     adjustment_type: 'allowance',
     title: '',
     amount: '',
-    effective_date: new Date().toISOString().slice(0, 10),
+    effective_date: businessToday(),
     status: 'active',
     notes: '',
 };
 
 export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const [filters, setFilters] = useState({ search: '', adjustment_type: '', employee_id: '', month: currentMonth, status: 'active' });
+    const currentMonth = businessToday().slice(0, 7);
+    const [filters, setFilters] = usePageState('phaseThree:filters:2', { search: '', adjustment_type: '', employee_id: '', month: currentMonth, status: 'active' });
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
     const [employees, setEmployees] = useState([]);
     const [editing, setEditing] = useState(null);
@@ -382,7 +385,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
     };
 
     const deleteAdjustment = async (adjustment) => {
-        if (!canManage || !window.confirm(t(locale, 'deleteConfirm'))) return;
+        if (!canManage || !await confirmAction(t(locale, 'deleteConfirm'), { danger: true })) return;
         setState((current) => ({ ...current, error: '' }));
         try {
             await window.axios.delete(`${apiBase('payrollAdjustments')}/${adjustment.id}`);
@@ -449,7 +452,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
                                         <td><strong>{adjustment.employee_name}</strong><span className="muted">{adjustment.employee_code} · {titleCase(adjustment.employee_type)}</span></td>
                                         <td>
                                             <strong>{adjustment.title}</strong>
-                                            {adjustment.source?.type === 'kpi' && <span className="kpi-adjustment-source"><BadgeCheck size={11} /> {adjustment.source.reference} · {adjustment.source.month} · {Number(adjustment.source.score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</span>}
+                                            {adjustment.source?.type === 'kpi' && <span className="kpi-adjustment-source"><BadgeCheck size={11} /> {adjustment.source.reference} · {adjustment.source.month} · {Number(adjustment.source.score || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%</span>}
                                             {adjustment.notes && <span className="muted">{adjustment.notes}</span>}
                                         </td>
                                         <td><span className={`adjustment-chip ${adjustment.adjustment_type}`}>{t(locale, adjustment.adjustment_type)}</span></td>
@@ -492,7 +495,7 @@ export function PayrollAdjustmentsScreen({ locale, canManage = false }) {
 }
 
 export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
-    const [filters, setFilters] = useState({ search: '', month: '', employee_type: '', employee_id: '' });
+    const [filters, setFilters] = usePageState('phaseThree:filters:3', { search: '', month: '', employee_type: '', employee_id: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: { payments_count: 0, employees_count: 0, total_gross: 0, total_deductions: 0, total_net: 0, latest_paid_at: null }, meta: {}, error: '' });
     const [employees, setEmployees] = useState([]);
     const [selected, setSelected] = useState(null);
@@ -601,7 +604,7 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
 }
 
 export function MobilePayrollHistoryScreen({ locale }) {
-    const [filters, setFilters] = useState({ month: '' });
+    const [filters, setFilters] = usePageState('phaseThree:filters:4', { month: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: { payments_count: 0, total_net: 0, latest_paid_at: null }, error: '' });
     const [selected, setSelected] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -829,24 +832,17 @@ function StatusBadge({ status, locale }) {
     return <span className={`status ${family}`}>{t(locale, status)}</span>;
 }
 
-function money(value) {
-    return `${Number(value || 0).toLocaleString()} MMK`;
-}
+function money(value) { return uiMoney(value); }
 
 function titleCase(value) {
     return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function formatDateTime(value) {
-    if (!value) return '-';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
+function formatDateTime(value) { return uiDateTime(value); }
 
 function formatShortDate(value) {
     if (!value) return '-';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleDateString([], { month: 'short', day: '2-digit' });
+    return date.toLocaleDateString(currentLocale(), { timeZone: TIME_ZONE, month: 'short', day: '2-digit' });
 }

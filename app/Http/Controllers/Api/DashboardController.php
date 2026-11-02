@@ -293,6 +293,9 @@ class DashboardController extends Controller
             'period' => ['date_from' => $periodFrom, 'date_to' => $periodTo],
             'summary' => [
                 'daily_sales' => (float) $yearRows->where('invoice_date', $date->toDateString())->sum('total'),
+                'pending_orders' => DB::table('orders')->where('created_by', $user->id)->where('source_app', 'sales')->whereIn('status', ['draft', 'pending'])->count(),
+                'route_customers' => DB::table('customers')->where('route_id', $employee->assigned_route_id)->where('is_active', true)->count(),
+                'today_visits_completed' => DB::table('sales_route_visits')->where('employee_id', $employee->id)->whereDate('visit_date', $date->toDateString())->where('status', 'completed')->count(),
                 'monthly_sales' => $sales,
                 'yearly_sales' => $yearSales,
                 'period_sales' => (float) $periodRows->sum('total'),

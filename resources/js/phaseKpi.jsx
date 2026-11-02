@@ -1,18 +1,17 @@
+import { businessToday, formatDate as uiDate, currentLocale, formatMoney as uiMoney } from './ui/format.js';
+import { usePageState } from './ui/usePageState';
 import { AlertCircle, BadgeCheck, CalendarDays, CircleGauge, Clock3, RefreshCw, Save, Search, Send, Target, TrendingUp, Users, WalletCards, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ShellPageActions } from './components/ShellPageActions';
 import { MonthSelect } from './components/MonthSelect';
 import { useLiveKpiRefresh } from './useLiveKpiRefresh';
 
-const currentMonth = () => {
-    const date = new Date();
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-};
+const currentMonth = () => businessToday().slice(0, 7);
 const apiBase = () => window.ValleyRuntime?.api?.kpiReviews || '/api/kpi-reviews';
 const targetApi = () => window.ValleyRuntime?.api?.kpiTargets || '/api/kpi-targets';
 const mobileApi = () => window.ValleyRuntime?.api?.mobileKpi || '/api/mobile/kpi';
-const money = (value) => `${Number(value || 0).toLocaleString()} MMK`;
-const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const money = uiMoney;
+const number = (value) => Number(value || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 });
 const titleCase = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 function errorMessage(error, fallback) {
@@ -143,7 +142,7 @@ export function MobileKpiScreen() {
 }
 
 export function KpiTargetsScreen({ canManage = false, embedded = false }) {
-    const [filters, setFilters] = useState({ employee_type: '', search: '' });
+    const [filters, setFilters] = usePageState('phaseKpi:filters:1', { employee_type: '', search: '' });
     const [state, setState] = useState({ loading: true, items: [], templates: [], summary: {}, error: '', success: '' });
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState({ target_bonus: 40000, targets: {} });
@@ -282,7 +281,7 @@ export function KpiTargetsScreen({ canManage = false, embedded = false }) {
 }
 
 export function KpiReviewsScreen({ canManage = false, canApprove = canManage }) {
-    const [filters, setFilters] = useState({ month: currentMonth(), template_id: '', status: '', search: '' });
+    const [filters, setFilters] = usePageState('phaseKpi:filters:2', { month: currentMonth(), template_id: '', status: '', search: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, error: '' });
     const [templates, setTemplates] = useState([]);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -523,7 +522,4 @@ function KpiState({ icon: Icon, title, message, loading = false }) {
     return <div className="workspace-state compact"><Icon className={loading ? 'spin' : ''} size={24} /><strong>{title}</strong>{message && <span>{message}</span>}</div>;
 }
 
-function formatDate(value) {
-    if (!value) return '—';
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
-}
+function formatDate(value) { return uiDate(value); }

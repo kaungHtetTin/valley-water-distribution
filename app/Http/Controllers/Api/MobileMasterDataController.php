@@ -26,7 +26,7 @@ class MobileMasterDataController extends Controller
                 ->leftJoin('routes', 'customers.route_id', '=', 'routes.id')
                 ->leftJoin('price_types', 'customers.price_type_id', '=', 'price_types.id')
                 ->where('customers.id', $user->customer_id)
-                ->select('customers.*', 'areas.name as area', 'routes.name as route', 'routes.service_day', 'price_types.name as price_type')
+                ->select('customers.*', 'areas.name as area', 'routes.name as route', 'price_types.name as price_type')
                 ->first();
         } else {
             $permission = match ($user->role) {
@@ -51,6 +51,7 @@ class MobileMasterDataController extends Controller
     {
         $this->authorizePermission($request, 'sales.customers.view');
         $validated = $request->validate([
+            'service_day' => ['nullable', 'in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday'],
             'joined_weekday' => ['nullable', 'integer', 'between:0,6'],
             'joined_from' => ['nullable', 'date_format:Y-m-d'],
             'joined_to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('joined_from') ? ['after_or_equal:joined_from'] : [])],
@@ -79,6 +80,10 @@ class MobileMasterDataController extends Controller
 
         if ($request->filled('is_active')) {
             $query->where('customers.is_active', $request->boolean('is_active'));
+        }
+
+        if (! empty($validated['service_day'])) {
+            $query->where('customers.service_day', $validated['service_day']);
         }
 
         if (isset($validated['joined_weekday'])) {
@@ -361,6 +366,7 @@ class MobileMasterDataController extends Controller
         abort_unless($employee && $employee->assigned_route_id, 422, 'A route must be assigned before registering customers.');
 
         $validated = $request->validate([
+            'service_day' => ['nullable', 'in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday'],
             'shop_name' => ['required', 'string', 'max:150'],
             'contact_name' => ['required', 'string', 'max:150'],
             'phone' => ['required', 'string', 'max:40'],
@@ -399,6 +405,7 @@ class MobileMasterDataController extends Controller
         $customer = DB::table('customers')->where('id', $id)->where('route_id', $routeId)->first();
         abort_unless($customer, 404);
         $validated = $request->validate([
+            'service_day' => ['nullable', 'in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday'],
             'shop_name' => ['required', 'string', 'max:150'],
             'contact_name' => ['required', 'string', 'max:150'],
             'phone' => ['required', 'string', 'max:40'],

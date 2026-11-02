@@ -1,3 +1,7 @@
+import { mobileText as mt } from './ui/mobileCopy.js';
+import { CustomerHome, SalesToday } from './MobileHomeSections';
+import { currentLocale, businessToday, formatMoney as uiMoney, TIME_ZONE } from './ui/format.js';
+import { usePageState } from './ui/usePageState';
 import { AlertCircle, ArrowUpRight, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign, CircleGauge, Clock3, Download, Globe2, Mail, MapPinned, MessageCircle, Package, Phone, Printer, RefreshCw, Rows3, Send, Share2, ShoppingCart, Target, Truck, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ShellPageActions } from './components/ShellPageActions';
@@ -6,10 +10,10 @@ const dashboardApi = (kind) => window.ValleyRuntime?.api?.dashboards ? `${window
 const chartApi = (kind) => window.ValleyRuntime?.api?.dashboardCharts ? `${window.ValleyRuntime.api.dashboardCharts}/${kind}` : `/api/dashboard-charts/${kind}`;
 const mobileApi = () => window.ValleyRuntime?.api?.mobileDashboard || '/api/mobile/dashboard';
 const mobileKpiApi = () => window.ValleyRuntime?.api?.mobileKpi || '/api/mobile/kpi';
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => businessToday();
 const currentMonthStart = () => `${today().slice(0, 7)}-01`;
-const money = (value) => `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value || 0))} MMK`;
-const number = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(Number(value || 0));
+const money = uiMoney;
+const number = (value) => new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 1 }).format(Number(value || 0));
 const titleCase = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const errorText = (error) => error.response?.data?.message || 'Dashboard data could not be loaded.';
 const tr = (locale, en, my) => locale === 'my' ? my : en;
@@ -29,49 +33,49 @@ function State({ loading, text }) {
 function MobileHomeKpiSummary({ appId, state, onOpen }) {
     const result = state.result;
     const score = Math.min(100, Math.max(0, Number(result?.overall_score || 0)));
-    const status = titleCase(result?.status || 'draft');
+    const status = mt(titleCase(result?.status || 'draft'));
 
-    return <button className={`mobile-home-kpi-summary ${appId}`} type="button" onClick={onOpen} aria-label="Open monthly KPI report">
+    return <button className={`mobile-home-kpi-summary ${appId}`} type="button" onClick={onOpen} aria-label={mt("Open monthly KPI report")}>
         <span className="mobile-home-kpi-icon"><CircleGauge size={19} /></span>
-        <span className="mobile-home-kpi-body">{state.loading ? <span className="mobile-home-kpi-copy"><small>Monthly KPI</small><strong>Loading current review...</strong></span> : state.error ? <span className="mobile-home-kpi-copy"><small>Monthly KPI</small><strong>Review unavailable</strong><small>Open KPI report for details</small></span> : result ? <>
-                <span className="mobile-home-kpi-score" style={{ '--home-kpi-score': `${score * 3.6}deg` }}><b>{number(score)}</b><small>Score</small></span>
-                <span className="mobile-home-kpi-copy"><small>{result.month} monthly KPI</small><strong>{result.template_name}</strong><small>{status} · {result.payroll_adjustment_id ? 'Posted bonus' : result.status === 'approved' ? 'Approved bonus' : 'Bonus preview'} {money(result.bonus_amount)}</small></span>
-            </> : <span className="mobile-home-kpi-copy"><small>Monthly KPI</small><strong>No review for this month</strong><small>Open your KPI history</small></span>}
+        <span className="mobile-home-kpi-body">{state.loading ? <span className="mobile-home-kpi-copy"><small>{mt("Monthly KPI")}</small><strong>{mt("Loading current review...")}</strong></span> : state.error ? <span className="mobile-home-kpi-copy"><small>{mt("Monthly KPI")}</small><strong>{mt("Review unavailable")}</strong><small>{mt("Open KPI report for details")}</small></span> : result ? <>
+                <span className="mobile-home-kpi-score" style={{ '--home-kpi-score': `${score * 3.6}deg` }}><b>{number(score)}</b><small>{mt("Score")}</small></span>
+                <span className="mobile-home-kpi-copy"><small>{result.month} monthly KPI</small><strong>{result.template_name}</strong><small>{status} · {result.payroll_adjustment_id ? mt("Posted bonus") : result.status === 'approved' ? mt("Approved bonus") : mt("Bonus preview")} {money(result.bonus_amount)}</small></span>
+            </> : <span className="mobile-home-kpi-copy"><small>{mt("Monthly KPI")}</small><strong>{mt("No review for this month")}</strong><small>{mt("Open your KPI history")}</small></span>}
         </span>
         <ChevronRight size={17} />
     </button>;
 }
 
-function DriverHomeDashboard({ summary, trips, locale, kpiState, onViewTasks, onViewGps, onViewAttendance, onViewKpi }) {
+function DriverHomeDashboard({ summary, trips, locale, kpiState, onViewTasks, onViewGps, onViewAttendance, onViewKpi, onViewTrip }) {
     const currentTrip = summary.current_trip;
     const activeTrip = currentTrip?.status === 'on_route' ? currentTrip : null;
     const stopsTotal = Number(activeTrip?.stops_count ?? summary.today_stops_count ?? 0);
     const stopsDone = Number(activeTrip?.completed_stops ?? summary.today_completed_stops ?? 0);
     const progress = stopsTotal > 0 ? Math.min(100, (stopsDone / stopsTotal) * 100) : 0;
     const additionalTrips = currentTrip ? trips.filter((trip) => Number(trip.id) !== Number(currentTrip.id)) : trips;
-    const dateLabel = new Date().toLocaleDateString(locale === 'my' ? 'my-MM' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-    const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
-    const tripState = (status) => ({ on_route: 'On route', loading: 'Ready to start', assigned: 'Load required', delivered: 'Completed', partially_delivered: 'Completed', failed: 'Completed' }[status] || titleCase(status));
+    const dateLabel = new Date().toLocaleDateString(currentLocale(), { timeZone: TIME_ZONE, weekday: 'long', month: 'short', day: 'numeric' });
+    const greeting = new Date().getHours() < 12 ? mt("Good morning") : new Date().getHours() < 17 ? mt("Good afternoon") : mt("Good evening");
+    const tripState = (status) => mt(({ on_route: 'On route', loading: 'Ready to start', assigned: 'Load required', delivered: 'Completed', partially_delivered: 'Completed', failed: 'Completed' }[status] || titleCase(status)));
 
     return <div className="mobile-kpi-home driver-home-dashboard">
-        <header className="driver-home-heading"><div><p className="eyebrow">Driver workspace</p><h1>{greeting}</h1><span>{dateLabel} · Shift overview</span></div></header>
+        <header className="driver-home-heading"><div><p className="eyebrow">{mt("Driver workspace")}</p><h1>{greeting}</h1><span>{dateLabel} · Shift overview</span></div></header>
         <section className="driver-home-hero">
-            <div className="driver-home-hero-heading"><span>{currentTrip ? 'Current trip' : 'Today’s assignment'}</span><span className={`driver-home-state ${currentTrip?.status === 'on_route' ? 'is-active' : ''}`}>{currentTrip ? tripState(currentTrip.status) : trips.length ? 'Scheduled' : 'No active trip'}</span></div>
-            <h2>{currentTrip?.route_name || summary.assigned_route || 'No route assigned'}</h2>
-            <p>{currentTrip ? `${currentTrip.code} · ${currentTrip.vehicle_code || ''} ${currentTrip.plate_no || ''}` : trips.length ? `${trips.length} trip${trips.length === 1 ? '' : 's'} on today’s schedule` : 'Your route and trip details will appear here when assigned.'}</p>
-            <div className="driver-home-progress"><div><span>{activeTrip ? 'Trip progress' : 'Today’s stop progress'}</span><strong>{stopsDone} / {stopsTotal}</strong></div><i><b style={{ width: `${progress}%` }} /></i></div>
-            <div className="driver-home-actions"><button className="button primary" type="button" onClick={onViewTasks}>{currentTrip ? 'Continue trip' : 'View tasks'}<ChevronRight size={15} /></button><button className="button" type="button" onClick={onViewGps}><MapPinned size={15} />Live GPS</button><button className="button" type="button" onClick={onViewAttendance}><CalendarDays size={15} />Attendance</button></div>
+            <div className="driver-home-hero-heading"><span>{currentTrip ? mt("Current trip") : mt("Today’s assignment")}</span><span className={`driver-home-state ${currentTrip?.status === 'on_route' ? 'is-active' : ''}`}>{currentTrip ? tripState(currentTrip.status) : trips.length ? mt("Scheduled") : mt("No active trip")}</span></div>
+            <h2>{currentTrip?.route_name || summary.assigned_route || mt("No route assigned")}</h2>
+            <p>{currentTrip ? `${currentTrip.code} · ${currentTrip.vehicle_code || ''} ${currentTrip.plate_no || ''}` : trips.length ? `${trips.length} trip${trips.length === 1 ? '' : 's'} on today’s schedule` : mt("Your route and trip details will appear here when assigned.")}</p>
+            <div className="driver-home-progress"><div><span>{activeTrip ? mt("Trip progress") : mt("Today’s stop progress")}</span><strong>{stopsDone} / {stopsTotal}</strong></div><i><b style={{ width: `${progress}%` }} /></i></div>
+            <div className="driver-home-actions"><button className="button primary" type="button" onClick={() => currentTrip ? onViewTrip(currentTrip.id) : onViewTasks()}>{currentTrip ? mt("Continue trip") : mt("View deliveries")}<ChevronRight size={15} /></button></div>
         </section>
-        <MobileHomeKpiSummary appId="driver" state={kpiState} onOpen={onViewKpi} />
-        <section className="driver-home-metrics" aria-label="Cash and expense summary">
-            <article className="is-cash"><span><WalletCards size={15} />Total cash hold</span><strong>{money(summary.cash_hold_amount)}</strong><small>Awaiting office handover</small></article>
-            <article><span><CircleDollarSign size={15} />Expense reports</span><strong>{Number(summary.submitted_expenses || 0)}</strong><small>Filed this month</small></article>
+        <section className="driver-home-metrics" aria-label={mt("Cash and expense summary")}>
+            <article className="is-cash"><span><WalletCards size={15} />{mt("Total cash hold")}</span><strong>{money(summary.cash_hold_amount)}</strong><small>{mt("Awaiting office handover")}</small></article>
+            <article><span><CircleDollarSign size={15} />{mt("Expense reports")}</span><strong>{Number(summary.submitted_expenses || 0)}</strong><small>{mt("Filed this month")}</small></article>
         </section>
+        
         {additionalTrips.length > 0 && <section className="driver-home-trips">
-            <header><div><p className="eyebrow">Route plan</p><h2>{currentTrip ? 'Additional trips' : 'Today’s trips'}</h2></div></header>
-            {additionalTrips.map((trip) => <article key={trip.id}><span className="driver-home-trip-icon"><Truck size={16} /></span><span className="driver-home-trip-info"><strong>{trip.code}</strong><small>{trip.route_name} · {trip.stops_count} stops · {tripState(trip.status)}</small></span><span className="driver-home-trip-progress">{trip.completed_stops}/{trip.stops_count}</span></article>)}
+            <header><div><p className="eyebrow">{mt("Route plan")}</p><h2>{currentTrip ? mt("Additional trips") : mt("Today’s trips")}</h2></div></header>
+            {additionalTrips.map((trip) => <button className="mobile-task-link" type="button" onClick={() => onViewTrip(trip.id)} key={trip.id}><span className="driver-home-trip-icon"><Truck size={16} /></span><span className="driver-home-trip-info"><strong>{trip.code}</strong><small>{trip.route_name} · {trip.stops_count} stops · {tripState(trip.status)}</small></span><span className="driver-home-trip-progress">{trip.completed_stops}/{trip.stops_count}</span></button>)}
         </section>}
-    </div>;
+    <MobileHomeKpiSummary appId="driver" state={kpiState} onOpen={onViewKpi} /></div>;
 }
 
 function Metric({ label, value, hint, tone = '', icon: Icon = ArrowUpRight }) {
@@ -95,7 +99,7 @@ function OwnerView({ data, charts }) {
         ['Month sales', money(k.monthly_sales), `${number(k.target_achievement)}% of target`, 'accent', CircleDollarSign],
         ['Net profit', money(k.net_profit), 'Revenue less operating cost', Number(k.net_profit) >= 0 ? 'success' : 'danger', CircleDollarSign],
         ['Liquidity', money(liquidity), 'Cash plus bank balance', '', WalletCards],
-        ['Outstanding', money(k.outstanding_credit), 'Customer receivables', 'warning', Clock3],
+        [mt("Outstanding"), money(k.outstanding_credit), 'Customer receivables', 'warning', Clock3],
         ['Warehouse value', money(k.warehouse_value), 'Current stock value', '', Package],
         ['Operating cost', money(operatingCost), 'Payroll, vehicle and field cost', '', ArrowUpRight],
     ];
@@ -109,7 +113,7 @@ function SalesView({ data, charts }) {
     const belowTarget = (data.ranking || []).filter((item) => Number(item.achievement || 0) < 100).length;
     const topArea = [...(data.area_sales || [])].sort((a, b) => Number(b.sales || b.value || 0) - Number(a.sales || a.value || 0))[0];
     const signals = [{ label: 'Remaining target', value: money(targetGap), tone: targetGap > 0 ? 'warning' : 'success' }, { label: 'Representatives below target', value: belowTarget, tone: belowTarget ? 'warning' : 'success' }, { label: 'Leading territory', value: topArea?.area_name || topArea?.label || 'No sales yet' }];
-    return <><div className="phase10-metrics"><Metric label="Monthly sales" value={money(s.sales)} hint={`${s.orders || 0} invoiced orders`} tone="accent" icon={CircleDollarSign} /><Metric label="Target" value={money(s.target)} hint={`${number(s.achievement)}% achieved`} icon={Target} /><Metric label="New customers" value={s.new_customers || 0} hint="Added this month" icon={Users} /><Metric label="Territories" value={(data.area_sales || []).length} hint="Areas with sales" icon={ArrowUpRight} /></div><div className="phase10-grid two"><BarChart title="Target vs actual" hint="Representative performance this month" items={charts.target} valueKey="actual" secondaryKey="target" formatter={money} /><SignalPanel title="Sales focus" hint="Items that need a quick review" items={signals} /></div></>;
+    return <><div className="phase10-metrics"><Metric label="Monthly sales" value={money(s.sales)} hint={`${s.orders || 0} invoiced orders`} tone="accent" icon={CircleDollarSign} /><Metric label="Target" value={money(s.target)} hint={`${number(s.achievement)}% achieved`} icon={Target} /><Metric label={mt("New customers")} value={s.new_customers || 0} hint="Added this month" icon={Users} /><Metric label="Territories" value={(data.area_sales || []).length} hint="Areas with sales" icon={ArrowUpRight} /></div><div className="phase10-grid two"><BarChart title="Target vs actual" hint="Representative performance this month" items={charts.target} valueKey="actual" secondaryKey="target" formatter={money} /><SignalPanel title="Sales focus" hint="Items that need a quick review" items={signals} /></div></>;
 }
 
 function StockView({ data, charts }) {
@@ -122,13 +126,13 @@ function DeliveryView({ data, charts }) {
     const s = data.summary || {};
     const outstanding = Math.max(0, Number(s.deliveries || 0) - Number(s.completed || 0));
     const signals = [{ label: 'Active deliveries', value: s.active || 0, tone: Number(s.active || 0) ? 'warning' : 'success' }, { label: 'Not completed', value: outstanding, tone: outstanding ? 'warning' : 'success' }, { label: 'Vehicles used', value: s.vehicles_used || 0 }, { label: 'Distance travelled', value: `${number(s.distance_km)} km` }];
-    return <><div className="phase10-metrics"><Metric label="Deliveries" value={s.deliveries || 0} hint={`${s.active || 0} active`} tone="accent" icon={Truck} /><Metric label="Completed" value={s.completed || 0} hint="Delivered or partial" tone="success" icon={CheckCircle2} /><Metric label="Delivered quantity" value={number(s.delivered_quantity)} hint={`${number(s.distance_km)} km travelled`} icon={Package} /><Metric label="Delivery cost" value={money(s.delivery_cost)} hint={`${s.vehicles_used || 0} vehicles used`} icon={CircleDollarSign} /></div><div className="phase10-grid two"><BarChart title="Driver output" hint="Delivered quantity this month" items={charts.driver_output} formatter={number} /><SignalPanel title="Delivery focus" hint="Current execution status" items={signals} /></div></>;
+    return <><div className="phase10-metrics"><Metric label={mt("Deliveries")} value={s.deliveries || 0} hint={`${s.active || 0} active`} tone="accent" icon={Truck} /><Metric label={mt("Completed")} value={s.completed || 0} hint="Delivered or partial" tone="success" icon={CheckCircle2} /><Metric label={mt("Delivered quantity")} value={number(s.delivered_quantity)} hint={`${number(s.distance_km)} km travelled`} icon={Package} /><Metric label="Delivery cost" value={money(s.delivery_cost)} hint={`${s.vehicles_used || 0} vehicles used`} icon={CircleDollarSign} /></div><div className="phase10-grid two"><BarChart title="Driver output" hint="Delivered quantity this month" items={charts.driver_output} formatter={number} /><SignalPanel title="Delivery focus" hint="Current execution status" items={signals} /></div></>;
 }
 
 function FinanceView({ data, charts }) {
     const s = data.summary || {};
     const pending = Object.entries(data.pending || {}).filter(([, value]) => Number(value) > 0).map(([label, value]) => ({ label: titleCase(label), value, tone: 'warning' }));
-    return <><div className="phase10-metrics finance"><Metric label="Revenue" value={money(s.revenue)} hint="Invoiced this month" tone="accent" icon={CircleDollarSign} /><Metric label="Collections" value={money(s.collections)} hint={`${money(s.field_collections)} field`} tone="success" icon={WalletCards} /><Metric label="Debt balance" value={money(s.debt_balance)} hint="Customer receivable" tone="warning" icon={Clock3} /><Metric label="Expenses" value={money(s.expenses)} hint="Approved operating cost" icon={ArrowUpRight} /><Metric label="Net profit" value={money(s.profit)} hint="Revenue less expenses" tone={Number(s.profit) >= 0 ? 'success' : 'danger'} icon={CircleDollarSign} /><Metric label="Liquidity" value={money(Number(s.cash_balance || 0) + Number(s.bank_balance || 0))} hint="Cash plus bank" icon={WalletCards} /></div><div className="phase10-grid two"><BarChart title="Profit trend" hint="Six-month revenue and expense" items={charts.profit_trend} valueKey="revenue" secondaryKey="expense" formatter={money} primaryLabel="Revenue" secondaryLabel="Expense" /><SignalPanel title="Pending finance review" hint="Submitted records awaiting action" items={pending} empty="No pending finance submissions." /></div></>;
+    return <><div className="phase10-metrics finance"><Metric label="Revenue" value={money(s.revenue)} hint="Invoiced this month" tone="accent" icon={CircleDollarSign} /><Metric label={mt("Collections")} value={money(s.collections)} hint={`${money(s.field_collections)} field`} tone="success" icon={WalletCards} /><Metric label="Debt balance" value={money(s.debt_balance)} hint="Customer receivable" tone="warning" icon={Clock3} /><Metric label={mt("Expenses")} value={money(s.expenses)} hint="Approved operating cost" icon={ArrowUpRight} /><Metric label="Net profit" value={money(s.profit)} hint="Revenue less expenses" tone={Number(s.profit) >= 0 ? 'success' : 'danger'} icon={CircleDollarSign} /><Metric label="Liquidity" value={money(Number(s.cash_balance || 0) + Number(s.bank_balance || 0))} hint="Cash plus bank" icon={WalletCards} /></div><div className="phase10-grid two"><BarChart title="Profit trend" hint="Six-month revenue and expense" items={charts.profit_trend} valueKey="revenue" secondaryKey="expense" formatter={money} primaryLabel="Revenue" secondaryLabel="Expense" /><SignalPanel title="Pending finance review" hint="Submitted records awaiting action" items={pending} empty="No pending finance submissions." /></div></>;
 }
 
 export function OfficeKpiDashboard({ kind = 'owner', canViewOperationsReport = false, locale = 'en', onNavigate }) {
@@ -235,7 +239,7 @@ function MobileSalesBreakdowns({ locale, customers = [], products = [], onViewCu
         </section>
         <section className="mobile-kpi-list">
             <header><div><h2>{tr(locale, 'Top products', 'အရောင်းအများဆုံး ပစ္စည်းများ')}</h2><span>{tr(locale, 'By invoiced quantity', 'Invoice အရေအတွက်အလိုက်')}</span></div></header>
-            {products.length ? products.map((product, index) => <article key={product.product_id}><span className="mobile-kpi-rank">{index + 1}</span><span><strong>{product.name}</strong><small>{product.sku} · {number(product.quantity)} units</small></span><strong>{money(product.sales)}</strong></article>) : <p className="phase10-empty">{tr(locale, 'No product sales in this period.', 'ဤကာလအတွင်း ပစ္စည်းအရောင်းမရှိပါ။')}</p>}
+            {products.length ? products.map((product, index) => <article key={product.product_id}><span className="mobile-kpi-rank">{index + 1}</span><span><strong>{product.name}</strong><small>{product.sku} · {number(product.quantity)} {mt("units")}</small></span><strong>{money(product.sales)}</strong></article>) : <p className="phase10-empty">{tr(locale, 'No product sales in this period.', 'ဤကာလအတွင်း ပစ္စည်းအရောင်းမရှိပါ။')}</p>}
         </section>
     </div>;
 }
@@ -277,12 +281,16 @@ function ClientContactChannels({ channels = {}, locale }) {
     </section>;
 }
 
-export function MobileHomeDashboard({ appId, locale = 'en', quickLinks = [], onNavigate, onViewCustomer, onViewOrders, onViewTasks, onViewGps, onViewAttendance, onViewKpi }) {
-    const [filter, setFilter] = useState({ date_from: currentMonthStart(), date_to: today() });
+export function MobileHomeDashboard({ appId, locale = 'en', quickLinks = [], onNavigate, onViewCustomer, onViewOrders, onViewTasks, onViewGps, onViewAttendance, onViewKpi, onCreateOrder, onViewVisits, onViewProducts, onViewBalance, onViewOrder, onViewTrip }) {
+    const [filter, setFilter] = usePageState('phaseTen:filter:view1', { date_from: currentMonthStart(), date_to: today() });
     const [refresh, setRefresh] = useState(0);
     const [state, setState] = useState({ loading: true, data: {}, error: '' });
     const [kpiState, setKpiState] = useState({ loading: ['sales', 'driver'].includes(appId), result: null, error: '' });
     useEffect(() => {
+        if (appId === 'sales' && (!filter.date_from || !filter.date_to || filter.date_from > filter.date_to)) {
+            setState((current) => ({ ...current, loading: false, data: { ...current.data, summary: current.data.summary || {} } }));
+            return;
+        }
         let active = true;
         const params = appId === 'sales' ? filter : undefined;
         setState((current) => ({ ...current, loading: true, error: '' }));
@@ -300,19 +308,19 @@ export function MobileHomeDashboard({ appId, locale = 'en', quickLinks = [], onN
     }, [appId, refresh]);
     const summary = state.data.summary || {};
     const content = useMemo(() => ({
-        client: { eyebrow: tr(locale, 'Account overview', 'အကောင့်အနှစ်ချုပ်'), title: summary.current_order_code || tr(locale, 'No active order', 'လက်ရှိ အော်ဒါမရှိပါ'), meta: `${titleCase(summary.current_order_status)} · ${money(summary.outstanding_balance)}`, stats: [['Recent orders', summary.recent_orders_count || 0, Package], ['Outstanding', money(summary.outstanding_balance), WalletCards], ['Payment pending', money(summary.pending_collection_amount), Clock3]], items: state.data.recent_orders || [] },
-        sales: { eyebrow: tr(locale, 'Monthly order performance', 'လစဉ် အော်ဒါစွမ်းဆောင်ရည်'), title: money(summary.monthly_sales), meta: `${number(summary.achievement)}% of ${money(summary.target)}`, stats: [['Today', money(summary.daily_sales), CircleDollarSign], ['Period sales', money(summary.period_sales), ArrowUpRight], ['Average order', money(summary.average_order_value), Package], ['Period orders', summary.period_orders || 0, Package], ['New customers', summary.new_customers || 0, Users], ['Year sales', money(summary.yearly_sales), CircleDollarSign]], items: state.data.trend || [] },
-        driver: { eyebrow: tr(locale, 'Delivery shift', 'ပို့ဆောင်ရေး အလှည့်ကျ'), title: 'Delivery tasks', meta: `${summary.today_deliveries || 0} trips today · ${summary.completed_deliveries || 0} completed`, stats: [['Total cash hold', money(summary.cash_hold_amount), WalletCards], ['Expenses', summary.submitted_expenses || 0, CircleDollarSign]], items: state.data.deliveries || [] },
+        client: { eyebrow: tr(locale, 'Account overview', 'အကောင့်အနှစ်ချုပ်'), title: summary.current_order_code || tr(locale, 'No active order', 'လက်ရှိ အော်ဒါမရှိပါ'), meta: `${titleCase(summary.current_order_status)} · ${money(summary.outstanding_balance)}`, stats: [[mt("Recent orders"), summary.recent_orders_count || 0, Package], [mt("Outstanding"), money(summary.outstanding_balance), WalletCards], ['Payment pending', money(summary.pending_collection_amount), Clock3]], items: state.data.recent_orders || [] },
+        sales: { eyebrow: tr(locale, 'Monthly order performance', 'လစဉ် အော်ဒါစွမ်းဆောင်ရည်'), title: money(summary.monthly_sales), meta: `${number(summary.achievement)}% of ${money(summary.target)}`, stats: [[mt("Today"), money(summary.daily_sales), CircleDollarSign], [mt("Period sales"), money(summary.period_sales), ArrowUpRight], [mt("Average order"), money(summary.average_order_value), Package], [mt("Period orders"), summary.period_orders || 0, Package], [mt("New customers"), summary.new_customers || 0, Users], [mt("Year sales"), money(summary.yearly_sales), CircleDollarSign]], items: state.data.trend || [] },
+        driver: { eyebrow: tr(locale, 'Delivery shift', 'ပို့ဆောင်ရေး အလှည့်ကျ'), title: 'Delivery tasks', meta: `${summary.today_deliveries || 0} trips today · ${summary.completed_deliveries || 0} completed`, stats: [[mt("Total cash hold"), money(summary.cash_hold_amount), WalletCards], [mt("Expenses"), summary.submitted_expenses || 0, CircleDollarSign]], items: state.data.deliveries || [] },
     })[appId], [appId, locale, state.data, summary]);
-    const invalidRange = filter.date_from > filter.date_to;
+    const invalidRange = !filter.date_from || !filter.date_to || filter.date_from > filter.date_to;
     const exportSalesCsv = () => {
         const rows = [
             ['Sales KPI Report', `${filter.date_from} to ${filter.date_to}`], ['Metric', 'Value'],
-            ['Today sales', summary.daily_sales || 0], ['Period sales', summary.period_sales || 0],
-            ['Average order', summary.average_order_value || 0], ['Period orders', summary.period_orders || 0],
-            ['Monthly sales', summary.monthly_sales || 0], ['Year sales', summary.yearly_sales || 0], [],
+            ['Today sales', summary.daily_sales || 0], [mt("Period sales"), summary.period_sales || 0],
+            [mt("Average order"), summary.average_order_value || 0], [mt("Period orders"), summary.period_orders || 0],
+            ['Monthly sales', summary.monthly_sales || 0], [mt("Year sales"), summary.yearly_sales || 0], [],
             ['Top customers', 'Code', 'Sales'], ...(state.data.top_customers || []).map((item) => [item.name, item.code, item.sales]), [],
-            ['Top products', 'SKU', 'Quantity', 'Sales'], ...(state.data.top_products || []).map((item) => [item.name, item.sku, item.quantity, item.sales]),
+            ['Top products', 'SKU', mt("Quantity"), 'Sales'], ...(state.data.top_products || []).map((item) => [item.name, item.sku, item.quantity, item.sales]),
         ];
         const csv = rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
         const href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -322,8 +330,9 @@ export function MobileHomeDashboard({ appId, locale = 'en', quickLinks = [], onN
         link.click();
         URL.revokeObjectURL(href);
     };
-    if (state.loading) return <State loading text="Loading your dashboard" />;
-    if (state.error) return <p className="inline-error"><AlertCircle size={15} />{state.error}</p>;
-    if (appId === 'driver') return <DriverHomeDashboard summary={summary} trips={state.data.today_trips || []} locale={locale} kpiState={kpiState} onViewTasks={onViewTasks} onViewGps={onViewGps} onViewAttendance={onViewAttendance} onViewKpi={onViewKpi} />;
-    return <div className="mobile-kpi-home">{appId === 'sales' && <section className="mobile-kpi-toolbar"><div className="mobile-kpi-range"><label><span>{tr(locale, 'From', 'မှ')}</span><input type="date" value={filter.date_from} max={filter.date_to} onChange={(event) => setFilter((current) => ({ ...current, date_from: event.target.value }))} /></label><label><span>{tr(locale, 'To', 'အထိ')}</span><input type="date" value={filter.date_to} min={filter.date_from} onChange={(event) => setFilter((current) => ({ ...current, date_to: event.target.value }))} /></label><button className="icon-button" type="button" disabled={invalidRange} aria-label={tr(locale, 'Refresh report', 'အစီရင်ခံစာ ပြန်ဖွင့်ရန်')} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={15} /></button></div><div className="mobile-kpi-export"><button className="button" type="button" onClick={exportSalesCsv}><Download size={14} />Excel CSV</button><button className="button" type="button" onClick={() => window.print()}><Printer size={14} />PDF</button><button className="button primary" type="button" onClick={onViewOrders}><ChevronRight size={14} />{tr(locale, 'View orders', 'အော်ဒါများကြည့်ရန်')}</button></div></section>}<section className={`mobile-kpi-hero ${appId}`}><span>{content.eyebrow}</span><h1>{content.title}</h1><p>{content.meta}</p>{appId === 'sales' && <div className="mobile-target"><i style={{ width: `${Math.min(100, Number(summary.achievement || 0))}%` }} /></div>}</section>{appId === 'sales' && <MobileHomeKpiSummary appId="sales" state={kpiState} onOpen={onViewKpi} />}<div className="mobile-kpi-stats">{content.stats.map(([label, value, icon]) => <MobileStat key={label} label={label} value={value} icon={icon} />)}</div>{appId === 'client' && <ClientContactChannels channels={state.data.contact_channels} locale={locale} />}{appId === 'sales' && <button className="mobile-home-attendance-link" type="button" onClick={onViewAttendance}><span><CalendarDays size={18} /></span><span><strong>{tr(locale, 'Record attendance', 'တက်ရောက်မှု မှတ်တမ်းတင်ရန်')}</strong><small>{tr(locale, 'Select a warehouse and verify your GPS location', 'ဂိုဒေါင်ရွေးပြီး GPS တည်နေရာ စစ်ဆေးပါ')}</small></span><ChevronRight size={17} /></button>}{appId === 'sales' && <MobileSalesCharts locale={locale} monthItems={state.data.month_trend} yearItems={state.data.year_trend} summary={summary} />}{appId === 'sales' && <MobileSalesBreakdowns locale={locale} customers={state.data.top_customers} products={state.data.top_products} onViewCustomer={onViewCustomer} />}{appId === 'sales' && quickLinks.length > 0 && <section className="mobile-home-links"><header><div><h2>{tr(locale, 'Important links', 'အရေးကြီး လုပ်ငန်းများ')}</h2><span>{tr(locale, 'Frequently used operations', 'မကြာခဏ အသုံးပြုသော လုပ်ငန်းများ')}</span></div></header><nav aria-label={tr(locale, 'Important links', 'အရေးကြီး လုပ်ငန်းများ')}>{quickLinks.map(({ view, label, href, icon: Icon }) => <a href={href} onClick={(event) => onNavigate?.(event, href)} key={view}><span><Icon size={17} /></span><strong>{label}</strong><ChevronRight size={15} /></a>)}</nav></section>}<section className="mobile-kpi-list"><header><div><h2>{appId === 'sales' ? 'Six-month trend' : appId === 'driver' ? 'Recent trips' : 'Recent orders'}</h2><span>Updated from office records</span></div><span className="phase10-live">Live</span></header>{content.items.length ? content.items.map((item, index) => <article key={item.id || `${item.label}-${index}`}><span className="mobile-kpi-row-icon">{appId === 'sales' ? <ArrowUpRight size={16} /> : appId === 'driver' ? <Truck size={16} /> : <Package size={16} />}</span><span><strong>{item.code || item.label}</strong><small>{item.route_name || item.date || titleCase(item.status)}</small></span><strong>{appId === 'sales' ? money(item.value) : appId === 'driver' ? number(item.quantity) : money(item.amount)}</strong></article>) : <p className="phase10-empty">No recent activity.</p>}</section></div>;
+    if (state.loading && !state.data.summary) return <State loading text={mt("Loading your dashboard")} />;
+    if (state.error && !state.data.summary) return <div role="alert"><p className="inline-error"><AlertCircle size={15} />{state.error}</p><button className="button" onClick={() => setRefresh((value) => value + 1)}>{mt("Retry")}</button></div>;
+    if (appId === 'client') return <CustomerHome data={state.data} locale={locale} onCreateOrder={onCreateOrder} onViewProducts={onViewProducts} onViewOrder={onViewOrder} onViewBalance={onViewBalance}><ClientContactChannels channels={state.data.contact_channels} locale={locale} /></CustomerHome>;
+    if (appId === 'driver') return <DriverHomeDashboard summary={summary} trips={state.data.today_trips || []} locale={locale} kpiState={kpiState} onViewTasks={onViewTasks} onViewGps={onViewGps} onViewAttendance={onViewAttendance} onViewKpi={onViewKpi} onViewTrip={onViewTrip} />;
+    return <div className="mobile-kpi-home">{appId === 'sales' && <SalesToday summary={summary} locale={locale} onCreateOrder={onCreateOrder} onViewVisits={onViewVisits} onViewOrders={onViewOrders} />}{state.error && <p className="form-alert" role="alert">{state.error}</p>}{state.loading && <p role="status">Updating performance?</p>}{appId === 'sales' && <section className="mobile-kpi-toolbar"><div className="mobile-kpi-range"><label><span>{tr(locale, mt("From"), 'မှ')}</span><input type="date" value={filter.date_from} max={filter.date_to} onChange={(event) => setFilter((current) => ({ ...current, date_from: event.target.value }))} /></label><label><span>{tr(locale, mt("To"), 'အထိ')}</span><input type="date" value={filter.date_to} min={filter.date_from} onChange={(event) => setFilter((current) => ({ ...current, date_to: event.target.value }))} /></label><button className="icon-button" type="button" disabled={invalidRange} aria-label={tr(locale, 'Refresh report', 'အစီရင်ခံစာ ပြန်ဖွင့်ရန်')} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={15} /></button></div></section>}{appId === 'sales' && invalidRange && <p className="form-alert" role="alert">{tr(locale, 'Choose a start and end date, with the end date on or after the start date.', '\u1005\u101b\u1000\u103a\u1014\u103e\u1004\u1037\u103a \u1006\u102f\u1036\u1038\u101b\u1000\u103a\u1000\u102d\u102f \u1019\u103e\u1014\u103a\u1000\u1014\u103a\u1005\u103d\u102c \u101b\u103d\u1031\u1038\u1015\u102b\u104b')}</p>}{appId === 'sales' && <div className="mobile-performance-actions"><button className="button" type="button" disabled={state.loading || Boolean(state.error) || invalidRange} onClick={exportSalesCsv}><Download size={14} />{mt("Excel CSV")}</button><button className="button" type="button" disabled={state.loading || Boolean(state.error) || invalidRange} onClick={() => window.print()}><Printer size={14} />{mt("Print / PDF")}</button></div>}<section className={`mobile-kpi-hero ${appId}`}><span>{content.eyebrow}</span><h1>{content.title}</h1><p>{content.meta}</p>{appId === 'sales' && <div className="mobile-target"><i style={{ width: `${Math.min(100, Number(summary.achievement || 0))}%` }} /></div>}</section>{appId === 'sales' && <MobileHomeKpiSummary appId="sales" state={kpiState} onOpen={onViewKpi} />}<div className="mobile-kpi-stats">{content.stats.map(([label, value, icon]) => <MobileStat key={label} label={label} value={value} icon={icon} />)}</div>{appId === 'client' && <ClientContactChannels channels={state.data.contact_channels} locale={locale} />}{appId === 'sales' && <button className="mobile-home-attendance-link" type="button" onClick={onViewAttendance}><span><CalendarDays size={18} /></span><span><strong>{tr(locale, 'Record attendance', 'တက်ရောက်မှု မှတ်တမ်းတင်ရန်')}</strong><small>{tr(locale, 'Select a warehouse and verify your GPS location', 'ဂိုဒေါင်ရွေးပြီး GPS တည်နေရာ စစ်ဆေးပါ')}</small></span><ChevronRight size={17} /></button>}{appId === 'sales' && <MobileSalesCharts locale={locale} monthItems={state.data.month_trend} yearItems={state.data.year_trend} summary={summary} />}{appId === 'sales' && <MobileSalesBreakdowns locale={locale} customers={state.data.top_customers} products={state.data.top_products} onViewCustomer={onViewCustomer} />}{appId === 'sales' && quickLinks.length > 0 && <section className="mobile-home-links"><header><div><h2>{tr(locale, 'Important links', 'အရေးကြီး လုပ်ငန်းများ')}</h2><span>{tr(locale, 'Frequently used operations', 'မကြာခဏ အသုံးပြုသော လုပ်ငန်းများ')}</span></div></header><nav aria-label={tr(locale, 'Important links', 'အရေးကြီး လုပ်ငန်းများ')}>{quickLinks.map(({ view, label, href, icon: Icon }) => <a href={href} onClick={(event) => onNavigate?.(event, href)} key={view}><span><Icon size={17} /></span><strong>{label}</strong><ChevronRight size={15} /></a>)}</nav></section>}<section className="mobile-kpi-list"><header><div><h2>{appId === 'sales' ? mt("Six-month trend") : appId === 'driver' ? 'Recent trips' : mt("Recent orders")}</h2><span>{mt("Updated from office records")}</span></div><span className="phase10-live">{mt("Live")}</span></header>{content.items.length ? content.items.map((item, index) => <article key={item.id || `${item.label}-${index}`}><span className="mobile-kpi-row-icon">{appId === 'sales' ? <ArrowUpRight size={16} /> : appId === 'driver' ? <Truck size={16} /> : <Package size={16} />}</span><span><strong>{item.code || item.label}</strong><small>{item.route_name || item.date || titleCase(item.status)}</small></span><strong>{appId === 'sales' ? money(item.value) : appId === 'driver' ? number(item.quantity) : money(item.amount)}</strong></article>) : <p className="phase10-empty">{mt("No recent activity.")}</p>}</section></div>;
 }

@@ -54,4 +54,19 @@ class ActionAlertTest extends TestCase
 
         $this->getJson('/api/action-alerts?app=office')->assertForbidden();
     }
+
+    public function test_supervisor_approval_counts_include_only_unapproved_customers_created_by_their_team(): void
+    {
+        $this->seed();
+        $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
+        $sales = User::where('email', 'sales@valley.test')->firstOrFail();
+        DB::table('employees')->where('id', $sales->employee_id)->update(['supervisor_id' => $supervisor->employee_id]);
+        DB::table('customers')->update(['acquisition_approved_at' => now()]);
+        DB::table('customers')->insert(['code' => 'PENDING-OWN', 'shop_name' => 'My team customer', 'contact_name' => 'Customer', 'phone' => '091111111', 'address' => 'Main street', 'created_by' => $sales->id, 'is_active' => true]);
+        DB::table('customers')->insert(['code' => 'PENDING-OTHER', 'shop_name' => 'Other customer', 'contact_name' => 'Other', 'phone' => '092222222', 'address' => 'Other street', 'created_by' => $supervisor->id, 'is_active' => true]);
+
+        $this->actingAs($supervisor)->getJson('/api/action-alerts?app=supervisor')->assertOk()
+            ->assertJsonPath('data.total', 1)->assertJsonFragment(['id' => 'customer-approvals', 'count' => 1]);
+        $this->getJson('/api/mobile/supervisor')->assertOk()->assertJsonPath('data.summary.pending_approvals', 1);
+    }
 }

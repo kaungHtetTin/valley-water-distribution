@@ -30,6 +30,7 @@
                     password: @json(url('/api/auth/password')),
                 },
                 api: {
+                    publicProducts: @json(url('/api/public/products')),
                     actionAlerts: @json(url('/api/action-alerts')),
                     companySettings: @json(url('/api/settings/company')),
                     printSettings: @json(url('/api/settings/printing')),

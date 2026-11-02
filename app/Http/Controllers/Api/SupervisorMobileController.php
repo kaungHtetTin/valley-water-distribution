@@ -45,6 +45,9 @@ class SupervisorMobileController extends Controller
                 'orders' => (clone $orders)->count(),
                 'order_value' => (float) (clone $orders)->sum('total'),
                 'customers_reached' => (clone $orders)->whereNotNull('customer_id')->distinct()->count('customer_id'),
+                'pending_approvals' => DB::table('customers')->join('users as creators', 'customers.created_by', '=', 'creators.id')
+                    ->whereIn('creators.employee_id', $members->pluck('id'))->whereNull('customers.deleted_at')
+                    ->whereNull('customers.acquisition_approved_at')->count(),
             ],
         ]);
     }

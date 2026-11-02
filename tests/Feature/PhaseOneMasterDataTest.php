@@ -370,6 +370,61 @@ class PhaseOneMasterDataTest extends TestCase
             ->assertJsonPath('data.vehicle.code', 'VEH-001');
     }
 
+    public function test_shop_service_day_can_be_saved_and_cleared_in_both_apps(): void
+    {
+        $this->seed();
+        $payload = ['shop_name' => 'Service Day Shop', 'contact_name' => 'Ma Su', 'phone' => '091234567', 'service_day' => 'Sunday'];
+
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $office = $this->postJson('/api/master-data/customers', $payload)->assertCreated()
+            ->assertJsonPath('data.item.service_day', 'Sunday');
+        $officeId = $office->json('data.item.id');
+        $this->putJson("/api/master-data/customers/{$officeId}", $payload + ['credit_limit' => 0])
+            ->assertOk()->assertJsonPath('data.item.service_day', 'Sunday');
+        $this->putJson("/api/master-data/customers/{$officeId}", array_replace($payload, ['service_day' => null, 'credit_limit' => 0]))
+            ->assertOk()->assertJsonPath('data.item.service_day', null);
+        $this->postJson('/api/master-data/customers', array_replace($payload, ['service_day' => 'Funday']))
+            ->assertUnprocessable()->assertJsonValidationErrors('service_day');
+
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $sales = $this->postJson('/api/mobile/master/customers', array_replace($payload, ['phone' => '097654321']))
+            ->assertCreated()->assertJsonPath('data.customer.service_day', 'Sunday');
+        $salesId = $sales->json('data.customer.id');
+        $this->putJson("/api/mobile/master/customers/{$salesId}", array_replace($payload, ['phone' => '097654321', 'service_day' => 'Wednesday']))
+            ->assertOk()->assertJsonPath('data.customer.service_day', 'Wednesday');
+        $this->putJson("/api/mobile/master/customers/{$salesId}", array_replace($payload, ['phone' => '097654321', 'service_day' => null]))
+            ->assertOk()->assertJsonPath('data.customer.service_day', null);
+        $this->postJson('/api/mobile/master/customers', array_replace($payload, ['service_day' => 'Funday']))
+            ->assertUnprocessable()->assertJsonValidationErrors('service_day');
+    }
+
+    public function test_shop_service_day_filters_use_customer_day_and_preserve_sales_route_scope(): void
+    {
+        $this->seed();
+        DB::table('customers')->update(['service_day' => null]);
+        DB::table('customers')->whereIn('code', ['CUS-0001', 'CUS-0002', 'CUS-0004'])->update(['service_day' => 'Sunday']);
+        DB::table('customers')->where('code', 'CUS-0003')->update(['service_day' => 'Wednesday']);
+        DB::table('routes')->update(['service_day' => 'Monday']);
+
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
+        $this->getJson('/api/master-data/customers?service_day=Sunday&per_page=1')->assertOk()
+            ->assertJsonPath('data.meta.total', 3)->assertJsonCount(1, 'data.items');
+        $this->getJson('/api/master-data/customers?service_day=Sunday&search=Cherry')->assertOk()
+            ->assertJsonPath('data.meta.total', 1)->assertJsonPath('data.items.0.code', 'CUS-0002');
+
+        $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
+        $this->getJson('/api/mobile/master/customers?service_day=Sunday&per_page=1')->assertOk()
+            ->assertJsonPath('data.meta.total', 2)->assertJsonCount(1, 'data.items');
+        $this->getJson('/api/mobile/master/customers?service_day=Wednesday')->assertOk()
+            ->assertJsonPath('data.meta.total', 1)->assertJsonPath('data.items.0.code', 'CUS-0003');
+        $this->getJson('/api/mobile/master/customers?service_day=Monday')->assertOk()->assertJsonPath('data.meta.total', 0);
+        $this->getJson('/api/mobile/master/customers?service_day=')->assertOk()->assertJsonPath('data.meta.total', 3);
+        $this->getJson('/api/mobile/master/customers?service_day=Funday')->assertUnprocessable()->assertJsonValidationErrors('service_day');
+
+        $this->actingAs(User::where('email', 'client@valley.test')->firstOrFail());
+        $this->getJson('/api/mobile/master/profile')->assertOk()->assertJsonPath('data.profile.service_day', 'Sunday');
+    }
+
     public function test_sales_customers_can_be_filtered_by_joined_weekday_before_pagination(): void
     {
         $this->seed();

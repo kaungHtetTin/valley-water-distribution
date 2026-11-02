@@ -1,3 +1,6 @@
+import { mobileText as mt } from './ui/mobileCopy.js';
+import { currentLocale, formatMoney as uiMoney, formatDate as uiDate } from './ui/format.js';
+import { usePageState } from './ui/usePageState';
 import { AlertCircle, CalendarDays, CalendarRange, ChevronDown, ChevronRight, CircleGauge, RefreshCw, Route, Search, ShoppingCart, UserCheck, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ShellBackButton } from './components/ShellBackButton';
@@ -5,14 +8,14 @@ import { ShellPageActions } from './components/ShellPageActions';
 
 const api = () => window.ValleyRuntime?.api?.mobileSupervisor || '/api/mobile/supervisor';
 
-const money = (value) => `${Number(value || 0).toLocaleString()} MMK`;
-const number = (value) => value === null || value === undefined ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const money = uiMoney;
+const number = (value) => value === null || value === undefined ? '—' : Number(value).toLocaleString(currentLocale(), { maximumFractionDigits: 2 });
 
 function State({ loading = false, message, onRetry }) {
     return <section className="mobile-master-section supervisor-mobile-state">
         {loading ? <RefreshCw className="spin" size={22} /> : <AlertCircle size={22} />}
         <strong>{message}</strong>
-        {!loading && onRetry && <button className="button" type="button" onClick={onRetry}>Retry</button>}
+        {!loading && onRetry && <button className="button" type="button" onClick={onRetry}>{mt("Retry")}</button>}
     </section>;
 }
 
@@ -32,7 +35,7 @@ function useSupervisorOverview() {
     return [state, () => setRefresh((value) => value + 1)];
 }
 
-export function SupervisorHomeScreen({ locale = 'en', onViewTeam, onViewAttendance, onViewKpi }) {
+export function SupervisorHomeScreen({ locale = 'en', onViewTeam, onViewAttendance, onViewKpi, onViewApprovals, onViewOrders }) {
     const [state, reload] = useSupervisorOverview();
     const my = locale === 'my';
 
@@ -46,17 +49,19 @@ export function SupervisorHomeScreen({ locale = 'en', onViewTeam, onViewAttendan
             <p>{my ? 'သင့်အဖွဲ့၏ လစဉ်လုပ်ဆောင်မှု အကျဉ်းချုပ်' : 'Your team overview for the current month'}</p>
         </section>
 
-        <section className="supervisor-mobile-metrics" aria-label="Team summary">
-            <article><span><Users size={17} />{my ? 'အဖွဲ့ဝင်' : 'Team members'}</span><strong>{state.summary.team_members || 0}</strong><small>{state.summary.active_members || 0} active</small></article>
+        <section className="supervisor-mobile-metrics" aria-label={mt("Team summary")}>
+            <article><span><Users size={17} />{my ? 'အဖွဲ့ဝင်' : 'Team members'}</span><strong>{state.summary.team_members || 0}</strong><small>{state.summary.active_members || 0} {mt("active")}</small></article>
             <article><span><ShoppingCart size={17} />{my ? 'အော်ဒါ' : 'Team orders'}</span><strong>{state.summary.orders || 0}</strong><small>{state.period}</small></article>
-            <article><span><WalletCards size={17} />{my ? 'တန်ဖိုး' : 'Order value'}</span><strong>{money(state.summary.order_value)}</strong><small>{state.summary.customers_reached || 0} customers</small></article>
+            <article><span><WalletCards size={17} />{my ? 'တန်ဖိုး' : 'Order value'}</span><strong>{money(state.summary.order_value)}</strong><small>{state.summary.customers_reached || 0} {mt("customers")}</small></article>
         </section>
 
-        <section className="mobile-master-section supervisor-mobile-actions">
-            <button type="button" onClick={onViewTeam}><span><Users size={18} /></span><strong>{my ? 'အဖွဲ့ကိုကြည့်ရန်' : 'View my team'}<small>{state.summary.team_members || 0} sales representatives</small></strong><ChevronRight size={17} /></button>
-            <button type="button" onClick={onViewAttendance}><span><CalendarDays size={18} /></span><strong>{my ? 'တက်ရောက်မှု' : 'My attendance'}<small>Calendar and check-in history</small></strong><ChevronRight size={17} /></button>
-            <button type="button" onClick={onViewKpi}><span><CircleGauge size={18} /></span><strong>{my ? 'KPI အစီရင်ခံစာ' : 'My KPI report'}<small>Targets, score and bonus</small></strong><ChevronRight size={17} /></button>
+        <section className="mobile-master-section supervisor-mobile-actions supervisor-team-actions">
+            <h2>{my ? '\u1021\u1016\u103d\u1032\u1037\u101c\u102f\u1015\u103a\u1004\u1014\u103a\u1038\u1019\u103b\u102c\u1038' : 'Team operations'}</h2>
+            <button type="button" onClick={onViewApprovals}><span><UserCheck size={18} /></span><strong>{my ? '\u1021\u1010\u100a\u103a\u1015\u103c\u102f\u101b\u1014\u103a' : 'Customer approvals'}<small>{number(state.summary.pending_approvals || 0)} {my ? '\u1005\u1031\u102c\u1004\u1037\u103a\u1006\u102d\u102f\u1004\u103a\u1038' : 'awaiting review'}</small></strong><ChevronRight size={17} /></button>
+            <button type="button" onClick={onViewTeam}><span><Users size={18} /></span><strong>{my ? '\u1021\u1016\u103d\u1032\u1037\u1000\u102d\u102f\u1000\u103c\u100a\u1037\u103a\u101b\u1014\u103a' : 'View my team'}<small>{number(state.summary.team_members || 0)} {my ? '\u1021\u1016\u103d\u1032\u1037\u101d\u1004\u103a' : 'sales representatives'}</small></strong><ChevronRight size={17} /></button>
+            <button type="button" onClick={onViewOrders}><span><ShoppingCart size={18} /></span><strong>{my ? '\u1021\u1016\u103d\u1032\u1037\u1021\u1031\u102c\u103a\u1012\u102b\u1019\u103b\u102c\u1038' : 'Team orders'}<small>{number(state.summary.orders || 0)} {state.period}</small></strong><ChevronRight size={17} /></button>
         </section>
+        <details className="mobile-master-section supervisor-personal-actions"><summary>{my ? '\u1000\u103b\u103d\u1014\u103a\u102f\u1015\u103a\u104f\u101c\u102f\u1015\u103a\u1004\u1014\u103a\u1038\u1019\u103b\u102c\u1038' : 'My attendance & performance'}</summary><div className="mobile-priority-actions"><button className="button" onClick={onViewAttendance}>{my ? '\u101b\u102f\u1036\u1038\u1010\u1000\u103a\u1019\u103e\u102f' : 'My attendance'}</button><button className="button" onClick={onViewKpi}>{my ? 'KPI \u1021\u1005\u102e\u101b\u1004\u103a\u1001\u1036\u1005\u102c' : 'My KPI report'}</button></div></details>
     </div>;
 }
 
@@ -66,11 +71,11 @@ export function SupervisorTeamScreen({ locale = 'en', onViewMember }) {
 
     return <div className="mobile-master-stack supervisor-team-page">
         <div className="mobile-master-heading"><div><p className="eyebrow">{my ? 'သတ်မှတ်ထားသောအဖွဲ့' : 'Assigned team'}</p><h1>{my ? 'အရောင်းကိုယ်စားလှယ်များ' : 'Sales representatives'}</h1><span className="muted">{my ? 'အဖွဲ့ဝင်နှင့် လမ်းကြောင်းအချက်အလက်' : 'People and route assignments in your team'}</span></div></div>
-        {state.loading ? <State loading message="Loading team members" /> : state.error ? <State message={state.error} onRetry={reload} /> : state.team.length === 0 ? <State message="No sales representatives are assigned to your team." /> : <section className="mobile-master-section supervisor-team-list">
+        {state.loading ? <State loading message={mt("Loading team members")} /> : state.error ? <State message={state.error} onRetry={reload} /> : state.team.length === 0 ? <State message={mt("No sales representatives are assigned to your team.")} /> : <section className="mobile-master-section supervisor-team-list">
             {state.team.map((member) => <button type="button" onClick={() => onViewMember?.(member.id)} key={member.id}>
                 <span className="supervisor-team-avatar">{member.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>
-                <span><strong>{member.name}</strong><small>{member.code} · {member.phone || 'No phone'}</small><small><Route size={12} />{member.route_name || 'No route assigned'}</small></span>
-                <span className="supervisor-team-row-end"><span className={`status ${member.is_active ? 'success' : 'neutral'}`}><UserCheck size={12} />{member.is_active ? 'Active' : 'Inactive'}</span><ChevronRight size={16} /></span>
+                <span><strong>{member.name}</strong><small>{member.code} · {member.phone || mt("No phone")}</small><small><Route size={12} />{member.route_name || mt("No route assigned")}</small></span>
+                <span className="supervisor-team-row-end"><span className={`status ${member.is_active ? 'success' : 'neutral'}`}><UserCheck size={12} />{member.is_active ? mt("Active") : mt("Inactive")}</span><ChevronRight size={16} /></span>
             </button>)}
         </section>}
     </div>;
@@ -78,9 +83,9 @@ export function SupervisorTeamScreen({ locale = 'en', onViewMember }) {
 
 export function SupervisorRepresentativeDetailScreen({ memberId, locale = 'en', onBack }) {
     const my = locale === 'my';
-    const [activeTab, setActiveTab] = useState('kpi');
-    const [draft, setDraft] = useState({ period: 'month', year: '', month: '' });
-    const [applied, setApplied] = useState({});
+    const [activeTab, setActiveTab] = usePageState('SupervisorApp:activeTab:view1', 'kpi');
+    const [draft, setDraft] = usePageState('SupervisorApp:draft:view2', { period: 'month', year: '', month: '' });
+    const [applied, setApplied] = usePageState('SupervisorApp:applied:1', {});
     const [refresh, setRefresh] = useState(0);
     const [state, setState] = useState({ loading: true, error: '', representative: null, filters: {}, available_months: [], summary: {}, reviews: [], metrics: [] });
 
@@ -126,13 +131,13 @@ export function SupervisorRepresentativeDetailScreen({ memberId, locale = 'en', 
     return <div className="mobile-master-stack supervisor-member-detail">
         <ShellBackButton onClick={onBack} label={my ? 'အဖွဲ့စာရင်းသို့ ပြန်ရန်' : 'Back to team'} />
         <div className="mobile-master-heading supervisor-member-heading">
-            <div><p className="eyebrow">{my ? 'အဖွဲ့ဝင် အသေးစိတ်' : 'Team member detail'}</p><h1>{state.representative?.name}</h1><span className="muted">{state.representative?.code} · {state.representative?.route_name || (my ? 'လမ်းကြောင်းမသတ်မှတ်ရသေးပါ' : 'No route assigned')}</span></div>
+            <div><p className="eyebrow">{my ? 'အဖွဲ့ဝင် အသေးစိတ်' : 'Team member detail'}</p><h1>{state.representative?.name}</h1><span className="muted">{state.representative?.code} · {state.representative?.route_name || (my ? 'လမ်းကြောင်းမသတ်မှတ်ရသေးပါ' : mt("No route assigned"))}</span></div>
         </div>
 
         <section className="mobile-master-section supervisor-member-profile">
             <span className="supervisor-team-avatar">{state.representative?.name?.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>
-            <span><strong>{state.representative?.phone || (my ? 'ဖုန်းမရှိပါ' : 'No phone')}</strong><small>{state.representative?.email || (my ? 'အီးမေးလ်မရှိပါ' : 'No email')}</small></span>
-            <span className={`status ${state.representative?.is_active ? 'success' : 'neutral'}`}>{state.representative?.is_active ? (my ? 'အသုံးပြုနေသည်' : 'Active') : (my ? 'ပိတ်ထားသည်' : 'Inactive')}</span>
+            <span><strong>{state.representative?.phone || (my ? 'ဖုန်းမရှိပါ' : mt("No phone"))}</strong><small>{state.representative?.email || (my ? 'အီးမေးလ်မရှိပါ' : 'No email')}</small></span>
+            <span className={`status ${state.representative?.is_active ? 'success' : 'neutral'}`}>{state.representative?.is_active ? (my ? 'အသုံးပြုနေသည်' : mt("Active")) : (my ? 'ပိတ်ထားသည်' : mt("Inactive"))}</span>
         </section>
 
         <div className="supervisor-member-tabs" role="tablist" aria-label={my ? 'အဖွဲ့ဝင် အချက်အလက်' : 'Team member information'}>
@@ -158,7 +163,7 @@ export function SupervisorRepresentativeDetailScreen({ memberId, locale = 'en', 
         <section className="supervisor-kpi-summary">
             <article><span>{my ? 'သုံးသပ်ချက်' : 'Reviews'}</span><strong>{state.summary.reviews || 0}</strong></article>
             <article><span>{my ? 'ပျမ်းမျှရမှတ်' : 'Average score'}</span><strong>{number(state.summary.average_score)}%</strong></article>
-            <article><span>{my ? 'အတည်ပြုပြီး' : 'Approved'}</span><strong>{state.summary.approved || 0}</strong></article>
+            <article><span>{my ? 'အတည်ပြုပြီး' : mt("Approved")}</span><strong>{state.summary.approved || 0}</strong></article>
             <article><span>{my ? 'ဆုကြေးစုစုပေါင်း' : 'Bonus total'}</span><strong>{money(state.summary.bonus_total)}</strong></article>
         </section>
 
@@ -173,7 +178,7 @@ export function SupervisorRepresentativeDetailScreen({ memberId, locale = 'en', 
             <section className="mobile-master-section supervisor-kpi-metrics-list">
                 <header><div><p className="eyebrow">{my ? 'စွမ်းဆောင်ရည်' : 'Performance'}</p><h2>{displayedPeriod === 'month' ? (my ? 'KPI အချက်များ' : 'KPI metrics') : (my ? 'နှစ်စဉ် ပျမ်းမျှ' : 'Yearly metric averages')}</h2></div><strong>{state.metrics.length}</strong></header>
                 {state.metrics.map((metric) => <article key={metric.id}>
-                    <div><span><strong>{metric.name}</strong><small>{metric.code} · {number(metric.weight)}%</small></span><b>{metric.weighted_score === null ? 'Pending' : `${number(metric.weighted_score)} pts`}</b></div>
+                    <div><span><strong>{metric.name}</strong><small>{metric.code} · {number(metric.weight)}%</small></span><b>{metric.weighted_score === null ? mt("Pending") : `${number(metric.weighted_score)} pts`}</b></div>
                     <div className="supervisor-kpi-progress"><i style={{ width: `${Math.min(Number(metric.achievement_percent || 0), 100)}%` }} /></div>
                     <footer><span><small>{my ? 'ရည်မှန်းချက်' : 'Target'}</small><strong>{number(metric.target_value)}</strong></span><span><small>{my ? 'အမှန်တကယ်' : 'Actual'}</small><strong>{number(metric.actual_value)}</strong></span><span><small>{my ? 'ပြီးမြောက်မှု' : 'Achievement'}</small><strong>{metric.achievement_percent === null ? '—' : `${number(metric.achievement_percent)}%`}</strong></span><span><small>{my ? 'ရမှတ်' : 'Points'}</small><strong>{number(metric.weighted_score)}</strong></span></footer>
                 </article>)}
@@ -185,10 +190,10 @@ export function SupervisorRepresentativeDetailScreen({ memberId, locale = 'en', 
 
 export function SupervisorNewCustomersScreen({ locale = 'en' }) {
     const my = locale === 'my';
-    const [status, setStatus] = useState('pending');
-    const [page, setPage] = useState(1);
-    const [employeeId, setEmployeeId] = useState('');
-    const [draftFilters, setDraftFilters] = useState({ employeeId: '', status: 'pending' });
+    const [status, setStatus] = usePageState('SupervisorApp:status:view3', 'pending');
+    const [page, setPage] = usePageState('SupervisorApp:page:2', 1);
+    const [employeeId, setEmployeeId] = usePageState('SupervisorApp:employeeId:view4', '');
+    const [draftFilters, setDraftFilters] = usePageState('SupervisorApp:draftFilters:view5', { employeeId: '', status: 'pending' });
     const [revision, setRevision] = useState(0);
     const [saving, setSaving] = useState(null);
     const [success, setSuccess] = useState('');
@@ -216,31 +221,31 @@ export function SupervisorNewCustomersScreen({ locale = 'en' }) {
             setSaving(null);
         }
     };
-    const dateLabel = (value) => value ? new Date(String(value).replace(' ', 'T')).toLocaleDateString(my ? 'my-MM' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-    return <div className="mobile-master-stack"><div className="mobile-master-heading"><div><p className="eyebrow">{my ? 'အဖွဲ့၏ ဖောက်သည်စာရင်းသွင်းမှု' : 'Team registrations'}</p><h1>{my ? 'ဖောက်သည်အသစ်များ' : 'New customers'}</h1><span className="muted">{my ? 'အဖွဲ့ဝင်အားလုံး၏ ဖောက်သည်အသစ်များကို အတည်ပြုရန်' : 'Review new customers registered by your team'}</span></div></div><section className="mobile-master-section supervisor-member-visits">
-        <ShellPageActions><button className="icon-button" type="button" aria-label="Refresh registrations" title="Refresh registrations" disabled={saving !== null} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={16} /></button></ShellPageActions>
+    const dateLabel = (value) => uiDate(value);
+    return <div className="mobile-master-stack"><div className="mobile-master-heading"><div><p className="eyebrow">{my ? 'အဖွဲ့၏ ဖောက်သည်စာရင်းသွင်းမှု' : 'Team registrations'}</p><h1>{my ? 'ဖောက်သည်အသစ်များ' : mt("New customers")}</h1><span className="muted">{my ? 'အဖွဲ့ဝင်အားလုံး၏ ဖောက်သည်အသစ်များကို အတည်ပြုရန်' : 'Review new customers registered by your team'}</span></div></div><section className="mobile-master-section supervisor-member-visits">
+        <ShellPageActions><button className="icon-button" type="button" aria-label={mt("Refresh registrations")} title={mt("Refresh registrations")} disabled={saving !== null} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={16} /></button></ShellPageActions>
         <form className="master-toolbar sales-customer-filters" aria-label={my ? 'ဖောက်သည်အသစ် စစ်ထုတ်ရန်' : 'New customer approval filters'} onSubmit={(event) => { event.preventDefault(); setEmployeeId(draftFilters.employeeId); setStatus(draftFilters.status); setPage(1); window.dispatchEvent(new Event('valley:close-filters')); }}>
             <label>{my ? 'အရောင်းကိုယ်စားလှယ်' : 'Sales representative'}<select value={draftFilters.employeeId} disabled={saving !== null} onChange={(event) => setDraftFilters((current) => ({ ...current, employeeId: event.target.value }))}><option value="">{my ? 'အဖွဲ့ဝင်အားလုံး' : 'All team members'}</option>{state.team.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.code}</option>)}</select></label>
-            <label>{my ? 'အတည်ပြုမှု အခြေအနေ' : 'Acquisition approval'}<select value={draftFilters.status} disabled={saving !== null} onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))}><option value="pending">{my ? 'အတည်ပြုရန် ကျန်ရှိ' : 'Pending approval'}</option><option value="approved">{my ? 'အတည်ပြုပြီး' : 'Approved'}</option><option value="all">{my ? 'အားလုံး' : 'All registrations'}</option></select></label>
-            <button className="button primary" type="submit" disabled={saving !== null}>{my ? 'စစ်ထုတ်မည်' : 'Apply filters'}</button>
-            <button className="button" type="button" disabled={saving !== null} onClick={() => { setDraftFilters({ employeeId: '', status: 'pending' }); setEmployeeId(''); setStatus('pending'); setPage(1); window.dispatchEvent(new Event('valley:close-filters')); }}>{my ? 'စစ်ထုတ်မှု ရှင်းလင်းမည်' : 'Reset filters'}</button>
+            <label>{my ? 'အတည်ပြုမှု အခြေအနေ' : 'Acquisition approval'}<select value={draftFilters.status} disabled={saving !== null} onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))}><option value="pending">{my ? 'အတည်ပြုရန် ကျန်ရှိ' : 'Pending approval'}</option><option value="approved">{my ? 'အတည်ပြုပြီး' : mt("Approved")}</option><option value="all">{my ? 'အားလုံး' : 'All registrations'}</option></select></label>
+            <button className="button primary" type="submit" disabled={saving !== null}>{my ? 'စစ်ထုတ်မည်' : mt("Apply filters")}</button>
+            <button className="button" type="button" disabled={saving !== null} onClick={() => { setDraftFilters({ employeeId: '', status: 'pending' }); setEmployeeId(''); setStatus('pending'); setPage(1); window.dispatchEvent(new Event('valley:close-filters')); }}>{my ? 'စစ်ထုတ်မှု ရှင်းလင်းမည်' : mt("Reset filters")}</button>
         </form>
         <p className="supervisor-acquisition-note">{my ? 'အတည်ပြုပြီး အသုံးပြုနေသော ဖောက်သည်အသစ်များကိုသာ စာရင်းသွင်းသည့်လ၏ KPI တွင် ရေတွက်မည်။' : 'Only approved, active registrations count toward acquisition KPI for the month the customer joined.'}</p>
         {success && <p className="inline-success supervisor-acquisition-note">{success}</p>}
         {state.error && <div className="inline-error supervisor-acquisition-note">{state.error}</div>}
-        {state.loading ? <State loading message="Loading customer registrations" /> : state.items.length === 0 ? <State message={my ? 'ဖောက်သည်စာရင်း မရှိပါ။' : 'No customer registrations in this view.'} onRetry={() => setRevision((value) => value + 1)} /> : <div className="supervisor-visit-list">{state.items.map((customer) => <article key={customer.id}>
+        {state.loading ? <State loading message={mt("Loading customer registrations")} /> : state.items.length === 0 ? <State message={my ? 'ဖောက်သည်စာရင်း မရှိပါ။' : 'No customer registrations in this view.'} onRetry={() => setRevision((value) => value + 1)} /> : <div className="supervisor-visit-list">{state.items.map((customer) => <article key={customer.id}>
             <div><strong>{customer.shop_name}</strong><small>{customer.employee_name} · {customer.employee_code}</small><small>{customer.code} · {customer.contact_name}</small><small>{customer.phone}</small>{customer.address && <small>{customer.address}</small>}<small>{my ? 'စာရင်းသွင်းသည့်နေ့' : 'Joined'}: {dateLabel(customer.created_at)}</small>{!customer.is_active && <small>{my ? 'အသုံးမပြုတော့ပါ။ KPI တွင် မရေတွက်ပါ။' : 'Inactive — excluded from KPI'}</small>}</div>
-            <div>{customer.acquisition_approved_at ? <><span className="status success">{my ? 'အတည်ပြုပြီး' : 'Approved'}</span><small>{dateLabel(customer.acquisition_approved_at)}</small><small>{customer.approved_by_name}</small></> : <button className="button primary" type="button" disabled={saving !== null} onClick={() => approve(customer.id)}>{saving === customer.id ? (my ? 'သိမ်းနေသည်…' : 'Approving…') : (my ? 'အတည်ပြုမည်' : 'Approve')}</button>}</div>
+            <div>{customer.acquisition_approved_at ? <><span className="status success">{my ? 'အတည်ပြုပြီး' : mt("Approved")}</span><small>{dateLabel(customer.acquisition_approved_at)}</small><small>{customer.approved_by_name}</small></> : <button className="button primary" type="button" disabled={saving !== null} onClick={() => approve(customer.id)}>{saving === customer.id ? (my ? 'သိမ်းနေသည်…' : 'Approving…') : (my ? 'အတည်ပြုမည်' : 'Approve')}</button>}</div>
         </article>)}</div>}
-        {state.meta.last_page > 1 && <div className="supervisor-acquisition-pagination"><button className="button" type="button" disabled={state.loading || saving !== null || page <= 1} onClick={() => setPage((value) => value - 1)}>{my ? 'ရှေ့သို့' : 'Previous'}</button><span>{page} / {state.meta.last_page}</span><button className="button" type="button" disabled={state.loading || saving !== null || page >= state.meta.last_page} onClick={() => setPage((value) => value + 1)}>{my ? 'နောက်သို့' : 'Next'}</button></div>}
+        {state.meta.last_page > 1 && <div className="supervisor-acquisition-pagination"><button className="button" type="button" disabled={state.loading || saving !== null || page <= 1} onClick={() => setPage((value) => value - 1)}>{my ? 'ရှေ့သို့' : mt("Previous")}</button><span>{page} / {state.meta.last_page}</span><button className="button" type="button" disabled={state.loading || saving !== null || page >= state.meta.last_page} onClick={() => setPage((value) => value + 1)}>{my ? 'နောက်သို့' : mt("Next")}</button></div>}
     </section></div>;
 }
 
 function SupervisorRepresentativeVisits({ memberId, locale }) {
     const my = locale === 'my';
-    const [date, setDate] = useState('');
-    const [status, setStatus] = useState('all');
-    const [search, setSearch] = useState('');
+    const [date, setDate] = usePageState('SupervisorApp:date:view6', '');
+    const [status, setStatus] = usePageState('SupervisorApp:status:view7', 'all');
+    const [search, setSearch] = usePageState('SupervisorApp:search:3', '');
     const [refresh, setRefresh] = useState(0);
     const [state, setState] = useState({ loading: true, error: '', date: '', customers: [], summary: {} });
     useEffect(() => {
@@ -263,14 +268,14 @@ function SupervisorRepresentativeVisits({ memberId, locale }) {
             <label>{my ? 'လည်ပတ်သည့်နေ့' : 'Visit date'}<input type="date" value={date || state.date} onChange={(event) => setDate(event.target.value)} /></label>
             <label>{my ? 'အခြေအနေ' : 'Visit status'}<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">{my ? 'ဖောက်သည်အားလုံး' : 'All customers'}</option><option value="visited">{my ? 'လည်ပတ်ပြီး' : 'Visited'}</option><option value="not_visited">{my ? 'မလည်ပတ်ရသေး' : 'Not visited'}</option></select></label>
             <label className="supervisor-visit-search">{my ? 'ဖောက်သည်ရှာရန်' : 'Search customers'}<input type="search" value={search} placeholder={my ? 'အမည်၊ ကုဒ်၊ ဖုန်း' : 'Name, code or phone'} onChange={(event) => setSearch(event.target.value)} /></label>
-            <button className="icon-button" type="button" title="Refresh customer visits" aria-label="Refresh customer visits" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} /></button>
+            <button className="icon-button" type="button" title={mt("Refresh customer visits")} aria-label={mt("Refresh customer visits")} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} /></button>
         </div>
         {state.loading ? <State loading message={my ? 'လည်ပတ်မှုများ ရယူနေသည်' : 'Loading customer visits'} /> : state.error ? <State message={state.error} onRetry={() => setRefresh((value) => value + 1)} /> : <>
             <div className="supervisor-visit-summary"><article><span>{my ? 'ဖောက်သည်စုစုပေါင်း' : 'Route customers'}</span><strong>{state.summary.total || 0}</strong></article><article><span>{my ? 'လည်ပတ်ပြီး' : 'Visited'}</span><strong>{state.summary.visited || 0}</strong></article><article><span>{my ? 'မလည်ပတ်ရသေး' : 'Not visited'}</span><strong>{state.summary.not_visited || 0}</strong></article></div>
             <div className="supervisor-visit-results"><small>{dateLabel(state.date)} · {customers.length} {my ? 'ဖောက်သည်' : 'customers'}</small></div>
             {customers.length ? <div className="supervisor-visit-list">{customers.map((customer) => <article key={customer.id}>
                 <div><strong>{customer.shop_name}</strong><small>{customer.code} · {customer.contact_name || customer.phone || '—'}</small>{customer.phone && <small>{customer.phone}</small>}{customer.address && <small>{customer.address}</small>}</div>
-                <div><span className={`status ${customer.visit_status === 'completed' ? 'success' : 'neutral'}`}>{customer.visit_status === 'completed' ? (my ? 'လည်ပတ်ပြီး' : 'Visited') : (my ? 'မလည်ပတ်ရသေး' : 'Not visited')}</span>{customer.completed_at && <small>{dateLabel(customer.completed_at)}</small>}{['in_progress', 'skipped'].includes(customer.visit_status) && <small>{customer.visit_status === 'in_progress' ? (my ? 'လုပ်ဆောင်နေ' : 'In progress') : (my ? 'ကျော်ထား' : 'Skipped')}</small>}</div>
+                <div><span className={`status ${customer.visit_status === 'completed' ? 'success' : 'neutral'}`}>{customer.visit_status === 'completed' ? (my ? 'လည်ပတ်ပြီး' : 'Visited') : (my ? 'မလည်ပတ်ရသေး' : 'Not visited')}</span>{customer.completed_at && <small>{dateLabel(customer.completed_at)}</small>}{['in_progress', 'skipped'].includes(customer.visit_status) && <small>{customer.visit_status === 'in_progress' ? (my ? 'လုပ်ဆောင်နေ' : mt("In progress")) : (my ? 'ကျော်ထား' : 'Skipped')}</small>}</div>
             </article>)}</div> : <State message={state.customers.length ? (my ? 'ကိုက်ညီသော ဖောက်သည်မရှိပါ' : 'No customers match these filters.') : (my ? 'လမ်းကြောင်းတွင် ဖောက်သည်မရှိပါ' : 'No active customers are assigned to this route.')} />}
         </>}
     </section>;

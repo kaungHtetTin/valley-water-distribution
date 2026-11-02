@@ -1,3 +1,6 @@
+import { currentLocale, businessToday, formatMoney as uiMoney, formatDateTime as uiDateTime, TIME_ZONE } from './ui/format.js';
+import { confirmAction } from './ui/ConfirmDialog';
+import { usePageState } from './ui/usePageState';
 import {
     AlertCircle,
     Building2,
@@ -47,6 +50,7 @@ import { MonthSelect } from './components/MonthSelect';
 
 const uiCopy = {
     en: {
+        allServiceDays: 'All service days',
         add: 'Add', edit: 'Edit', save: 'Save changes', cancel: 'Cancel', search: 'Search master data',
         allStatuses: 'All statuses', active: 'Active', inactive: 'Inactive', actions: 'Actions', details: 'Details',
         loading: 'Loading records', empty: 'No records match this view.', retry: 'Retry', delete: 'Delete',
@@ -72,6 +76,7 @@ const uiCopy = {
         hireDateFrom: 'Hired from', hireDateTo: 'Hired through',
     },
     my: {
+        allServiceDays: 'ဝန်ဆောင်မှုနေ့အားလုံး',
         add: 'အသစ်ထည့်ရန်', edit: 'ပြင်ဆင်ရန်', save: 'သိမ်းမည်', cancel: 'မလုပ်တော့ပါ', search: 'Master data ရှာရန်',
         allStatuses: 'အခြေအနေအားလုံး', active: 'အသုံးပြုနေသည်', inactive: 'ပိတ်ထားသည်', actions: 'လုပ်ဆောင်ချက်', details: 'အသေးစိတ်',
         loading: 'အချက်အလက် တင်နေသည်', empty: 'ဤစာရင်းတွင် အချက်အလက်မရှိပါ။', retry: 'ပြန်ကြိုးစားရန်', delete: 'ဖျက်ရန်',
@@ -150,10 +155,7 @@ function apiBase(name) {
     return window.ValleyRuntime?.api?.[name] || fallback[name];
 }
 
-const currentMonthValue = () => {
-    const date = new Date();
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-};
+const currentMonthValue = () => businessToday().slice(0, 7);
 
 const companyFields = [
     { name: 'code', label: 'Company code', type: 'text' },
@@ -212,11 +214,11 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
     const [setup, setSetup] = useState({ loading: true, resources: [], options: {}, error: '' });
     const [setupRetry, setSetupRetry] = useState(0);
     const [records, setRecords] = useState({ loading: true, items: [], meta: {}, error: '' });
-    const [search, setSearch] = useState('');
-    const [status, setStatus] = useState('');
-    const [customerFilters, setCustomerFilters] = useState({ area_id: '', route_id: '', price_type_id: '' });
-    const [employeeFilters, setEmployeeFilters] = useState({ employee_type: '', assigned_route_id: '', assigned_vehicle_id: '', hire_date_from: '', hire_date_to: '' });
-    const [page, setPage] = useState(1);
+    const [search, setSearch] = usePageState('phaseOne:search:1', '');
+    const [status, setStatus] = usePageState('master:status', '');
+    const [customerFilters, setCustomerFilters] = usePageState('master:customerFilters', { area_id: '', route_id: '', price_type_id: '', service_day: '' });
+    const [employeeFilters, setEmployeeFilters] = usePageState('master:employeeFilters', { employee_type: '', assigned_route_id: '', assigned_vehicle_id: '', hire_date_from: '', hire_date_to: '' });
+    const [page, setPage] = usePageState('phaseOne:page:2', 1);
     const [editing, setEditing] = useState(null);
     const [viewing, setViewing] = useState(null);
     const [detailRevision, setDetailRevision] = useState(0);
@@ -248,6 +250,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
                     ...(resourceKey === 'customers' ? {
                         area_id: customerFilters.area_id || undefined,
                         route_id: customerFilters.route_id || undefined,
+                        service_day: customerFilters.service_day || undefined,
                         price_type_id: customerFilters.price_type_id || undefined,
                     } : {}),
                     ...(resourceKey === 'employees' ? Object.fromEntries(
@@ -261,14 +264,9 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
                 .catch((error) => mounted && setRecords({ loading: false, items: [], meta: {}, error: requestError(error, locale, 'loadRecordsError') }));
         }, 220);
         return () => { mounted = false; window.clearTimeout(timer); };
-    }, [customerFilters.area_id, customerFilters.price_type_id, customerFilters.route_id, definition, employeeFilters.assigned_route_id, employeeFilters.assigned_vehicle_id, employeeFilters.employee_type, employeeFilters.hire_date_from, employeeFilters.hire_date_to, locale, page, refreshKey, resourceKey, search, status]);
+    }, [customerFilters.area_id, customerFilters.price_type_id, customerFilters.route_id, customerFilters.service_day, definition, employeeFilters.assigned_route_id, employeeFilters.assigned_vehicle_id, employeeFilters.employee_type, employeeFilters.hire_date_from, employeeFilters.hire_date_to, locale, page, refreshKey, resourceKey, search, status]);
 
     useEffect(() => {
-        setSearch('');
-        setStatus('');
-        setCustomerFilters({ area_id: '', route_id: '', price_type_id: '' });
-        setEmployeeFilters({ employee_type: '', assigned_route_id: '', assigned_vehicle_id: '', hire_date_from: '', hire_date_to: '' });
-        setPage(1);
         setEditing(null);
         setViewing(null);
     }, [resourceKey]);
@@ -340,7 +338,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
     const hasEmployeeFilters = resourceKey === 'employees' && (status || Object.values(employeeFilters).some(Boolean));
 
     const remove = async (record) => {
-        if (!window.confirm(text(locale, 'deleteConfirm'))) return;
+        if (!await confirmAction(text(locale, 'deleteConfirm'), { danger: true })) return;
         try {
             await window.axios.delete(`${apiBase('masterData')}/${resourceKey}/${record.id}`);
             setViewing(null);
@@ -397,7 +395,11 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
                             <option value="__none__">{text(locale, 'noPriceType')}</option>
                             {(setup.options['price-types'] || []).map((priceType) => <option value={priceType.id} key={priceType.id}>{priceType.label}</option>)}
                         </select>
-                        {hasCustomerFilters && <button className="button" type="button" onClick={() => { setStatus(''); setCustomerFilters({ area_id: '', route_id: '', price_type_id: '' }); setPage(1); }}>{text(locale, 'clearFilters')}</button>}
+                        <select aria-label={fieldLabel({ name: 'service_day', label: 'Service day' }, locale)} value={customerFilters.service_day} onChange={(event) => { setCustomerFilters((current) => ({ ...current, service_day: event.target.value })); setPage(1); }}>
+                            <option value="">{text(locale, 'allServiceDays')}</option>
+                            {serviceDays.map((day) => <option key={day} value={day}>{optionLabel(day, locale)}</option>)}
+                        </select>
+                        {hasCustomerFilters && <button className="button" type="button" onClick={() => { setStatus(''); setCustomerFilters({ area_id: '', route_id: '', price_type_id: '', service_day: '' }); setPage(1); }}>{text(locale, 'clearFilters')}</button>}
                     </>}
                     {resourceKey === 'employees' && <>
                         <select aria-label={text(locale, 'allEmployeeTypes')} value={employeeFilters.employee_type} onChange={(event) => { setEmployeeFilters((current) => ({ ...current, employee_type: event.target.value })); setPage(1); }}>
@@ -477,8 +479,8 @@ function ProductPriceMatrix({ definition, locale, canManage, embedded = false })
     const [rows, setRows] = useState({});
     const [dirtyRows, setDirtyRows] = useState({});
     const [dirtyCells, setDirtyCells] = useState({});
-    const [search, setSearch] = useState('');
-    const [page, setPage] = useState(1);
+    const [search, setSearch] = usePageState('phaseOne:search:3', '');
+    const [page, setPage] = usePageState('phaseOne:page:4', 1);
     const [refreshKey, setRefreshKey] = useState(0);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
@@ -498,7 +500,7 @@ function ProductPriceMatrix({ definition, locale, canManage, embedded = false })
                             const price = product.prices.find((item) => Number(item.price_type_id) === Number(priceType.id));
                             return [priceType.id, price ? String(price.amount) : ''];
                         }));
-                        return [product.id, { effective_from: latestDate || new Date().toISOString().slice(0, 10), prices }];
+                        return [product.id, { effective_from: latestDate || businessToday(), prices }];
                     })));
                     setDirtyRows({});
                     setDirtyCells({});
@@ -1280,12 +1282,12 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
     const history = [...(state.report?.monthly_trend || [])].reverse();
     const previous = history.find((item) => item.label < month) || null;
     const scoreChange = review && previous ? Number(review.overall_score || 0) - Number(previous.average_score || 0) : null;
-    const formatMoney = (value) => `${Number(value || 0).toLocaleString()} MMK`;
+    const formatMoney = (value) => `${Number(value || 0).toLocaleString(currentLocale())} MMK`;
     const formatMetric = (value, unit) => {
         if (value === null || value === undefined) return '—';
         return String(unit || '').toUpperCase() === 'MMK'
             ? formatMoney(value)
-            : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}${unit ? ` ${unit}` : ''}`;
+            : `${Number(value).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}${unit ? ` ${unit}` : ''}`;
     };
 
     const openManagerScores = async () => {
@@ -1375,7 +1377,7 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
                                     <thead><tr><th>Metric</th><th>Weight</th><th>Score</th><th>Assessment note</th></tr></thead>
                                     <tbody>{managerForm.items.map((item) => <tr key={item.id}>
                                         <td><strong>{item.name}</strong><small>{item.code}</small></td>
-                                        <td className="numeric"><strong>{Number(item.weight || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</strong></td>
+                                        <td className="numeric"><strong>{Number(item.weight || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%</strong></td>
                                         <td className="editable score"><input type="number" min="0" max="100" step="1" inputMode="numeric" disabled={!canManage || managerForm.result?.status !== 'draft'} value={item.manual_score ?? ''} placeholder="0–100" aria-label={`${item.name} manager score`} onChange={(event) => updateManagerItem(item.id, 'manual_score', event.target.value)} /></td>
                                         <td className="editable note"><input type="text" maxLength="500" disabled={!canManage || managerForm.result?.status !== 'draft'} value={item.notes || ''} placeholder="Optional note" aria-label={`${item.name} assessment note`} onChange={(event) => updateManagerItem(item.id, 'notes', event.target.value)} /></td>
                                     </tr>)}</tbody>
@@ -1397,19 +1399,19 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
 
                     {review ? <>
                         <div className={`employee-kpi-current ${employee.employee_type}`}>
-                            <div className="employee-kpi-score" style={{ '--employee-kpi-score': `${Math.min(Math.max(Number(review.overall_score || 0), 0), 100) * 3.6}deg` }}><span><strong>{Number(review.overall_score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong><small>Score</small></span></div>
+                            <div className="employee-kpi-score" style={{ '--employee-kpi-score': `${Math.min(Math.max(Number(review.overall_score || 0), 0), 100) * 3.6}deg` }}><span><strong>{Number(review.overall_score || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}</strong><small>Score</small></span></div>
                             <div className="employee-kpi-current-copy">
                                 <div><strong>{review.template_name}</strong><span className={`status ${review.status}`}>{titleCase(review.status)}</span></div>
                                 <span>{review.month} · {employee.name}</span>
                                 <p><small>{review.payroll_adjustment_id ? 'Posted to payroll' : review.status === 'approved' ? 'Approved bonus' : 'Current total bonus'}</small><strong>{formatMoney(review.bonus_amount)}</strong></p>
-                                <span className="kpi-live-bonus-note">{review.bonus_calculation === 'proportional' ? `${formatMoney(review.target_bonus)} × ${Number(review.overall_score).toLocaleString(undefined, { maximumFractionDigits: 2 })}%` : 'Historical payout rules'}{review.status === 'draft' ? ' · Updates every 20 seconds' : ''}</span>
-                                {scoreChange !== null && <em className={scoreChange >= 0 ? 'is-positive' : 'is-negative'}><TrendingUp size={13} /> {scoreChange >= 0 ? '+' : ''}{Number(scoreChange).toLocaleString(undefined, { maximumFractionDigits: 2 })} points from {previous.label}</em>}
+                                <span className="kpi-live-bonus-note">{review.bonus_calculation === 'proportional' ? `${formatMoney(review.target_bonus)} × ${Number(review.overall_score).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%` : 'Historical payout rules'}{review.status === 'draft' ? ' · Updates every 20 seconds' : ''}</span>
+                                {scoreChange !== null && <em className={scoreChange >= 0 ? 'is-positive' : 'is-negative'}><TrendingUp size={13} /> {scoreChange >= 0 ? '+' : ''}{Number(scoreChange).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })} points from {previous.label}</em>}
                             </div>
                         </div>
 
                         <div className="employee-kpi-summary">
                             <div><span>Metrics</span><strong>{metrics.length}</strong></div>
-                            <div><span>Overall score</span><strong>{Number(summary.average_score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</strong></div>
+                            <div><span>Overall score</span><strong>{Number(summary.average_score || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%</strong></div>
                             <div><span>Approval</span><strong>{summary.approved ? 'Approved' : titleCase(review.status)}</strong></div>
                             <div><span>Bonus</span><strong>{formatMoney(summary.bonus_total)}</strong></div>
                         </div>
@@ -1420,20 +1422,20 @@ function EmployeeKpiPanel({ employee, canManage, targetOpen = false, onCloseTarg
                                 const progress = Math.min(Math.max(points / Math.max(Number(metric.weight || 0), 1) * 100, 0), 100);
                                 const manual = metric.calculation_type === 'manual';
                                 return <article key={`${metric.template_code}-${metric.code}-${metric.unit}`}>
-                                    <header><span><strong>{metric.name}</strong><small>{manual ? 'Manager assessment' : metric.code}</small></span><b>{metric.points_average === null ? 'Pending' : `${Number(metric.points_average).toLocaleString(undefined, { maximumFractionDigits: 2 })} pts`}</b></header>
+                                    <header><span><strong>{metric.name}</strong><small>{manual ? 'Manager assessment' : metric.code}</small></span><b>{metric.points_average === null ? 'Pending' : `${Number(metric.points_average).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })} pts`}</b></header>
                                     <div className="employee-kpi-progress"><i style={{ width: `${progress}%` }} /></div>
                                     <dl>
                                         {!manual && <div><dt>Target</dt><dd>{formatMetric(metric.target_average, metric.unit)}</dd></div>}
                                         <div><dt>{manual ? 'Score' : 'Actual'}</dt><dd>{formatMetric(metric.actual_average, metric.unit)}</dd></div>
-                                        <div><dt>Achievement</dt><dd>{metric.achievement_average === null ? '—' : `${Number(metric.achievement_average).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`}</dd></div>
-                                        <div><dt>Weight</dt><dd>{Number(metric.weight || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</dd></div>
+                                        <div><dt>Achievement</dt><dd>{metric.achievement_average === null ? '—' : `${Number(metric.achievement_average).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%`}</dd></div>
+                                        <div><dt>Weight</dt><dd>{Number(metric.weight || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%</dd></div>
                                     </dl>
                                 </article>;
                             })}
                         </div>
                     </> : <div className="employee-kpi-empty"><Target size={20} /><span>No KPI review is available for {month}.</span></div>}
 
-                    {history.length > 0 && <div className="employee-kpi-history"><div className="employee-kpi-history-head"><span>Month</span><span>Score</span><span>Reviews</span><span>Bonus</span></div>{history.slice(0, 12).map((item) => <button className={item.label === month ? 'is-active' : ''} type="button" key={item.label} onClick={() => setMonth(item.label)}><strong>{item.label}</strong><span>{Number(item.average_score || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</span><span>{item.reviews}</span><strong>{formatMoney(item.bonus_total)}</strong></button>)}</div>}
+                    {history.length > 0 && <div className="employee-kpi-history"><div className="employee-kpi-history-head"><span>Month</span><span>Score</span><span>Reviews</span><span>Bonus</span></div>{history.slice(0, 12).map((item) => <button className={item.label === month ? 'is-active' : ''} type="button" key={item.label} onClick={() => setMonth(item.label)}><strong>{item.label}</strong><span>{Number(item.average_score || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}%</span><span>{item.reviews}</span><strong>{formatMoney(item.bonus_total)}</strong></button>)}</div>}
                 </section>
             )}
         </DetailPanel>
@@ -1496,7 +1498,7 @@ function VehicleAssignmentDialog({ employee, vehicle, vehicles, locale, onClose,
 
 function SupervisorTeamDialog({ supervisor, representatives, teamMembers, locale, onClose, onSaved }) {
     const [selectedIds, setSelectedIds] = useState(() => teamMembers.filter((member) => member.is_active).map((member) => String(member.id)));
-    const [search, setSearch] = useState('');
+    const [search, setSearch] = usePageState('phaseOne:search:5', '');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
@@ -1558,9 +1560,9 @@ function SupervisorTeamDialog({ supervisor, representatives, teamMembers, locale
 }
 
 function EmployeeCustomerVisits({ employee, locale, dateLabel, revision }) {
-    const [date, setDate] = useState('');
-    const [status, setStatus] = useState('all');
-    const [search, setSearch] = useState('');
+    const [date, setDate] = usePageState('phaseOne:date:view1', '');
+    const [status, setStatus] = usePageState('master:status', 'all');
+    const [search, setSearch] = usePageState('phaseOne:search:6', '');
     const [refresh, setRefresh] = useState(0);
     const [state, setState] = useState({ loading: true, error: '', customers: [], summary: {}, date: '' });
 
@@ -1601,7 +1603,7 @@ function EmployeeCustomerVisits({ employee, locale, dateLabel, revision }) {
 
 function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack, onEdit, revision = 0 }) {
     const managerScoreRequested = new URLSearchParams(window.location.search).get('manager-score') === '1';
-    const [activeTab, setActiveTab] = useState(managerScoreRequested ? 'performance' : 'activity');
+    const [activeTab, setActiveTab] = usePageState('phaseOne:activeTab:view2', managerScoreRequested ? 'performance' : 'activity');
     const [attendanceMonth, setAttendanceMonth] = useState(() => {
         const today = new Date();
         return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -1668,7 +1670,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
         return new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}) }).format(parsed);
     };
     const statusTone = (value) => ({ accepted: 'success', approved: 'success', completed: 'success', delivered: 'success', submitted: 'warning', draft: 'neutral', rejected: 'danger', cancelled: 'danger' })[value] || 'info';
-    const metricValue = (metric) => metric.format === 'money' ? money(metric.value) : Number(metric.value || 0).toLocaleString();
+    const metricValue = (metric) => metric.format === 'money' ? money(metric.value) : Number(metric.value || 0).toLocaleString(currentLocale());
     const [attendanceYear, attendanceMonthNumber] = attendanceMonth.split('-').map(Number);
     const attendanceMonthDate = new Date(attendanceYear, attendanceMonthNumber - 1, 1);
     const attendanceDaysInMonth = new Date(attendanceYear, attendanceMonthNumber, 0).getDate();
@@ -1749,7 +1751,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                     {['sales', 'driver'].includes(employee.employee_type) && <div><dt>Assigned route</dt><dd>{employee.assigned_route || 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'sales' && <div className="employee-profile-wide"><dt>Sales supervisor</dt><dd>{employee.supervisor_name ? `${employee.supervisor_code} · ${employee.supervisor_name}` : 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'driver' && <div className="employee-profile-wide"><dt>Assigned vehicle</dt><dd>{employee.assigned_vehicle || 'Not assigned'}</dd></div>}
-                    {employee.employee_type === 'driver' && vehicle && <div className="employee-profile-wide"><dt>Vehicle details</dt><dd>{titleCase(vehicle.vehicle_type)} · {[vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.plate_no}{vehicle.capacity ? ` · ${Number(vehicle.capacity).toLocaleString()} capacity` : ''}</dd></div>}
+                    {employee.employee_type === 'driver' && vehicle && <div className="employee-profile-wide"><dt>Vehicle details</dt><dd>{titleCase(vehicle.vehicle_type)} · {[vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.plate_no}{vehicle.capacity ? ` · ${Number(vehicle.capacity).toLocaleString(currentLocale())} capacity` : ''}</dd></div>}
                 </dl>
             </aside>
 
@@ -1761,13 +1763,13 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                 {activeTab === 'activity' && <div className="customer-history-content" role="tabpanel">
                     {state.roleMetrics.length > 4 && <div className="employee-secondary-metrics">{state.roleMetrics.slice(4).map((metric) => <span key={metric.label}><small>{metric.label}</small><strong>{metricValue(metric)}</strong></span>)}</div>}
                     <div className="customer-section-heading"><div><p className="eyebrow">{roleName} operations</p><h2>Recent activity</h2></div><span>Latest 30 records</span></div>
-                    {state.activity.length ? <div className="customer-history-table-wrap"><table className="customer-history-table employee-activity-table"><thead><tr><th>Reference</th><th>Type</th><th>Date</th><th>Status</th><th className="numeric">Value</th></tr></thead><tbody>{state.activity.map((item) => <tr key={`${item.kind}-${item.id}`}><td><strong>{item.reference}</strong></td><td>{item.kind}</td><td>{dateLabel(item.date)}</td><td><span className={`status ${statusTone(item.status)}`}>{titleCase(item.status)}</span></td><td className="numeric"><strong>{item.unit ? `${Number(item.amount || 0).toLocaleString()} ${item.unit}` : money(item.amount)}</strong></td></tr>)}</tbody></table></div> : <WorkspaceState icon={TrendingUp} title={`No ${roleName.toLowerCase()} activity has been recorded.`} compact />}
+                    {state.activity.length ? <div className="customer-history-table-wrap"><table className="customer-history-table employee-activity-table"><thead><tr><th>Reference</th><th>Type</th><th>Date</th><th>Status</th><th className="numeric">Value</th></tr></thead><tbody>{state.activity.map((item) => <tr key={`${item.kind}-${item.id}`}><td><strong>{item.reference}</strong></td><td>{item.kind}</td><td>{dateLabel(item.date)}</td><td><span className={`status ${statusTone(item.status)}`}>{titleCase(item.status)}</span></td><td className="numeric"><strong>{item.unit ? `${Number(item.amount || 0).toLocaleString(currentLocale())} ${item.unit}` : money(item.amount)}</strong></td></tr>)}</tbody></table></div> : <WorkspaceState icon={TrendingUp} title={`No ${roleName.toLowerCase()} activity has been recorded.`} compact />}
                 </div>}
 
                 {activeTab === 'visits' && employee.employee_type === 'sales' && <EmployeeCustomerVisits employee={employee} locale={locale} dateLabel={dateLabel} revision={revision} />}
 
                 {activeTab === 'attendance' && <div className="customer-history-content" role="tabpanel">
-                    <div className="customer-credit-strip employee-attendance-strip"><article><span>Accepted in month</span><strong>{state.attendanceLoading ? '…' : Number(state.attendanceSummary.accepted_this_month || 0).toLocaleString()}</strong><small>Valid attendance records</small></article><article><span>Rejected in month</span><strong>{state.attendanceLoading ? '…' : Number(state.attendanceSummary.rejected_this_month || 0).toLocaleString()}</strong><small>Rejected check-ins</small></article><article><span>Last attendance</span><strong>{state.attendanceLoading ? '…' : dateLabel(state.attendanceSummary.last_attendance_at)}</strong><small>Most recent submission</small></article></div>
+                    <div className="customer-credit-strip employee-attendance-strip"><article><span>Accepted in month</span><strong>{state.attendanceLoading ? '…' : Number(state.attendanceSummary.accepted_this_month || 0).toLocaleString(currentLocale())}</strong><small>Valid attendance records</small></article><article><span>Rejected in month</span><strong>{state.attendanceLoading ? '…' : Number(state.attendanceSummary.rejected_this_month || 0).toLocaleString(currentLocale())}</strong><small>Rejected check-ins</small></article><article><span>Last attendance</span><strong>{state.attendanceLoading ? '…' : dateLabel(state.attendanceSummary.last_attendance_at)}</strong><small>Most recent submission</small></article></div>
                     <div className="employee-attendance-calendar-layout">
                         <section className="employee-attendance-calendar-card" aria-label="Employee attendance calendar">
                             <header>
@@ -1784,7 +1786,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
 
                         <section className="employee-attendance-day-card">
                             <div className="customer-section-heading"><div><p className="eyebrow">{selectedAttendanceDate || attendanceMonth}</p><h2>{selectedAttendanceDate ? 'Daily attendance' : 'Monthly records'}</h2></div>{selectedAttendanceDate && <button className="button" type="button" onClick={() => setSelectedAttendanceDate('')}>Show month</button>}</div>
-                            {state.attendanceLoading ? <WorkspaceState icon={RefreshCw} title="Loading attendance calendar" loading compact /> : state.attendanceError ? <WorkspaceState icon={AlertCircle} title={state.attendanceError} compact /> : visibleAttendance.length ? <div className="employee-attendance-record-list">{visibleAttendance.map((item) => <article key={item.id}><span className={`employee-attendance-status-dot ${item.status}`} /><div><strong>{item.location_name || 'Unknown location'}</strong><small>{dateLabel(item.attendance_at, true)}</small><small>{item.rejection_reason || (item.distance_m === null ? 'Distance not recorded' : `${Number(item.distance_m).toLocaleString()} m from location`)}</small></div><span className={`status ${statusTone(item.status)}`}>{titleCase(item.status)}</span></article>)}</div> : <WorkspaceState icon={CalendarDays} title="No attendance record for this period." compact />}
+                            {state.attendanceLoading ? <WorkspaceState icon={RefreshCw} title="Loading attendance calendar" loading compact /> : state.attendanceError ? <WorkspaceState icon={AlertCircle} title={state.attendanceError} compact /> : visibleAttendance.length ? <div className="employee-attendance-record-list">{visibleAttendance.map((item) => <article key={item.id}><span className={`employee-attendance-status-dot ${item.status}`} /><div><strong>{item.location_name || 'Unknown location'}</strong><small>{dateLabel(item.attendance_at, true)}</small><small>{item.rejection_reason || (item.distance_m === null ? 'Distance not recorded' : `${Number(item.distance_m).toLocaleString(currentLocale())} m from location`)}</small></div><span className={`status ${statusTone(item.status)}`}>{titleCase(item.status)}</span></article>)}</div> : <WorkspaceState icon={CalendarDays} title="No attendance record for this period." compact />}
                         </section>
                     </div>
                 </div>}
@@ -1821,7 +1823,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
 }
 
 function OfficeCustomerDetailPage({ customerId, locale = 'en', canManage, onBack, onNavigate, onEdit, revision = 0 }) {
-    const [activeTab, setActiveTab] = useState('sales');
+    const [activeTab, setActiveTab] = usePageState('phaseOne:activeTab:view3', 'sales');
     const [state, setState] = useState({ loading: true, customer: null, summary: {}, sales: [], payments: [], error: '' });
 
     useEffect(() => {
@@ -1882,7 +1884,7 @@ function OfficeCustomerDetailPage({ customerId, locale = 'en', canManage, onBack
                 </div>
             </div>
             <div className="customer-detail-metrics">
-                <article><ShoppingCart size={17} /><span>Total orders</span><strong>{Number(summary.orders_count || 0).toLocaleString()}</strong></article>
+                <article><ShoppingCart size={17} /><span>Total orders</span><strong>{Number(summary.orders_count || 0).toLocaleString(currentLocale())}</strong></article>
                 <article><WalletCards size={17} /><span>Total sales</span><strong>{money(summary.total_sales)}</strong></article>
                 <article><TrendingUp size={17} /><span>Average order</span><strong>{money(summary.average_order)}</strong></article>
                 <article><CalendarDays size={17} /><span>Last purchase</span><strong>{dateLabel(summary.last_order_date)}</strong></article>
@@ -1898,6 +1900,7 @@ function OfficeCustomerDetailPage({ customerId, locale = 'en', canManage, onBack
                     <div><dt><Mail size={15} /> Email</dt><dd>{customer.email || '—'}</dd></div>
                     <div><dt><MapPin size={15} /> Delivery address</dt><dd>{customer.address || '—'}</dd></div>
                     <div><dt>Area / route</dt><dd>{customer.area || 'Pending'} / {customer.route || 'Pending'}</dd></div>
+                    <div><dt>{fieldLabel({ name: 'service_day', label: 'Service day' }, locale)}</dt><dd>{customer.service_day ? optionLabel(customer.service_day, locale) : '—'}</dd></div>
                     <div><dt>Price type</dt><dd>{customer.price_type || '—'}</dd></div>
                     <div><dt>Credit limit</dt><dd>{money(customer.credit_limit)}</dd></div>
                     <div><dt>Customer since</dt><dd>{dateLabel(String(customer.created_at || '').slice(0, 10))}</dd></div>
@@ -1936,8 +1939,8 @@ function OfficeCustomerDetailPage({ customerId, locale = 'en', canManage, onBack
                     <dl className="customer-location-facts">
                         <div><dt>Latitude</dt><dd>{latitude.toFixed(7)}</dd></div>
                         <div><dt>Longitude</dt><dd>{longitude.toFixed(7)}</dd></div>
-                        <div><dt>Accuracy</dt><dd>{customer.gps_accuracy_m === null || customer.gps_accuracy_m === '' ? 'Not recorded' : `Approximately ${Number(customer.gps_accuracy_m).toLocaleString()} m`}</dd></div>
-                        <div><dt>Last recorded</dt><dd>{customer.gps_captured_at ? new Date(customer.gps_captured_at).toLocaleString(locale === 'my' ? 'my-MM' : 'en-GB') : 'Not recorded'}</dd></div>
+                        <div><dt>Accuracy</dt><dd>{customer.gps_accuracy_m === null || customer.gps_accuracy_m === '' ? 'Not recorded' : `Approximately ${Number(customer.gps_accuracy_m).toLocaleString(currentLocale())} m`}</dd></div>
+                        <div><dt>Last recorded</dt><dd>{customer.gps_captured_at ? uiDateTime(customer.gps_captured_at) : 'Not recorded'}</dd></div>
                     </dl>
                 </div>}
             </section>
@@ -2009,8 +2012,8 @@ export function DriverMasterScreen({ locale }) {
    so existing installations can keep their visit records without an active feature.
 export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders }) {
     const [refreshKey, setRefreshKey] = useState(0);
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState('all');
+    const [search, setSearch] = usePageState('phaseOne:search:7', '');
+    const [filter, setFilter] = usePageState('phaseOne:filter:view4', 'all');
     const [updating, setUpdating] = useState(null);
     const [state, setState] = useState({ loading: true, route: null, date: '', customers: [], summary: {}, error: '' });
     const routeUrl = window.ValleyRuntime?.api?.mobileSalesRoute || '/api/mobile/sales-route';
@@ -2080,11 +2083,11 @@ export function SalesRouteScreen({ locale = 'en', onViewCustomer, onOrders }) {
 */
 export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
     const [refreshKey, setRefreshKey] = useState(0);
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState('all');
+    const [search, setSearch] = usePageState('phaseOne:search:8', '');
+    const [filter, setFilter] = usePageState('phaseOne:filter:view5', 'all');
     const emptyFilters = { joined_weekday: '', area_id: '', has_gps: '' };
-    const [visitFilters, setVisitFilters] = useState(emptyFilters);
-    const [draftVisitFilters, setDraftVisitFilters] = useState(emptyFilters);
+    const [visitFilters, setVisitFilters] = usePageState('phaseOne:visitFilters:view6', emptyFilters);
+    const [draftVisitFilters, setDraftVisitFilters] = usePageState('phaseOne:draftVisitFilters:view7', emptyFilters);
     const [updating, setUpdating] = useState(null);
     const [gpsMessage, setGpsMessage] = useState('');
     const [state, setState] = useState({ loading: true, route: null, date: '', customers: [], summary: {}, error: '' });
@@ -2209,16 +2212,18 @@ export function SalesVisitsScreen({ locale = 'en', onViewCustomer }) {
     </div>;
 }
 
+const serviceDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
 function customerJoinedDate(createdAt, locale) {
-    return createdAt ? new Date(createdAt).toLocaleDateString(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    return createdAt ? new Date(createdAt).toLocaleDateString(currentLocale(), { timeZone: TIME_ZONE, weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 }
 
 export function SalesMasterScreen({ locale, onViewCustomer }) {
     const [mode, setMode] = useState('list');
-    const [search, setSearch] = useState('');
-    const emptyFilters = { joined_weekday: '', joined_from: '', joined_to: '', is_active: '', area_id: '', has_gps: '', sort: 'name' };
-    const [filters, setFilters] = useState(emptyFilters);
-    const [draftFilters, setDraftFilters] = useState(emptyFilters);
+    const [search, setSearch] = usePageState('phaseOne:search:9', '');
+    const emptyFilters = { service_day: '', joined_weekday: '', joined_from: '', joined_to: '', is_active: '', area_id: '', has_gps: '', sort: 'name' };
+    const [filters, setFilters] = usePageState('phaseOne:filters:10', emptyFilters);
+    const [draftFilters, setDraftFilters] = usePageState('phaseOne:draftFilters:view8', emptyFilters);
     const [state, setState] = useState({ loading: true, items: [], route: null, areas: [], error: '' });
     const [refreshKey, setRefreshKey] = useState(0);
     const localized = (en, my) => locale === 'my' ? my : en;
@@ -2244,6 +2249,7 @@ export function SalesMasterScreen({ locale, onViewCustomer }) {
             {mode === 'form' ? <SalesCustomerForm locale={locale} onSaved={() => { setRefreshKey((key) => key + 1); setMode('list'); }} /> : (
                 <>
                     <form className="master-toolbar sales-customer-filters" aria-label={localized('Customer filters', 'ဖောက်သည် စစ်ထုတ်ရန်')} onSubmit={(event) => { event.preventDefault(); setFilters({ ...draftFilters }); window.dispatchEvent(new Event('valley:close-filters')); }}>
+                        <label>{fieldLabel({ name: 'service_day', label: 'Service day' }, locale)}<select value={draftFilters.service_day} onChange={(event) => changeFilter('service_day', event.target.value)}><option value="">{text(locale, 'allServiceDays')}</option>{serviceDays.map((day) => <option key={day} value={day}>{optionLabel(day, locale)}</option>)}</select></label>
                         <label>{localized('Joined on (weekday)', 'စာရင်းသွင်းသည့် ရက်သတ္တပတ်နေ့')}<select value={draftFilters.joined_weekday} onChange={(event) => changeFilter('joined_weekday', event.target.value)}><option value="">{localized('All days', 'နေ့အားလုံး')}</option>{[1, 2, 3, 4, 5, 6, 0].map((day) => <option value={day} key={day}>{new Intl.DateTimeFormat(locale === 'my' ? 'my-MM' : 'en-GB', { weekday: 'long' }).format(new Date(2026, 0, 4 + day))}</option>)}</select></label>
                         <label>{localized('Joined from', 'စာရင်းသွင်းသည့်နေ့မှ')}<input type="date" value={draftFilters.joined_from} max={draftFilters.joined_to || undefined} onChange={(event) => changeFilter('joined_from', event.target.value)} /></label>
                         <label>{localized('Joined through', 'စာရင်းသွင်းသည့်နေ့အထိ')}<input type="date" value={draftFilters.joined_to} min={draftFilters.joined_from || undefined} onChange={(event) => changeFilter('joined_to', event.target.value)} /></label>
@@ -2287,7 +2293,7 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
     const hasLocation = customer.latitude !== null && customer.latitude !== undefined && customer.longitude !== null && customer.longitude !== undefined;
     const mapHref = hasLocation ? `https://www.google.com/maps?q=${customer.latitude},${customer.longitude}` : customer.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}` : null;
     const joinedAt = customerJoinedDate(customer.created_at, locale);
-    const lastPurchase = state.summary.last_order_date ? new Date(`${state.summary.last_order_date}T00:00:00`).toLocaleDateString(locale === 'my' ? 'my-MM' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'No purchases';
+    const lastPurchase = state.summary.last_order_date ? new Date(`${state.summary.last_order_date}T00:00:00`).toLocaleDateString(currentLocale(), { timeZone: TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' }) : 'No purchases';
     const recentOrders = state.orders.slice(0, 5);
 
     return <div className="mobile-master-stack sales-customer-detail-page">
@@ -2312,6 +2318,7 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
                     <div><dt><Mail size={16} /><span>Email</span></dt><dd>{customer.email || '—'}</dd></div>
                     <div><dt><MapPin size={16} /><span>Address</span></dt><dd>{customer.address || '—'}</dd></div>
                     <div><dt><MapPinned size={16} /><span>Area / route</span></dt><dd>{[customer.area, customer.route].filter(Boolean).join(' / ') || '—'}</dd></div>
+                    <div><dt><CalendarDays size={16} /><span>{fieldLabel({ name: 'service_day', label: 'Service day' }, locale)}</span></dt><dd>{customer.service_day ? optionLabel(customer.service_day, locale) : '—'}</dd></div>
                     <div><dt><Tags size={16} /><span>Customer group</span></dt><dd>{customer.price_type || 'Default'}</dd></div>
                     <div><dt><CalendarDays size={16} /><span>Date joined</span></dt><dd>{joinedAt}</dd></div>
                 </dl>
@@ -2320,7 +2327,7 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
             <section className="mobile-master-section sales-customer-purchase-card">
                 <div className="sales-customer-card-heading"><div><TrendingUp size={17} /><h2>Purchase summary</h2></div><span>This account</span></div>
                 <div className="sales-customer-summary-grid">
-                    <article><span className="sales-customer-summary-icon"><ShoppingCart size={17} /></span><small>Total orders</small><strong>{Number(state.summary.orders_count || 0).toLocaleString()}</strong></article>
+                    <article><span className="sales-customer-summary-icon"><ShoppingCart size={17} /></span><small>Total orders</small><strong>{Number(state.summary.orders_count || 0).toLocaleString(currentLocale())}</strong></article>
                     <article><span className="sales-customer-summary-icon"><WalletCards size={17} /></span><small>Total spent</small><strong>{money(state.summary.total_amount)}</strong></article>
                     <article><span className="sales-customer-summary-icon"><CalendarDays size={17} /></span><small>Last purchase</small><strong>{lastPurchase}</strong></article>
                     <article><span className="sales-customer-summary-icon"><TrendingUp size={17} /></span><small>Average order</small><strong>{money(state.summary.average_order_value)}</strong></article>
@@ -2334,7 +2341,7 @@ export function SalesCustomerDetailPage({ customerId, locale, onBack, onViewOrde
                 <div className="sales-customer-location-copy"><MapPin size={16} /><span><strong>{customer.address || 'Saved customer position'}</strong><small>{[customer.area, customer.route].filter(Boolean).join(' · ') || (hasLocation ? `${customer.latitude}, ${customer.longitude}` : '')}</small></span></div>
             </section>
 
-            {state.topProducts.length > 0 && <section className="mobile-master-section customer-top-products sales-customer-products-card"><div className="sales-customer-card-heading"><div><Package size={17} /><h2>Top products</h2></div><span>Buying pattern</span></div><div>{state.topProducts.slice(0, 3).map((product, index) => <article key={product.product_id || product.sku}><span className="customer-product-rank">{index + 1}</span><span><strong>{product.name}</strong><small>{product.sku} · {Number(product.quantity || 0).toLocaleString()} units</small></span><strong>{money(product.sales)}</strong></article>)}</div></section>}
+            {state.topProducts.length > 0 && <section className="mobile-master-section customer-top-products sales-customer-products-card"><div className="sales-customer-card-heading"><div><Package size={17} /><h2>Top products</h2></div><span>Buying pattern</span></div><div>{state.topProducts.slice(0, 3).map((product, index) => <article key={product.product_id || product.sku}><span className="customer-product-rank">{index + 1}</span><span><strong>{product.name}</strong><small>{product.sku} · {Number(product.quantity || 0).toLocaleString(currentLocale())} units</small></span><strong>{money(product.sales)}</strong></article>)}</div></section>}
 
             <section className="mobile-master-section customer-order-history sales-customer-orders-card">
                 <div className="sales-customer-card-heading"><div><ShoppingCart size={17} /><h2>Recent orders</h2></div><span>{Number(state.summary.orders_count || 0)} total</span></div>
@@ -2365,7 +2372,7 @@ function SalesCustomerLocationMap({ latitude, longitude, label }) {
 }
 
 function SalesCustomerForm({ locale, onSaved, customer = null, customerId = null }) {
-    const [values, setValues] = useState({ shop_name: customer?.shop_name || '', contact_name: customer?.contact_name || '', phone: customer?.phone || '', email: customer?.email || '', address: customer?.address || '', latitude: customer?.latitude ?? '', longitude: customer?.longitude ?? '', gps_accuracy_m: customer?.gps_accuracy_m ?? '' });
+    const [values, setValues] = useState({ service_day: customer?.service_day || '', shop_name: customer?.shop_name || '', contact_name: customer?.contact_name || '', phone: customer?.phone || '', email: customer?.email || '', address: customer?.address || '', latitude: customer?.latitude ?? '', longitude: customer?.longitude ?? '', gps_accuracy_m: customer?.gps_accuracy_m ?? '' });
     const [errors, setErrors] = useState({});
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
@@ -2403,7 +2410,8 @@ function SalesCustomerForm({ locale, onSaved, customer = null, customerId = null
         <form className="mobile-customer-form" onSubmit={submit}>
             <div><p className="eyebrow">{text(locale, 'masterData')}</p><h2>{customerId ? 'Edit customer' : text(locale, 'registerCustomer')}</h2></div>
             {fields.map(([name, label]) => <label key={name}>{label}{name === 'address' ? <textarea rows="3" value={values[name]} onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))} /> : <input type={name === 'email' ? 'email' : 'text'} value={values[name]} onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))} />}{errors[name] && <small>{validationError(name, errors, locale)}</small>}</label>)}
-            {customerId && <fieldset className="sales-customer-gps-fields"><legend>Customer GPS position</legend><div><label>Latitude<input type="text" inputMode="decimal" value={values.latitude} onChange={(event) => setValues((current) => ({ ...current, latitude: event.target.value }))} />{errors.latitude && <small>{validationError('latitude', errors, locale)}</small>}</label><label>Longitude<input type="text" inputMode="decimal" value={values.longitude} onChange={(event) => setValues((current) => ({ ...current, longitude: event.target.value }))} />{errors.longitude && <small>{validationError('longitude', errors, locale)}</small>}</label></div><button className="button" type="button" disabled={locating} onClick={capturePosition}><MapPinned size={15} />{locating ? 'Capturing GPS…' : 'Use current position'}</button>{values.gps_accuracy_m !== '' && <small>Accuracy: approximately {Number(values.gps_accuracy_m).toLocaleString()} m</small>}</fieldset>}
+            <label>{fieldLabel({ name: 'service_day', label: 'Service day' }, locale)}<select value={values.service_day} onChange={(event) => setValues((current) => ({ ...current, service_day: event.target.value }))}><option value="">{text(locale, 'select')}</option>{serviceDays.map((day) => <option key={day} value={day}>{optionLabel(day, locale)}</option>)}</select>{errors.service_day && <small>{validationError('service_day', errors, locale)}</small>}</label>
+            {customerId && <fieldset className="sales-customer-gps-fields"><legend>Customer GPS position</legend><div><label>Latitude<input type="text" inputMode="decimal" value={values.latitude} onChange={(event) => setValues((current) => ({ ...current, latitude: event.target.value }))} />{errors.latitude && <small>{validationError('latitude', errors, locale)}</small>}</label><label>Longitude<input type="text" inputMode="decimal" value={values.longitude} onChange={(event) => setValues((current) => ({ ...current, longitude: event.target.value }))} />{errors.longitude && <small>{validationError('longitude', errors, locale)}</small>}</label></div><button className="button" type="button" disabled={locating} onClick={capturePosition}><MapPinned size={15} />{locating ? 'Capturing GPS…' : 'Use current position'}</button>{values.gps_accuracy_m !== '' && <small>Accuracy: approximately {Number(values.gps_accuracy_m).toLocaleString(currentLocale())} m</small>}</fieldset>}
             {message && <div className={Object.keys(errors).length ? 'inline-error' : 'inline-success'}>{message}</div>}
             <button className="button primary" type="submit" disabled={saving}><Save size={16} /> {text(locale, 'save')}</button>
         </form>
@@ -2421,7 +2429,7 @@ function InfoList({ record, fields, locale }) {
     return <dl className="mobile-info-list">{fields.map((field) => <div key={field}><dt>{myFieldLabels[field] && locale === 'my' ? myFieldLabels[field] : titleCase(field)}</dt><dd>{renderValue(field, record[field], locale)}</dd></div>)}</dl>;
 }
 
-function money(value) { return `${Number(value || 0).toLocaleString()} MMK`; }
+function money(value) { return uiMoney(value); }
 
 function useEndpoint(url, key, locale) {
     const [attempt, setAttempt] = useState(0);
@@ -2466,7 +2474,7 @@ function columnLabel(column, definition, locale) {
 function renderValue(column, value, locale) {
     if (['is_active', 'is_default'].includes(column)) return <span className={`status ${value ? 'success' : 'neutral'}`}>{value ? text(locale, column === 'is_active' ? 'active' : 'yes') : text(locale, column === 'is_active' ? 'inactive' : 'no')}</span>;
     if (value === null || value === undefined || value === '') return <span className="muted">—</span>;
-    if (['amount', 'credit_limit', 'base_salary'].includes(column)) return `${Number(value).toLocaleString()} MMK`;
+    if (['amount', 'credit_limit', 'base_salary'].includes(column)) return `${Number(value).toLocaleString(currentLocale())} MMK`;
     if (locale === 'my' && myOptionLabels[value]) return myOptionLabels[value];
     return String(value);
 }

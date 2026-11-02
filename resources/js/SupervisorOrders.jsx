@@ -1,17 +1,19 @@
+import { formatMoney as uiMoney } from './ui/format.js';
+import { usePageState } from './ui/usePageState';
 import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw, Search, ShoppingCart } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { StatusBadge } from './phaseFour';
 
 const api = () => window.ValleyRuntime?.api?.mobileOrders || '/api/mobile/orders';
 const emptyFilters = { search: '', representative_id: '', route_id: '', status: '', delivery_status: '', payment_type: '', date_from: '', date_to: '', delivery_from: '', delivery_to: '', min_total: '', max_total: '' };
-const money = (value) => `${Number(value || 0).toLocaleString()} MMK`;
+const money = uiMoney;
 
 export function SupervisorOrdersScreen({ locale = 'en', active = true, onViewOrder }) {
     const my = locale === 'my';
     const label = (en, mm) => my ? mm : en;
-    const [draft, setDraft] = useState(emptyFilters);
-    const [filters, setFilters] = useState(emptyFilters);
-    const [page, setPage] = useState(1);
+    const [draft, setDraft] = usePageState('SupervisorOrders:draft:view1', emptyFilters);
+    const [filters, setFilters] = usePageState('SupervisorOrders:filters:1', emptyFilters);
+    const [page, setPage] = usePageState('SupervisorOrders:page:2', 1);
     const [refresh, setRefresh] = useState(0);
     const [setup, setSetup] = useState({ representatives: [], routes: [] });
     const [setupError, setSetupError] = useState('');

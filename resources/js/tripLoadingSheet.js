@@ -1,6 +1,7 @@
+import { currentLocale } from './ui/format.js';
 import { printConfiguredDocument } from './printDocuments.js';
 
-const quantity = (value) => Number(value || 0).toLocaleString();
+const quantity = (value) => Number(value || 0).toLocaleString(currentLocale());
 const identity = (...values) => values.filter(Boolean).join(' · ');
 
 export function buildTripLoadingDocument({ delivery, trip, stock = [], stops = [] }) {

@@ -1,3 +1,4 @@
+import { mobileText as mt } from './ui/mobileCopy.js';
 import { Camera, Crop, KeyRound, Save, ShieldCheck, UserRound, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -34,8 +35,8 @@ function drawSquareCrop(canvas, image, crop) {
 }
 
 async function compressProfilePhoto(file) {
-    if (!PROFILE_PHOTO_TYPES.includes(file.type)) throw new Error('Choose a JPG, PNG or WebP image.');
-    if (file.size > PROFILE_PHOTO_SOURCE_MAX) throw new Error('The original image must not exceed 2 MB.');
+    if (!PROFILE_PHOTO_TYPES.includes(file.type)) throw new Error(mt("Choose a JPG, PNG or WebP image."));
+    if (file.size > PROFILE_PHOTO_SOURCE_MAX) throw new Error(mt("The original image must not exceed 2 MB."));
     if (file.size <= PROFILE_PHOTO_TARGET_MAX) return file;
 
     const objectUrl = URL.createObjectURL(file);
@@ -88,7 +89,7 @@ function Field({ label, error, children }) {
     );
 }
 
-export function ProfileSettingsScreen({ user, onUserUpdated }) {
+export function ProfileSettingsScreen({ user, onUserUpdated, title }) {
     const [profile, setProfile] = useState({ name: user.name || '', email: user.email || '', phone: user.phone || '' });
     const [profilePhoto, setProfilePhoto] = useState(null);
     const [photoPreview, setPhotoPreview] = useState(user.profile_photo_url || '');
@@ -119,13 +120,13 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
         setProfileState((current) => ({ ...current, errors: { ...current.errors, profile_photo: undefined }, message: '' }));
 
         try {
-            if (!PROFILE_PHOTO_TYPES.includes(source.type)) throw new Error('Choose a JPG, PNG or WebP image.');
-            if (source.size > PROFILE_PHOTO_SOURCE_MAX) throw new Error('The original image must not exceed 2 MB.');
+            if (!PROFILE_PHOTO_TYPES.includes(source.type)) throw new Error(mt("Choose a JPG, PNG or WebP image."));
+            if (source.size > PROFILE_PHOTO_SOURCE_MAX) throw new Error(mt("The original image must not exceed 2 MB."));
             selectedUrl = URL.createObjectURL(source);
             const image = await new Promise((resolve, reject) => {
                 const element = new Image();
                 element.onload = () => resolve(element);
-                element.onerror = () => reject(new Error('The selected image could not be opened.'));
+                element.onerror = () => reject(new Error(mt("The selected image could not be opened.")));
                 element.src = selectedUrl;
             });
             setCropper({ file: source, url: selectedUrl, image, zoom: 1, x: 50, y: 50 });
@@ -145,7 +146,7 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
             canvas.height = 1024;
             drawSquareCrop(canvas, cropper.image, cropper);
             const blob = await canvasBlob(canvas, 'image/webp', 0.88);
-            if (!blob) throw new Error('The cropped image could not be created.');
+            if (!blob) throw new Error(mt("The cropped image could not be created."));
             const baseName = cropper.file.name.replace(/\.[^.]+$/, '') || 'profile-photo';
             const cropped = new File([blob], `${baseName}-square.webp`, { type: blob.type, lastModified: Date.now() });
             const compressed = await compressProfilePhoto(cropped);
@@ -229,7 +230,7 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
             setProfileState({
                 saving: false,
                 errors: error.response?.data?.errors || {},
-                message: error.response?.data?.message || 'Unable to update profile information.',
+                message: error.response?.data?.message || mt("Unable to update profile information."),
             });
         }
     };
@@ -246,7 +247,7 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
             setSecurityState({
                 saving: false,
                 errors: error.response?.data?.errors || {},
-                message: error.response?.data?.message || 'Unable to update password.',
+                message: error.response?.data?.message || mt("Unable to update password."),
             });
         }
     };
@@ -255,9 +256,9 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
         <section className="page profile-settings-page">
             <div className="master-heading">
                 <div>
-                    <p className="eyebrow">Account settings</p>
-                    <h1>Profile & security</h1>
-                    <span className="muted">Manage your personal information and sign-in password.</span>
+                    <p className="eyebrow">{mt("Account settings")}</p>
+                    <h1>{title || mt("Profile & security")}</h1>
+                    <span className="muted">{mt("Manage your personal information and sign-in password.")}</span>
                 </div>
             </div>
 
@@ -265,20 +266,20 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
                 <form className="master-panel profile-settings-card" onSubmit={updateProfile}>
                     <header className="profile-settings-card-heading">
                         <span className="profile-settings-icon"><UserRound size={17} /></span>
-                        <div><h2>Profile information</h2><p>Update the details shown across the application.</p></div>
+                        <div><h2>{mt("Profile information")}</h2><p>{mt("Update the details shown across the application.")}</p></div>
                     </header>
                     <div className="profile-settings-form">
                         <div className="profile-photo-field">
                             <span className="profile-photo-preview" aria-hidden="true">{photoPreview ? <img src={photoPreview} alt="" /> : user.name?.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span>
-                            <div><strong>Profile photo</strong><small>Upload up to 2 MB. Crop to square and store at 500 KB or less.</small><label className={`button ${photoProcessing ? 'is-disabled' : ''}`} htmlFor="account-profile-photo" aria-disabled={photoProcessing}><Camera size={15} />{photoProcessing ? 'Processing…' : profilePhoto ? 'Change photo' : 'Choose photo'}</label><input ref={photoInputRef} id="account-profile-photo" className="profile-photo-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={photoProcessing} onChange={selectProfilePhoto} />{profilePhoto && <small className="profile-photo-name">{profilePhoto.name} · {Math.ceil(profilePhoto.size / 1024)} KB</small>}{profileState.errors.profile_photo?.[0] && <small className="profile-photo-error">{profileState.errors.profile_photo[0]}</small>}</div>
+                            <div><strong>{mt("Profile photo")}</strong><small>{mt("Upload up to 2 MB. Crop to square and store at 500 KB or less.")}</small><label className={`button ${photoProcessing ? 'is-disabled' : ''}`} htmlFor="account-profile-photo" aria-disabled={photoProcessing}><Camera size={15} />{photoProcessing ? mt("Processing…") : profilePhoto ? mt("Change photo") : mt("Choose photo")}</label><input ref={photoInputRef} id="account-profile-photo" className="profile-photo-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={photoProcessing} onChange={selectProfilePhoto} />{profilePhoto && <small className="profile-photo-name">{profilePhoto.name} · {Math.ceil(profilePhoto.size / 1024)} KB</small>}{profileState.errors.profile_photo?.[0] && <small className="profile-photo-error">{profileState.errors.profile_photo[0]}</small>}</div>
                         </div>
-                        <Field label="Full name" error={profileState.errors.name?.[0]}>
+                        <Field label={mt("Full name")} error={profileState.errors.name?.[0]}>
                             <input required autoComplete="name" value={profile.name} onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))} />
                         </Field>
-                        <Field label="Email address" error={profileState.errors.email?.[0]}>
+                        <Field label={mt("Email address")} error={profileState.errors.email?.[0]}>
                             <input required type="email" autoComplete="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} />
                         </Field>
-                        <Field label="Phone number" error={profileState.errors.phone?.[0]}>
+                        <Field label={mt("Phone number")} error={profileState.errors.phone?.[0]}>
                             <input type="tel" autoComplete="tel" placeholder="Optional" value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} />
                         </Field>
                         <Field label="Role">
@@ -286,9 +287,9 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
                         </Field>
                     </div>
                     <footer>
-                        {profileState.message && <span className={Object.keys(profileState.errors).length ? 'settings-message error' : 'settings-message success'}>{profileState.message}</span>}
+                        {profileState.message && <span className={Object.keys(profileState.errors).length ? 'settings-message error' : 'settings-message success'}>{mt(profileState.message)}</span>}
                         <button className="button primary" disabled={profileState.saving || photoProcessing}>
-                            <Save size={15} />{profileState.saving ? 'Saving…' : 'Save profile'}
+                            <Save size={15} />{profileState.saving ? mt("Saving…") : mt("Save profile")}
                         </button>
                     </footer>
                 </form>
@@ -296,23 +297,23 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
                 <form className="master-panel profile-settings-card" onSubmit={updatePassword}>
                     <header className="profile-settings-card-heading">
                         <span className="profile-settings-icon"><ShieldCheck size={17} /></span>
-                        <div><h2>Security</h2><p>Use a strong password with at least 8 characters.</p></div>
+                        <div><h2>{mt("Security")}</h2><p>{mt("Use a strong password with at least 8 characters.")}</p></div>
                     </header>
                     <div className="profile-settings-form single-column">
-                        <Field label="Current password" error={securityState.errors.current_password?.[0]}>
+                        <Field label={mt("Current password")} error={securityState.errors.current_password?.[0]}>
                             <input required type="password" autoComplete="current-password" value={security.current_password} onChange={(event) => setSecurity((current) => ({ ...current, current_password: event.target.value }))} />
                         </Field>
-                        <Field label="New password" error={securityState.errors.password?.[0]}>
+                        <Field label={mt("New password")} error={securityState.errors.password?.[0]}>
                             <input required minLength="8" type="password" autoComplete="new-password" value={security.password} onChange={(event) => setSecurity((current) => ({ ...current, password: event.target.value }))} />
                         </Field>
-                        <Field label="Confirm new password" error={securityState.errors.password_confirmation?.[0]}>
+                        <Field label={mt("Confirm new password")} error={securityState.errors.password_confirmation?.[0]}>
                             <input required minLength="8" type="password" autoComplete="new-password" value={security.password_confirmation} onChange={(event) => setSecurity((current) => ({ ...current, password_confirmation: event.target.value }))} />
                         </Field>
                     </div>
                     <footer>
-                        {securityState.message && <span className={Object.keys(securityState.errors).length ? 'settings-message error' : 'settings-message success'}>{securityState.message}</span>}
+                        {securityState.message && <span className={Object.keys(securityState.errors).length ? 'settings-message error' : 'settings-message success'}>{mt(securityState.message)}</span>}
                         <button className="button primary" disabled={securityState.saving}>
-                            <KeyRound size={15} />{securityState.saving ? 'Updating…' : 'Update password'}
+                            <KeyRound size={15} />{securityState.saving ? 'Updating…' : mt("Update password")}
                         </button>
                     </footer>
                 </form>
@@ -320,18 +321,18 @@ export function ProfileSettingsScreen({ user, onUserUpdated }) {
 
             {cropper && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closeCropper()}>
                 <section className="master-dialog profile-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-crop-title" onKeyDown={(event) => event.key === 'Escape' && closeCropper()}>
-                    <header><div><p className="eyebrow">Profile photo</p><h2 id="profile-crop-title">Crop square image</h2></div><button className="icon-button" type="button" aria-label="Close cropper" onClick={closeCropper}><X size={17} /></button></header>
+                    <header><div><p className="eyebrow">{mt("Profile photo")}</p><h2 id="profile-crop-title">{mt("Crop square image")}</h2></div><button className="icon-button" type="button" aria-label={mt("Close cropper")} onClick={closeCropper}><X size={17} /></button></header>
                     <div className="profile-crop-body">
-                        <div className="profile-crop-stage"><canvas ref={cropCanvasRef} className="profile-crop-canvas" width="600" height="600" role="img" tabIndex="0" aria-label="Square profile photo crop preview. Drag to reposition and pinch to zoom." onPointerDown={beginCropGesture} onPointerMove={moveCropGesture} onPointerUp={endCropGesture} onPointerCancel={endCropGesture} onWheel={(event) => { event.preventDefault(); updateCropGesture(0, 0, event.deltaY < 0 ? 1.08 : 0.92); }} onKeyDown={(event) => {
+                        <div className="profile-crop-stage"><canvas ref={cropCanvasRef} className="profile-crop-canvas" width="600" height="600" role="img" tabIndex="0" aria-label={mt("Square profile photo crop preview. Drag to reposition and pinch to zoom.")} onPointerDown={beginCropGesture} onPointerMove={moveCropGesture} onPointerUp={endCropGesture} onPointerCancel={endCropGesture} onWheel={(event) => { event.preventDefault(); updateCropGesture(0, 0, event.deltaY < 0 ? 1.08 : 0.92); }} onKeyDown={(event) => {
                             const actions = { ArrowLeft: [8, 0, 1], ArrowRight: [-8, 0, 1], ArrowUp: [0, 8, 1], ArrowDown: [0, -8, 1], '+': [0, 0, 1.08], '=': [0, 0, 1.08], '-': [0, 0, 0.92] };
                             if (actions[event.key]) {
                                 event.preventDefault();
                                 updateCropGesture(...actions[event.key]);
                             }
                         }} /><span>{cropper.zoom.toFixed(1)}×</span></div>
-                        <p className="profile-crop-hint">Drag with one finger to reposition. Pinch with two fingers to zoom in or out.</p>
+                        <p className="profile-crop-hint">{mt("Drag with one finger to reposition. Pinch with two fingers to zoom in or out.")}</p>
                     </div>
-                    <footer><button className="button" type="button" onClick={closeCropper}>Cancel</button><button className="button" type="button" onClick={() => setCropper((current) => ({ ...current, zoom: 1, x: 50, y: 50 }))}>Reset</button><button className="button primary" type="button" disabled={photoProcessing} onClick={applyCrop}><Crop size={15} />{photoProcessing ? 'Processing…' : 'Apply crop'}</button></footer>
+                    <footer><button className="button" type="button" onClick={closeCropper}>{mt("Cancel")}</button><button className="button" type="button" onClick={() => setCropper((current) => ({ ...current, zoom: 1, x: 50, y: 50 }))}>{mt("Reset")}</button><button className="button primary" type="button" disabled={photoProcessing} onClick={applyCrop}><Crop size={15} />{photoProcessing ? mt("Processing…") : mt("Apply crop")}</button></footer>
                 </section>
             </div>}
         </section>

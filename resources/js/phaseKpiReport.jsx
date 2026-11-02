@@ -1,14 +1,13 @@
+import { businessToday, currentLocale, formatMoney as uiMoney } from './ui/format.js';
+import { usePageState } from './ui/usePageState';
 import { AlertCircle, BadgeCheck, CalendarDays, ChevronDown, CircleGauge, Download, Printer, RefreshCw, Search, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ShellPageActions } from './components/ShellPageActions';
 
-const currentMonth = () => {
-    const date = new Date();
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-};
+const currentMonth = () => businessToday().slice(0, 7);
 const reportApi = () => window.ValleyRuntime?.api?.kpiReports || '/api/kpi-reports';
-const money = (value) => `${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} MMK`;
-const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const money = uiMoney;
+const number = (value) => Number(value || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 });
 const titleCase = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const initialFilters = () => ({ period: 'month', month: currentMonth(), year: currentMonth().slice(0, 4), employee_type: '', employee_id: '' });
 const monthOptions = [
@@ -19,8 +18,8 @@ const monthOptions = [
 const yearOptions = Array.from({ length: new Date().getFullYear() - 2019 }, (_, index) => String(new Date().getFullYear() - index));
 
 export function KpiReportsScreen() {
-    const [draft, setDraft] = useState(initialFilters);
-    const [filters, setFilters] = useState(initialFilters);
+    const [draft, setDraft] = usePageState('phaseKpiReport:draft:view1', initialFilters);
+    const [filters, setFilters] = usePageState('phaseKpiReport:filters:1', initialFilters);
     const [refreshKey, setRefreshKey] = useState(0);
     const [state, setState] = useState({ loading: true, data: emptyReport(), error: '' });
 
@@ -209,7 +208,7 @@ function MetricBreakdown({ items, roleSummary, selectedType, employeeSelected })
             return <details className="kpi-metric-type-section" key={group.employeeType} open={defaultOpen ? true : undefined}>
                 <summary>
                     <span className="kpi-metric-type-icon"><Users size={17} /></span>
-                    <span><strong>{typeLabels[group.employeeType] || titleCase(group.employeeType)}</strong><small>{Number(groupSummary.employees || 0).toLocaleString()} employee{Number(groupSummary.employees || 0) === 1 ? '' : 's'} · {Number(groupSummary.reviews || 0).toLocaleString()} review{Number(groupSummary.reviews || 0) === 1 ? '' : 's'}</small></span>
+                    <span><strong>{typeLabels[group.employeeType] || titleCase(group.employeeType)}</strong><small>{Number(groupSummary.employees || 0).toLocaleString(currentLocale())} employee{Number(groupSummary.employees || 0) === 1 ? '' : 's'} · {Number(groupSummary.reviews || 0).toLocaleString(currentLocale())} review{Number(groupSummary.reviews || 0) === 1 ? '' : 's'}</small></span>
                     <span className="kpi-metric-type-score"><small>Average score</small><strong>{number(groupSummary.average_score)}%</strong></span>
                     <ChevronDown size={17} />
                 </summary>

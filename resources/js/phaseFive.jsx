@@ -1,3 +1,5 @@
+import { formatDate as uiDate, formatDateTime as uiDateTime, currentLocale, businessToday, formatMoney as uiMoney } from './ui/format.js';
+import { usePageState, useUpdateEffect } from './ui/usePageState';
 import { Archive, CalendarDays, Check, Eye, Pencil, Trash2, Package, Plus, Printer, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { DetailPage, DetailPanel } from './components/DetailPage';
@@ -159,9 +161,9 @@ const copy = {
     my: {},
 };
 
-const blankForm = { movement_type: 'receive', supplier_id: '', warehouse_id: '', product_id: '', movement_date: new Date().toISOString().slice(0, 10), quantity: 1, unit_cost: '', settlement_method: 'credit', payment_terms_days: 30, due_date: '', reference_code: '', notes: '', items: [] };
-const blankTransferForm = { from_warehouse_id: '', to_warehouse_id: '', movement_date: new Date().toISOString().slice(0, 10), reference_code: '', notes: '', items: [] };
-const blankClosingForm = { warehouse_id: '', movement_date: new Date().toISOString().slice(0, 10), reference_code: '', notes: '', items: [] };
+const blankForm = { movement_type: 'receive', supplier_id: '', warehouse_id: '', product_id: '', movement_date: businessToday(), quantity: 1, unit_cost: '', settlement_method: 'credit', payment_terms_days: 30, due_date: '', reference_code: '', notes: '', items: [] };
+const blankTransferForm = { from_warehouse_id: '', to_warehouse_id: '', movement_date: businessToday(), reference_code: '', notes: '', items: [] };
+const blankClosingForm = { warehouse_id: '', movement_date: businessToday(), reference_code: '', notes: '', items: [] };
 const movementTypes = ['opening', 'receive', 'issue', 'damage'];
 const movementFilterTypes = ['opening', 'receive', 'issue', 'damage', 'transfer_out', 'transfer_in', 'adjustment', 'delivery_issue', 'delivery_issue_reversal', 'delivery_return', 'delivery_damage'];
 const movementModeConfig = {
@@ -285,9 +287,9 @@ function printStockDocument(type, documentCode) {
 export function StockReceiveScreen({ locale, canManage = false, mode = 'receive', receiveForm = false, onNavigate }) {
     const movementConfig = movementModeConfig[mode] || movementModeConfig.receive;
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], suppliers: [], error: '' });
-    const [filters, setFilters] = useState({ search: '', warehouse_id: '', product_id: '', supplier_id: '', type: movementConfig.fixedType || '', date: '' });
+    const [filters, setFilters] = usePageState('phaseFive:filters:1', { search: '', warehouse_id: '', product_id: '', supplier_id: '', type: movementConfig.fixedType || '', date: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
-    const [page, setPage] = useState(1);
+    const [page, setPage] = usePageState('phaseFive:page:2', 1);
     const [refreshKey, setRefreshKey] = useState(0);
     const [editingReceipt, setEditingReceipt] = useState('');
     const [receiptDetail, setReceiptDetail] = useState(null);
@@ -336,7 +338,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
         return () => { mounted = false; window.clearTimeout(timer); };
     }, [filters, page, refreshKey, movementConfig.fixedType, mode]);
 
-    useEffect(() => {
+    useUpdateEffect(() => {
         setPage(1);
     }, [filters.search, filters.warehouse_id, filters.product_id, filters.supplier_id, filters.type, filters.date]);
 
@@ -387,7 +389,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
             product_id: mode === 'receive' ? '' : firstProduct?.id || '',
             unit_cost: mode === 'receive' ? '' : firstProduct?.latest_cost || '',
             items: [],
-            movement_date: new Date().toISOString().slice(0, 10),
+            movement_date: businessToday(),
         });
         setFormError('');
         setWizardStep(0);
@@ -417,7 +419,7 @@ export function StockReceiveScreen({ locale, canManage = false, mode = 'receive'
             movement_type: movementConfig.defaultType,
             warehouse_id: firstWarehouse?.id || '',
             items: [],
-            movement_date: new Date().toISOString().slice(0, 10),
+            movement_date: businessToday(),
         });
         setFormError('');
         setWizardStep(0);
@@ -753,9 +755,9 @@ export function StockIssueScreen({ locale, canManage = false }) {
 export function StockAdjustmentScreen({ locale, canManage = false, creating = false, onNavigate }) {
     const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/stock/adjustments`;
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
-    const [filters, setFilters] = useState({ search: '', warehouse_id: '', product_id: '', adjustment_reason: '', date: '' });
+    const [filters, setFilters] = usePageState('phaseFive:filters:3', { search: '', warehouse_id: '', product_id: '', adjustment_reason: '', date: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
-    const [page, setPage] = useState(1);
+    const [page, setPage] = usePageState('phaseFive:page:4', 1);
     const [refreshKey, setRefreshKey] = useState(0);
 
     useEffect(() => {
@@ -790,7 +792,7 @@ export function StockAdjustmentScreen({ locale, canManage = false, creating = fa
         return () => { mounted = false; window.clearTimeout(timer); };
     }, [creating, filters, page, refreshKey]);
 
-    useEffect(() => setPage(1), [filters.search, filters.warehouse_id, filters.product_id, filters.adjustment_reason, filters.date]);
+    useUpdateEffect(() => setPage(1), [filters.search, filters.warehouse_id, filters.product_id, filters.adjustment_reason, filters.date]);
 
     if (creating) {
         return <StockAdjustmentFormPage locale={locale} canManage={canManage} meta={meta} onBack={() => onNavigate?.(listPath)} onSaved={(movement) => { setState((current) => ({ ...current, items: [movement, ...current.items], summary: { ...current.summary, records_count: Number(current.summary.records_count || 0) + 1, in_quantity: Number(current.summary.in_quantity || 0) + Math.max(Number(movement.signed_quantity || 0), 0), out_quantity: Number(current.summary.out_quantity || 0) + Math.abs(Math.min(Number(movement.signed_quantity || 0), 0)), stock_value: Number(current.summary.stock_value || 0) + Number(movement.total_cost || 0) }, pageMeta: { ...current.pageMeta, total: Number(current.pageMeta.total || 0) + 1 } })); onNavigate?.(listPath); }} />;
@@ -853,7 +855,7 @@ export function StockAdjustmentScreen({ locale, canManage = false, creating = fa
 }
 
 function StockAdjustmentFormPage({ locale, canManage, meta, onBack, onSaved }) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = businessToday();
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [form, setForm] = useState({ movement_type: 'adjustment', warehouse_id: '', product_id: '', movement_date: today, adjustment_reason: 'damage', adjustment_direction: 'decrease', quantity: 1, unit_cost: '', reference_code: '', notes: '' });
@@ -931,9 +933,9 @@ function StockAdjustmentFormPage({ locale, canManage, meta, onBack, onSaved }) {
 
 export function ClosingStockScreen({ locale, canManage = false, closingForm = false, detailId = null, onNavigate }) {
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
-    const [filters, setFilters] = useState({ search: '', warehouse_id: '', product_id: '', date: '' });
+    const [filters, setFilters] = usePageState('phaseFive:filters:5', { search: '', warehouse_id: '', product_id: '', date: '' });
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
-    const [page, setPage] = useState(1);
+    const [page, setPage] = usePageState('phaseFive:page:6', 1);
     const [refreshKey, setRefreshKey] = useState(0);
     const [saving, setSaving] = useState(false);
     const [loadingWorksheet, setLoadingWorksheet] = useState(false);
@@ -965,11 +967,11 @@ export function ClosingStockScreen({ locale, canManage = false, closingForm = fa
         return () => { mounted = false; window.clearTimeout(timer); };
     }, [closingForm, detailId, filters, page, refreshKey]);
 
-    useEffect(() => { setPage(1); }, [filters.search, filters.warehouse_id, filters.product_id, filters.date]);
+    useUpdateEffect(() => { setPage(1); }, [filters.search, filters.warehouse_id, filters.product_id, filters.date]);
 
     useEffect(() => {
         if (!closingForm || meta.loading) return;
-        setForm({ ...blankClosingForm, warehouse_id: meta.warehouses[0]?.id || '', movement_date: new Date().toISOString().slice(0, 10) });
+        setForm({ ...blankClosingForm, warehouse_id: meta.warehouses[0]?.id || '', movement_date: businessToday() });
         setWizardStep(0);
         setProductSearch('');
         setFormError('');
@@ -1152,9 +1154,9 @@ function ClosingStockDetailPage({ id, locale, onBack }) {
 export function StockOverviewScreen({ view = 'balance', locale, onNavigate }) {
     const showingValue = view === 'value';
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
-    const [filters, setFilters] = useState({ search: '', product_id: '' });
+    const [filters, setFilters] = usePageState('phaseFive:filters:7', { search: '', product_id: '' });
     const [state, setState] = useState({ loading: true, items: [], warehouses: [], summary: {}, pageMeta: {}, error: '' });
-    const [page, setPage] = useState(1);
+    const [page, setPage] = usePageState('phaseFive:page:8', 1);
     const [refreshKey, setRefreshKey] = useState(0);
 
     useEffect(() => {
@@ -1165,7 +1167,7 @@ export function StockOverviewScreen({ view = 'balance', locale, onNavigate }) {
         return () => { mounted = false; };
     }, []);
 
-    useEffect(() => { setPage(1); }, [view, filters.search, filters.product_id]);
+    useUpdateEffect(() => { setPage(1); }, [view, filters.search, filters.product_id]);
 
     useEffect(() => {
         let mounted = true;
@@ -1253,9 +1255,9 @@ export function StockOverviewScreen({ view = 'balance', locale, onNavigate }) {
 export function StockTransferScreen({ locale, canManage = false, transferForm = false, onNavigate }) {
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
     const emptyTransferFilters = { search: '', from_warehouse_id: '', to_warehouse_id: '', product_id: '', date: '' };
-    const [filters, setFilters] = useState(emptyTransferFilters);
+    const [filters, setFilters] = usePageState('phaseFive:filters:9', emptyTransferFilters);
     const [state, setState] = useState({ loading: true, items: [], summary: {}, pageMeta: {}, error: '' });
-    const [page, setPage] = useState(1);
+    const [page, setPage] = usePageState('phaseFive:page:10', 1);
     const [refreshKey, setRefreshKey] = useState(0);
     const [formOpen, setFormOpen] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -1296,7 +1298,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
         return () => { mounted = false; window.clearTimeout(timer); };
     }, [filters, page, refreshKey]);
 
-    useEffect(() => {
+    useUpdateEffect(() => {
         setPage(1);
     }, [filters.search, filters.from_warehouse_id, filters.to_warehouse_id, filters.product_id, filters.date]);
 
@@ -1312,7 +1314,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
             from_warehouse_id: firstWarehouse?.id || '',
             to_warehouse_id: secondWarehouse?.id || '',
             items: [],
-            movement_date: new Date().toISOString().slice(0, 10),
+            movement_date: businessToday(),
         });
         setFormError('');
         setWizardStep(0);
@@ -1333,7 +1335,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
         if (!transferForm || meta.loading || meta.error || formOpen) return;
         const firstWarehouse = meta.warehouses[0];
         const secondWarehouse = meta.warehouses.find((warehouse) => Number(warehouse.id) !== Number(firstWarehouse?.id));
-        setForm({ ...blankTransferForm, from_warehouse_id: firstWarehouse?.id || '', to_warehouse_id: secondWarehouse?.id || '', items: [], movement_date: new Date().toISOString().slice(0, 10) });
+        setForm({ ...blankTransferForm, from_warehouse_id: firstWarehouse?.id || '', to_warehouse_id: secondWarehouse?.id || '', items: [], movement_date: businessToday() });
         setWizardStep(0);
         setProductSearch('');
         setFormError('');
@@ -1535,7 +1537,7 @@ export function StockTransferScreen({ locale, canManage = false, transferForm = 
 
 export function StockCardScreen({ locale }) {
     const [meta, setMeta] = useState({ loading: true, warehouses: [], products: [], error: '' });
-    const [filters, setFilters] = useState({ warehouse_id: '', product_id: '', date_from: '', date_to: '' });
+    const [filters, setFilters] = usePageState('phaseFive:filters:11', { warehouse_id: '', product_id: '', date_from: '', date_to: '' });
     const [state, setState] = useState({ loading: false, items: [], summary: {}, product: null, warehouse: null, error: '' });
     const [refreshKey, setRefreshKey] = useState(0);
 
@@ -1676,24 +1678,12 @@ function Pagination({ meta = {}, page, setPage }) {
     return <div className="master-pagination"><span>Page {meta.current_page} of {meta.last_page} · {meta.total}</span><div><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><button type="button" disabled={page >= meta.last_page} onClick={() => setPage((value) => value + 1)}>Next</button></div></div>;
 }
 
-function money(value) {
-    return `${Number(value || 0).toLocaleString()} MMK`;
-}
+function money(value) { return uiMoney(value); }
 
 function number(value) {
-    return Number(value || 0).toLocaleString();
+    return Number(value || 0).toLocaleString(currentLocale());
 }
 
-function formatDate(value) {
-    if (!value) return '-';
-    const date = new Date(`${value}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: '2-digit' });
-}
+function formatDate(value) { return uiDate(value); }
 
-function formatDateTime(value) {
-    if (!value) return '-';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
+function formatDateTime(value) { return uiDateTime(value); }

@@ -25,7 +25,7 @@ class ActionAlertController extends Controller
             'office' => $this->officeAlerts($user->role),
             'client' => $this->clientAlerts($user->customer_id),
             'sales' => $this->salesAlerts($user->id),
-            'supervisor' => [],
+            'supervisor' => $this->supervisorAlerts($user->employee_id),
             'driver' => $this->driverAlerts($user->employee_id),
         };
 
@@ -96,6 +96,21 @@ class ActionAlertController extends Controller
         return [
             $this->item('driver-tasks', 'Delivery tasks', (int) $count, '/tasks', 'Receive, start, and complete assigned routes'),
         ];
+    }
+
+    private function supervisorAlerts(?int $employeeId): array
+    {
+        if (! $employeeId) {
+            return [];
+        }
+
+        $count = DB::table('customers')->join('users as creators', 'customers.created_by', '=', 'creators.id')
+            ->join('employees as representatives', 'creators.employee_id', '=', 'representatives.id')
+            ->where('representatives.supervisor_id', $employeeId)->where('representatives.employee_type', 'sales')
+            ->whereNull('representatives.deleted_at')->whereNull('customers.deleted_at')
+            ->whereNull('customers.acquisition_approved_at')->count();
+
+        return [$this->item('customer-approvals', 'Customer approvals', $count, '/new-customers', 'New customers awaiting your review')];
     }
 
     private function item(string $id, string $label, int $count, string $path, string $detail): array

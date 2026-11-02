@@ -1,3 +1,6 @@
+import { formatDateTime as uiDateTime, currentLocale } from './ui/format.js';
+import { confirmAction } from './ui/ConfirmDialog';
+import { usePageState } from './ui/usePageState';
 import {
     AlertCircle,
     CalendarDays,
@@ -273,8 +276,8 @@ export function PublicAttendanceScreen({ token, locale, setLocale }) {
 }
 
 export function AttendanceLocationsScreen({ locale, canManage = false, detailId = null, onNavigate, embedded = false, basePath = null }) {
-    const [filters, setFilters] = useState({ search: '', is_active: '' });
-    const [page, setPage] = useState(1);
+    const [filters, setFilters] = usePageState('phaseTwo:filters:1', { search: '', is_active: '' });
+    const [page, setPage] = usePageState('phaseTwo:page:2', 1);
     const [state, setState] = useState({ loading: true, items: [], warehouses: [], meta: {}, error: '' });
     const [editing, setEditing] = useState(null);
     const [viewing, setViewing] = useState(null);
@@ -319,7 +322,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
     });
 
     const remove = async (location) => {
-        if (!window.confirm(t(locale, 'deleteConfirm'))) return;
+        if (!await confirmAction(t(locale, 'deleteConfirm'), { danger: true })) return;
         try {
             await window.axios.delete(`${apiBase('attendanceLocations')}/${location.id}`);
             setViewing(null);
@@ -330,7 +333,7 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
     };
 
     const rotate = async (location) => {
-        if (!window.confirm(t(locale, 'rotateConfirm'))) return;
+        if (!await confirmAction(t(locale, 'rotateConfirm'))) return;
         try {
             const { data } = await window.axios.post(`${apiBase('attendanceLocations')}/${location.id}/rotate-token`);
             const updated = data.data.location;
@@ -412,8 +415,8 @@ export function AttendanceLocationsScreen({ locale, canManage = false, detailId 
 }
 
 export function AttendanceRecordsScreen({ locale, user, detailId = null, onNavigate }) {
-    const [filters, setFilters] = useState({ search: '', status: '', rejection_reason: '', attendance_location_id: '', date: '' });
-    const [page, setPage] = useState(1);
+    const [filters, setFilters] = usePageState('phaseTwo:filters:3', { search: '', status: '', rejection_reason: '', attendance_location_id: '', date: '' });
+    const [page, setPage] = usePageState('phaseTwo:page:4', 1);
     const [state, setState] = useState({ loading: true, items: [], meta: {}, error: '' });
     const [locations, setLocations] = useState([]);
     const [viewing, setViewing] = useState(null);
@@ -575,8 +578,8 @@ export function AttendanceRecordsScreen({ locale, user, detailId = null, onNavig
 
 export function AttendanceSummaryScreen({ locale }) {
     const currentMonth = attendanceDate().slice(0, 7);
-    const [filters, setFilters] = useState({ month: currentMonth, date_from: '', date_to: '', employee_type: '', search: '' });
-    const [page, setPage] = useState(1);
+    const [filters, setFilters] = usePageState('phaseTwo:filters:5', { month: currentMonth, date_from: '', date_to: '', employee_type: '', search: '' });
+    const [page, setPage] = usePageState('phaseTwo:page:6', 1);
     const [state, setState] = useState({ loading: true, items: [], period: {}, totals: {}, meta: {}, error: '' });
     const [refreshKey, setRefreshKey] = useState(0);
 
@@ -615,7 +618,7 @@ export function AttendanceSummaryScreen({ locale }) {
         [t(locale, 'rejected'), state.totals.rejected ?? 0, t(locale, 'status')],
         [t(locale, 'lateCount'), state.totals.late_count ?? 0, t(locale, 'attendanceSummary')],
         [t(locale, 'lateMinutes'), state.totals.late_minutes ?? 0, t(locale, 'attendanceSummary')],
-        [t(locale, 'lateFine'), Number(state.totals.late_fine || 0).toLocaleString(), 'MMK'],
+        [t(locale, 'lateFine'), Number(state.totals.late_fine || 0).toLocaleString(currentLocale()), 'MMK'],
     ];
 
     return (
@@ -672,7 +675,7 @@ export function AttendanceSummaryScreen({ locale }) {
                                         <td><strong>{row.employee_name}</strong><span className="muted">{row.employee_code}</span></td>
                                         <td>{titleCase(row.employee_type)}</td>
                                         <td>{row.total_records}</td>
-                                        <td>{row.late_count}</td><td>{row.late_minutes}</td><td>{Number(row.late_fine || 0).toLocaleString()}</td>
+                                        <td>{row.late_count}</td><td>{row.late_minutes}</td><td>{Number(row.late_fine || 0).toLocaleString(currentLocale())}</td>
                                         <td>{row.accepted_count}</td>
                                         <td>{row.rejected_count}</td>
                                         <td>{row.gps_denied_count}</td>
@@ -872,7 +875,7 @@ export function MobileAttendanceHistoryScreen({ locale }) {
                 <div><small>{t(locale, 'rejected')}</small><strong>{state.summary.rejected}</strong></div>
                 <div><small>{t(locale, 'lateCount')}</small><strong>{state.summary.late_count || 0}</strong></div>
                 <div><small>{t(locale, 'lateMinutes')}</small><strong>{state.summary.late_minutes || 0}</strong></div>
-                <div><small>{t(locale, 'lateFine')}</small><strong>{Number(state.summary.late_fine || 0).toLocaleString()}</strong></div>
+                <div><small>{t(locale, 'lateFine')}</small><strong>{Number(state.summary.late_fine || 0).toLocaleString(currentLocale())}</strong></div>
             </section>
 
             <section className="mobile-master-section mobile-attendance-calendar-section">
@@ -1174,9 +1177,9 @@ function InfoRow({ label, value }) {
 officeCopy.my = { ...officeCopy.my, late: 'နောက်ကျ လက်ခံပြီး', lateCount: 'နောက်ကျအကြိမ်ရေ', lateMinutes: 'နောက်ကျမိနစ်', lateFine: 'ဖိုင်းကြေး (ကျပ်)' };
 
 function LateDetails({ record, locale }) {
-    if (record.full_attendance_approved_at) return <small className="muted">{locale === 'my' ? 'အပြည့်အဝ ရုံးတက်အဖြစ် လက်ခံပြီး' : 'Accepted as full attendance'} · {record.full_attendance_approver_name} · {formatDateTime(record.full_attendance_approved_at)} · {locale === 'my' ? 'ပယ်ဖျက်ဖိုင်းကြေး' : 'Fine waived'}: {Number(record.waived_late_fine || 0).toLocaleString()} MMK</small>;
+    if (record.full_attendance_approved_at) return <small className="muted">{locale === 'my' ? 'အပြည့်အဝ ရုံးတက်အဖြစ် လက်ခံပြီး' : 'Accepted as full attendance'} · {record.full_attendance_approver_name} · {formatDateTime(record.full_attendance_approved_at)} · {locale === 'my' ? 'ပယ်ဖျက်ဖိုင်းကြေး' : 'Fine waived'}: {Number(record.waived_late_fine || 0).toLocaleString(currentLocale())} MMK</small>;
     if (record.status !== 'late') return null;
-    return <small className="attendance-late-details">{t(locale, 'lateMinutes')}: {record.late_minutes || 0} · {t(locale, 'lateFine')}: {Number(record.late_fine || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</small>;
+    return <small className="attendance-late-details">{t(locale, 'lateMinutes')}: {record.late_minutes || 0} · {t(locale, 'lateFine')}: {Number(record.late_fine || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}</small>;
 }
 
 function StatusBadge({ status, locale }) {
@@ -1204,7 +1207,7 @@ function meters(value) {
 }
 
 function metersText(value) {
-    return `${Number(value).toLocaleString()} m`;
+    return `${Number(value).toLocaleString(currentLocale())} m`;
 }
 
 function attendanceDate(value = new Date()) {
@@ -1212,13 +1215,7 @@ function attendanceDate(value = new Date()) {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yangon', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(parsed));
 }
 
-function formatDateTime(value) {
-    if (!value) return '-';
-    const parsed = typeof value === 'string' && !/[TZ]|[+-]\d{2}:\d{2}$/.test(value) ? value.replace(' ', 'T') + '+06:30' : value;
-    const date = new Date(parsed);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString([], { timeZone: 'Asia/Yangon', year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
+function formatDateTime(value) { return uiDateTime(value); }
 
 function periodLabel(period = {}) {
     if (!period.start || !period.end) return '';

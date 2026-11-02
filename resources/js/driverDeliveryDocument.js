@@ -1,7 +1,8 @@
+import { currentLocale, formatMoney as uiMoney } from './ui/format.js';
 import { printConfiguredDocument } from './printDocuments.js';
 
-const number = (value) => Number(value || 0).toLocaleString();
-const money = (value) => `${number(value)} MMK`;
+const number = (value) => Number(value || 0).toLocaleString(currentLocale());
+const money = uiMoney;
 const identity = (...values) => values.filter(Boolean).join(' · ');
 const settlementLabels = { credit: 'Credit', cash_driver: 'Cash held by driver', cash_office: 'Cash paid to office', bank_office: 'Bank paid to office' };
 
