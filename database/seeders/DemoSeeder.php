@@ -143,7 +143,7 @@ class DemoSeeder extends Seeder
         $wholesalePriceId = DB::table('price_types')->where('code', 'WSL')->value('id');
 
         foreach ([
-            ['code' => 'EMP-001', 'name' => 'Office Demo', 'employee_type' => 'office', 'phone' => '09 420 000 002', 'email' => 'office@valley.test', 'assigned_route_id' => null, 'hire_date' => '2024-01-10', 'address' => 'Taunggyi'],
+            ['code' => 'EMP-001', 'name' => 'Office Demo', 'employee_type' => 'other', 'phone' => '09 420 000 002', 'email' => 'office@valley.test', 'assigned_route_id' => null, 'hire_date' => '2024-01-10', 'address' => 'Taunggyi'],
             ['code' => 'SAL-001', 'name' => 'Sales Demo', 'employee_type' => 'sales', 'phone' => '09 420 000 004', 'email' => 'sales@valley.test', 'assigned_route_id' => $tgiNorthRouteId, 'hire_date' => '2024-03-15', 'address' => 'Taunggyi'],
             ['code' => 'SAL-002', 'name' => 'Nandar Aye', 'employee_type' => 'sales', 'phone' => '09 420 100 004', 'email' => 'nandar@valley.test', 'assigned_route_id' => $tgiMarketRouteId, 'hire_date' => '2025-02-01', 'address' => 'Taunggyi'],
             ['code' => 'SUP-001', 'name' => 'Sales Supervisor Demo', 'employee_type' => 'sales_supervisor', 'phone' => '09 420 300 001', 'email' => 'sales.supervisor@valley.test', 'assigned_route_id' => null, 'hire_date' => '2024-02-01', 'address' => 'Taunggyi'],

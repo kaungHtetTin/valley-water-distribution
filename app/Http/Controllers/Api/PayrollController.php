@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Payroll;
 use App\Support\ApiResponse;
+use App\Support\EmployeeTypes;
 use App\Support\AppAccess;
 use App\Support\SalaryDefaults;
 use Carbon\Carbon;
@@ -144,7 +145,7 @@ class PayrollController extends Controller
 
         $validated = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(array_keys(EmployeeTypes::LABELS))],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 

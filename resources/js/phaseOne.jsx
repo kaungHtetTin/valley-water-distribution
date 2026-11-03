@@ -1,3 +1,4 @@
+import { employeeTypes, employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { currentLocale, businessToday, formatMoney as uiMoney, formatDateTime as uiDateTime, TIME_ZONE } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
@@ -198,7 +199,7 @@ function resourceDescription(resource, definition, locale) {
 }
 
 function optionLabel(value, locale) {
-    return locale === 'my' ? myOptionLabels[value] || titleCase(value) : titleCase(value);
+    return employeeTypeLabels[value] || (locale === 'my' ? myOptionLabels[value] || titleCase(value) : titleCase(value));
 }
 
 function requestError(error, locale, fallbackKey) {
@@ -405,7 +406,7 @@ export function MasterDataWorkspace({ resourceKey, locale, canManage = true, det
                     {resourceKey === 'employees' && <>
                         <select aria-label={text(locale, 'allEmployeeTypes')} value={employeeFilters.employee_type} onChange={(event) => { setEmployeeFilters((current) => ({ ...current, employee_type: event.target.value })); setPage(1); }}>
                             <option value="">{text(locale, 'allEmployeeTypes')}</option>
-                            {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{optionLabel(type, locale)}</option>)}
+                            {employeeTypes.map((type) => <option value={type} key={type}>{optionLabel(type, locale)}</option>)}
                         </select>
                         <select aria-label={text(locale, 'allRoutes')} value={employeeFilters.assigned_route_id} onChange={(event) => { setEmployeeFilters((current) => ({ ...current, assigned_route_id: event.target.value })); setPage(1); }}>
                             <option value="">{text(locale, 'allRoutes')}</option>
@@ -643,12 +644,13 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
     const dialogRef = useRef(null);
     const employeeForm = resourceKey === 'employees';
     const visibleFields = definition.fields.filter((field) => (!employeeForm || values.employee_type || field.name === 'employee_type')
-        && (!field.show_when || values[field.depends_on] === field.show_when));
+        && (!field.show_when || (Array.isArray(field.show_when) ? field.show_when.includes(values[field.depends_on]) : values[field.depends_on] === field.show_when)));
     const formOptions = employeeForm ? { ...options, vehicles: (options.vehicles || []).filter((vehicle) => !vehicle.assigned_driver_id || String(vehicle.assigned_driver_id) === String(values.id)) } : options;
     const employeeTypeHelp = {
+        ...Object.fromEntries(employeeTypes.map((type) => [type, type === 'manager' ? 'General Manager. Enter employment details and salary; no separate employee login is needed.' : 'Enter employment details and salary; no separate employee login is needed.'])),
         office: locale === 'my' ? 'ရုံးဝင်ရောက်ခွင့် အခန်းကဏ္ဍနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Set the office access role and employment details.',
         sales: locale === 'my' ? 'အရောင်းလမ်းကြောင်းနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Assign a sales route and enter employment details.',
-        sales_supervisor: locale === 'my' ? 'ကြီးကြပ်သူ အချက်အလက် ထည့်ပါ။ အဖွဲ့ဝင်များကို အသေးစိတ်စာမျက်နှာတွင် သတ်မှတ်နိုင်သည်။' : 'Enter supervisor details. Assign team members from the employee detail page.',
+        sales_supervisor: locale === 'my' ? 'ကြီးကြပ်သူ အချက်အလက် ထည့်ပါ။ အဖွဲ့ဝင်များကို အသေးစိတ်စာမျက်နှာတွင် သတ်မှတ်နိုင်သည်။' : 'Enter Sale Manager details. Assign team members from the employee detail page.',
         driver: locale === 'my' ? 'ယာဉ် သတ်မှတ်နိုင်သည်။ လမ်းကြောင်းအားလုံးမှ တာဝန်များကို လက်ခံနိုင်သည်။' : 'Assign an available vehicle. Drivers can receive tasks from all routes.',
         warehouse: locale === 'my' ? 'ကုန်လှောင်ရုံဝန်ထမ်း၏ အချက်အလက်နှင့် လစာ သတ်မှတ်ပါ။' : 'Enter warehouse staff details and salary.',
     };
@@ -910,11 +912,7 @@ export function CompanySettingsScreen({ locale, canManage = true, onBrandingUpda
                         <div><strong id="salary-default-settings-title">{locale === 'my' ? 'မူလလစဉ်အခြေခံလစာ' : 'Default monthly base salaries'}</strong><p className="salary-settings-subtitle">{locale === 'my' ? 'ဝန်ထမ်း၏ အခြေခံလစာ ကွက်လပ်ဖြစ်ပါက ဤလစာကို payroll နှင့် နောက်ကျဖိုင်းကြေးတွင် အသုံးပြုပါမည်။' : 'Set monthly salaries by employee type. Used when an employee’s base salary is blank.'}</p></div>
                     </div>
                     <div className="branding-settings-grid salary-default-grid">
-                        {[
-                            ['office', 'Office', 'ရုံးဝန်ထမ်း'], ['sales', 'Sales', 'အရောင်းဝန်ထမ်း'],
-                            ['sales_supervisor', 'Sales supervisor', 'အရောင်းကြီးကြပ်ရေးမှူး'], ['driver', 'Driver', 'ယာဉ်မောင်း'],
-                            ['warehouse', 'Warehouse', 'ဂိုဒေါင်ဝန်ထမ်း'], ['other', 'Other employee types', 'အခြားဝန်ထမ်းအမျိုးအစားများ'],
-                        ].map(([type, label, myLabel]) => <label className="master-field" key={type} data-field={`default_base_salaries.${type}`} htmlFor={`salary-default-${type}`}>
+                        {employeeTypes.map((type) => [type, employeeTypeLabels[type], employeeTypeLabels[type]]).map(([type, label, myLabel]) => <label className="master-field" key={type} data-field={`default_base_salaries.${type}`} htmlFor={`salary-default-${type}`}>
                             <span className="salary-field-heading"><span>{locale === 'my' ? myLabel : label}</span><span className="salary-field-unit">MMK / {locale === 'my' ? 'လ' : 'month'}</span></span>
                             <input id={`salary-default-${type}`} type="number" min="0" max="999999999999.99" step="0.01" required disabled={!canManage} aria-invalid={Boolean(errors[`default_base_salaries.${type}`])} aria-describedby={errors[`default_base_salaries.${type}`] ? `salary-error-${type}` : undefined} value={values.default_base_salaries?.[type] ?? ''} onChange={(event) => setValues((current) => ({ ...current, default_base_salaries: { ...current.default_base_salaries, [type]: event.target.value } }))} />
                             {errors[`default_base_salaries.${type}`]?.[0] && <small className="field-error" id={`salary-error-${type}`} role="alert">{errors[`default_base_salaries.${type}`][0]}</small>}
@@ -1750,7 +1748,7 @@ function OfficeEmployeeDetailPage({ employeeId, locale = 'en', canManage, onBack
                     <div><dt>Hire date</dt><dd>{dateLabel(employee.hire_date)}</dd></div>
                     <div><dt>Base salary</dt><dd>{employee.base_salary == null ? 'Employee type default' : money(employee.base_salary)}</dd></div>
                     {['sales', 'driver'].includes(employee.employee_type) && <div><dt>Assigned route</dt><dd>{employee.assigned_route || 'Not assigned'}</dd></div>}
-                    {employee.employee_type === 'sales' && <div className="employee-profile-wide"><dt>Sales supervisor</dt><dd>{employee.supervisor_name ? `${employee.supervisor_code} · ${employee.supervisor_name}` : 'Not assigned'}</dd></div>}
+                    {employee.employee_type === 'sales' && <div className="employee-profile-wide"><dt>Sale Manager</dt><dd>{employee.supervisor_name ? `${employee.supervisor_code} · ${employee.supervisor_name}` : 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'driver' && <div className="employee-profile-wide"><dt>Assigned vehicle</dt><dd>{employee.assigned_vehicle || 'Not assigned'}</dd></div>}
                     {employee.employee_type === 'driver' && vehicle && <div className="employee-profile-wide"><dt>Vehicle details</dt><dd>{titleCase(vehicle.vehicle_type)} · {[vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.plate_no}{vehicle.capacity ? ` · ${Number(vehicle.capacity).toLocaleString(currentLocale())} capacity` : ''}</dd></div>}
                 </dl>
@@ -2481,5 +2479,6 @@ function renderValue(column, value, locale) {
 }
 
 function titleCase(value) {
+    if (employeeTypeLabels[value]) return employeeTypeLabels[value];
     return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

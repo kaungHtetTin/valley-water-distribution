@@ -52,7 +52,7 @@ class DemoMonthSeeder extends Seeder
         ];
         foreach ($staff as [$code, $name, $email, $role]) {
             DB::table('employees')->insert([
-                'code' => $code, 'name' => $name, 'employee_type' => 'office',
+                'code' => $code, 'name' => $name, 'employee_type' => match ($role) { 'HR' => 'hr', 'Accountant' => 'accountant', default => 'other' },
                 'email' => $email, 'hire_date' => '2025-01-10', 'is_active' => true,
                 'created_at' => $now, 'updated_at' => $now,
             ]);

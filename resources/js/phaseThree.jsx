@@ -1,3 +1,4 @@
+import { employeeTypes, employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { formatDateTime as uiDateTime, currentLocale, TIME_ZONE, businessToday, formatMoney as uiMoney } from './ui/format.js';
 import { confirmAction, requestText } from './ui/ConfirmDialog';
@@ -241,7 +242,7 @@ export function PayrollDraftsScreen({ locale, canPrepare = false, canApprove = f
                     <PayrollMonthSelectors value={filters.month} locale={locale} onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">{t(locale, 'allEmployeeTypes')}</option>
-                        {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
+                        {employeeTypes.map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
                     </select>
                     <select aria-label={t(locale, 'status')} value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
                         <option value="">{t(locale, 'allStatuses')}</option>
@@ -568,7 +569,7 @@ export function SalaryHistoryScreen({ locale, detailId = null, onNavigate }) {
                     <PayrollMonthSelectors value={filters.month} locale={locale} allowEmpty onChange={(month) => setFilters((current) => ({ ...current, month }))} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">{t(locale, 'allEmployeeTypes')}</option>
-                        {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
+                        {employeeTypes.map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
                     </select>
                     <select aria-label={t(locale, 'employee')} value={filters.employee_id} onChange={(event) => setFilters((current) => ({ ...current, employee_id: event.target.value }))}>
                         <option value="">{t(locale, 'employee')}</option>
@@ -836,6 +837,7 @@ function StatusBadge({ status, locale }) {
 function money(value) { return uiMoney(value); }
 
 function titleCase(value) {
+    if (employeeTypeLabels[value]) return employeeTypeLabels[value];
     return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 

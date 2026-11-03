@@ -1,3 +1,4 @@
+import { employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { currentLocale, TIME_ZONE, businessToday, formatMoney as uiMoney, formatDate as uiDate } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
@@ -12,7 +13,7 @@ const mobileApi = () => window.ValleyRuntime?.api?.mobileVehicleOperations || '/
 const today = () => businessToday();
 const money = uiMoney;
 const number = (value, digits = 1) => new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: digits }).format(Number(value || 0));
-const titleCase = (value) => String(value || '-').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const titleCase = (value) => employeeTypeLabels[value] || String(value || '-').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const errorMessage = (error) => error.response?.data?.message || Object.values(error.response?.data?.errors || {})[0]?.[0] || 'Something went wrong.';
 const statusClass = (status) => status === 'approved' ? 'success' : status === 'submitted' ? 'warning' : status === 'rejected' ? 'danger' : 'neutral';
 const blank = (type = 'fuel') => ({ vehicle_id: '', delivery_id: '', cost_date: today(), cost_type: type, description: '', vendor: '', odometer_km: '', quantity: '', unit_price: '', amount: '', payment_method: 'cash', reference_no: '', notes: '' });

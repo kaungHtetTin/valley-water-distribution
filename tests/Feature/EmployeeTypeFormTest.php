@@ -14,6 +14,7 @@ class EmployeeTypeFormTest extends TestCase
     public function test_employee_type_controls_route_and_vehicle_assignments(): void
     {
         $this->seed();
+        $this->seed(\Database\Seeders\DemoSeeder::class);
         $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $routeId = DB::table('routes')->value('id');
         $vehicleId = DB::table('vehicles')->insertGetId([
@@ -33,13 +34,14 @@ class EmployeeTypeFormTest extends TestCase
             ->assertJsonPath('data.item.assigned_vehicle_id', null);
         $this->assertDatabaseHas('vehicles', ['id' => $vehicleId, 'assigned_driver_id' => null]);
         $this->putJson('/api/master-data/employees/'.$id, [
-            'name' => 'Type selection test', 'employee_type' => 'office', 'assigned_route_id' => $routeId,
+            'name' => 'Type selection test', 'employee_type' => 'other', 'assigned_route_id' => $routeId,
         ])->assertOk()->assertJsonPath('data.item.assigned_route_id', null);
     }
 
     public function test_employee_form_cannot_assign_a_vehicle_already_used_by_another_driver(): void
     {
         $this->seed();
+        $this->seed(\Database\Seeders\DemoSeeder::class);
         $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $vehicle = DB::table('vehicles')->whereNotNull('assigned_driver_id')->first();
         $count = DB::table('employees')->count();

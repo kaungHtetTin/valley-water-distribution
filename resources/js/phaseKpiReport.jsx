@@ -1,3 +1,4 @@
+import { employeeTypes, employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { businessToday, currentLocale, formatMoney as uiMoney } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
@@ -9,7 +10,7 @@ const currentMonth = () => businessToday().slice(0, 7);
 const reportApi = () => window.ValleyRuntime?.api?.kpiReports || '/api/kpi-reports';
 const money = uiMoney;
 const number = (value) => Number(value || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 });
-const titleCase = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const titleCase = (value) => employeeTypeLabels[value] || String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const initialFilters = () => ({ period: 'month', month: currentMonth(), year: currentMonth().slice(0, 4), employee_type: '', employee_id: '' });
 const monthOptions = [
     ['01', 'January'], ['02', 'February'], ['03', 'March'], ['04', 'April'],
@@ -106,7 +107,7 @@ export function KpiReportsScreen() {
                                 <label><span>Year</span><select aria-label="KPI analysis year" value={draft.month.slice(0, 4)} onChange={(event) => setDraft((current) => ({ ...current, month: `${event.target.value}-${current.month.slice(5, 7)}` }))}>{yearOptions.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
                                 <label><span>Month</span><select aria-label="KPI analysis month" value={draft.month.slice(5, 7)} onChange={(event) => setDraft((current) => ({ ...current, month: `${current.month.slice(0, 4)}-${event.target.value}` }))}>{monthOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                             </> : <label><span>Year</span><select required value={draft.year} onChange={(event) => setDraft((current) => ({ ...current, year: event.target.value }))}>{yearOptions.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>}
-                            <label className="kpi-report-staff-group"><span>Staff group</span><select value={draft.employee_type} onChange={(event) => setDraft((current) => ({ ...current, employee_type: event.target.value, employee_id: '' }))}><option value="">All KPI staff</option><option value="sales">Sales</option><option value="sales_supervisor">Sales Supervisor</option><option value="driver">Driver</option><option value="warehouse">Warehouse</option><option value="office">Office</option></select></label>
+                            <label className="kpi-report-staff-group"><span>Staff group</span><select value={draft.employee_type} onChange={(event) => setDraft((current) => ({ ...current, employee_type: event.target.value, employee_id: '' }))}><option value="">All KPI staff</option>{employeeTypes.map((type) => <option value={type} key={type}>{employeeTypeLabels[type]}</option>)}</select></label>
                             <label className="kpi-report-employee"><span>Employee</span><select value={draft.employee_id} onChange={(event) => setDraft((current) => ({ ...current, employee_id: event.target.value }))}><option value="">All employees</option>{visibleEmployees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.code}</option>)}</select></label>
                         </div>
                     </div>
@@ -195,8 +196,8 @@ function StatusSummary({ items, total, posted }) {
 }
 
 function MetricBreakdown({ items, roleSummary, selectedType, employeeSelected }) {
-    const typeOrder = ['sales', 'sales_supervisor', 'driver', 'warehouse', 'office'];
-    const typeLabels = { sales: 'Sales representatives', sales_supervisor: 'Sales supervisors', driver: 'Drivers', warehouse: 'Warehouse staff', office: 'Office staff' };
+    const typeOrder = [...employeeTypes, 'office'];
+    const typeLabels = { ...employeeTypeLabels, office: 'Office (legacy)' };
     const groupedItems = typeOrder
         .map((employeeType) => ({ employeeType, items: items.filter((item) => item.employee_type === employeeType) }))
         .filter((group) => group.items.length);

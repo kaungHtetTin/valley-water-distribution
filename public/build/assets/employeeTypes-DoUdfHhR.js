@@ -1,0 +1,1 @@
+var e={sale_helper:`Sale Helper`,sales:`Sale Representative`,warehouse:`Storekeeper`,accountant:`Accountant`,manager:`Manager`,sales_supervisor:`Sale Manager`,hr:`HR`,driver:`Driver`,other:`Other`},t=Object.keys(e);export{t as n,e as t};

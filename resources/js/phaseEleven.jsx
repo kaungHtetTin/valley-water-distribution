@@ -1,3 +1,4 @@
+import { employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { currentLocale, formatDateTime as uiDateTime, TIME_ZONE } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
@@ -7,7 +8,7 @@ import { ShellPageActions } from './components/ShellPageActions';
 
 const api = () => window.ValleyRuntime?.api?.uat || '/api/uat';
 const localized = (locale, en, my) => locale === 'my' ? my : en;
-const titleCase = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const titleCase = (value) => employeeTypeLabels[value] || String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const errorText = (error) => error.response?.data?.message || Object.values(error.response?.data?.errors || {})[0]?.[0] || 'Unable to load UAT readiness.';
 const blankIssue = { module: 'foundation', title: '', steps: '', severity: 'medium', status: 'open', assigned_to: '', resolution: '' };
 

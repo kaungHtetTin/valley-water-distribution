@@ -1,3 +1,4 @@
+import { employeeTypes, employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { businessToday, formatDate as uiDate, currentLocale, formatMoney as uiMoney } from './ui/format.js';
 import { usePageState } from './ui/usePageState';
@@ -13,7 +14,7 @@ const targetApi = () => window.ValleyRuntime?.api?.kpiTargets || '/api/kpi-targe
 const mobileApi = () => window.ValleyRuntime?.api?.mobileKpi || '/api/mobile/kpi';
 const money = uiMoney;
 const number = (value) => Number(value || 0).toLocaleString(currentLocale(), { maximumFractionDigits: 2 });
-const titleCase = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const titleCase = (value) => employeeTypeLabels[value] || String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 function errorMessage(error, fallback) {
     if (error.response?.data?.errors) {
@@ -217,11 +218,7 @@ export function KpiTargetsScreen({ canManage = false, embedded = false }) {
                     <label className="master-search"><Search size={15} /><input value={filters.search} placeholder="Search KPI role or code" onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} /></label>
                     <select aria-label="Staff group" value={filters.employee_type} onChange={(event) => setFilters((current) => ({ ...current, employee_type: event.target.value }))}>
                         <option value="">All staff groups</option>
-                        <option value="sales">Sales</option>
-                        <option value="sales_supervisor">Sales Supervisor</option>
-                        <option value="driver">Driver</option>
-                        <option value="warehouse">Warehouse</option>
-                        <option value="office">Office</option>
+                        {employeeTypes.map((type) => <option value={type} key={type}>{employeeTypeLabels[type]}</option>)}
                     </select>
                     <button className="icon-button" type="button" aria-label="Refresh" title="Refresh" onClick={() => setRefreshKey((key) => key + 1)}><RefreshCw size={15} /></button>
                 </FilterToolbar>

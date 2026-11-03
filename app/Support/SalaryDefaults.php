@@ -5,7 +5,11 @@ namespace App\Support;
 class SalaryDefaults
 {
     public const AMOUNTS = [
-        'office' => 450000,
+        'office' => 450000, // Legacy payroll records.
+        'sale_helper' => 300000,
+        'accountant' => 450000,
+        'manager' => 450000,
+        'hr' => 450000,
         'sales' => 380000,
         'sales_supervisor' => 450000,
         'driver' => 360000,

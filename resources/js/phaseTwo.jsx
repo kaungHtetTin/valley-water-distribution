@@ -1,3 +1,4 @@
+import { employeeTypes, employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { formatDateTime as uiDateTime, currentLocale } from './ui/format.js';
 import { confirmAction } from './ui/ConfirmDialog';
@@ -646,7 +647,7 @@ export function AttendanceSummaryScreen({ locale }) {
                     <input className="summary-month" aria-label="Month" type="month" value={filters.month} onChange={(event) => { setFilters((current) => ({ ...current, month: event.target.value })); setPage(1); }} disabled={Boolean(filters.date_from || filters.date_to)} />
                     <select aria-label={t(locale, 'employeeType')} value={filters.employee_type} onChange={(event) => { setFilters((current) => ({ ...current, employee_type: event.target.value })); setPage(1); }}>
                         <option value="">{t(locale, 'showAll')}</option>
-                        {['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'].map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
+                        {employeeTypes.map((type) => <option value={type} key={type}>{titleCase(type)}</option>)}
                     </select>
                     <label className="date-filter" title="From"><CalendarDays size={14} /><input type="date" value={filters.date_from} onChange={(event) => { setFilters((current) => ({ ...current, date_from: event.target.value })); setPage(1); }} /></label>
                     <label className="date-filter" title="To"><CalendarDays size={14} /><input type="date" value={filters.date_to} onChange={(event) => { setFilters((current) => ({ ...current, date_to: event.target.value })); setPage(1); }} /></label>
@@ -1224,6 +1225,7 @@ function periodLabel(period = {}) {
 }
 
 function titleCase(value) {
+    if (employeeTypeLabels[value]) return employeeTypeLabels[value];
     return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Support\ApiResponse;
+use App\Support\EmployeeTypes;
 use App\Support\AppAccess;
 use App\Support\KpiBonus;
 use App\Support\NetSalesQuantity;
@@ -42,14 +43,14 @@ class KpiReviewController extends Controller
     {
         $this->authorizePermission($request, 'office.kpi.view');
         $validated = $request->validate([
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(array_keys(EmployeeTypes::LABELS))],
             'template_id' => ['nullable', 'integer', 'exists:kpi_templates,id'],
             'search' => ['nullable', 'string', 'max:100'],
         ]);
 
         $templates = DB::table('kpi_templates')
             ->where('is_active', true)
-            ->orderByRaw("FIELD(code, 'OFFICE-STAFF-V1', 'SALES-REP-V1', 'SALES-SUPERVISOR-V1', 'DRIVER-V1', 'HELPER-V1', 'STOREKEEPER-V1')")
+            ->orderByRaw("CASE employee_type WHEN 'sale_helper' THEN 0 WHEN 'sales' THEN 1 WHEN 'warehouse' THEN 2 WHEN 'accountant' THEN 3 WHEN 'manager' THEN 4 WHEN 'sales_supervisor' THEN 5 WHEN 'hr' THEN 6 WHEN 'driver' THEN 7 ELSE 8 END")
             ->orderBy('name')
             ->get()
             ->map(function ($template) {
@@ -362,7 +363,7 @@ class KpiReviewController extends Controller
         $this->authorizePermission($request, 'office.kpi.view');
         $validated = $request->validate([
             'month' => ['nullable', 'date_format:Y-m'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(array_keys(EmployeeTypes::LABELS))],
             'template_id' => ['nullable', 'integer', 'exists:kpi_templates,id'],
             'status' => ['nullable', Rule::in(['draft', 'submitted', 'approved'])],
             'search' => ['nullable', 'string', 'max:100'],
@@ -504,7 +505,7 @@ class KpiReviewController extends Controller
             'period' => ['nullable', Rule::in(['month', 'year'])],
             'month' => ['nullable', 'date_format:Y-m'],
             'year' => ['nullable', 'integer', 'between:2020,2100'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse'])],
+            'employee_type' => ['nullable', Rule::in(array_keys(EmployeeTypes::LABELS))],
             'employee_id' => ['nullable', 'integer', 'exists:employees,id'],
         ]);
 
@@ -653,7 +654,7 @@ class KpiReviewController extends Controller
         $validated = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
             'template_id' => ['nullable', 'integer', 'exists:kpi_templates,id', 'required_without:employee_type'],
-            'employee_type' => ['nullable', Rule::in(['office', 'sales', 'sales_supervisor', 'driver', 'warehouse']), 'required_without:template_id'],
+            'employee_type' => ['nullable', Rule::in(array_keys(EmployeeTypes::LABELS)), 'required_without:template_id'],
         ]);
 
         $generation = $this->ensureMonthlyReviews(
@@ -753,7 +754,7 @@ class KpiReviewController extends Controller
                     $created++;
                     $this->recalculate((int) $result->id);
                 }
-                if (($inserted || $refreshExisting) && $result->status === 'draft' && in_array($profile->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1'], true)) {
+                if (($inserted || $refreshExisting) && $result->status === 'draft' && in_array($profile->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1', 'ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1'], true)) {
                     $this->syncAutomaticActuals((int) $result->id, $profile->template_code);
                     $refreshed++;
                 }
@@ -773,7 +774,7 @@ class KpiReviewController extends Controller
             ->first();
         abort_unless($result, 404);
         if ($result->status === 'draft') {
-            if (in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1'], true)) {
+            if (in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1', 'ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1'], true)) {
                 $this->syncAutomaticActuals($id, $result->template_code);
             }
         }
@@ -836,7 +837,7 @@ class KpiReviewController extends Controller
             ->first();
         abort_unless($result, 404);
         abort_unless($result->status === 'draft', 409, 'Only draft KPI reviews can refresh source figures.');
-        abort_unless(in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1'], true), 422, 'Automatic refresh is not available for this KPI role.');
+        abort_unless(in_array($result->template_code, ['SALES-REP-V1', 'DRIVER-V1', 'OFFICE-STAFF-V1', 'ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1'], true), 422, 'Automatic refresh is not available for this KPI role.');
         $this->syncAutomaticActuals($id, $result->template_code);
 
         return ApiResponse::success(ucfirst($result->employee_type).' figures refreshed.', $this->detailPayload($id));
@@ -1007,7 +1008,7 @@ class KpiReviewController extends Controller
             ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
             ->where('kpi_results.id', $resultId)
             ->where('kpi_templates.code', 'SALES-REP-V1')
-            ->select('kpi_results.employee_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
+            ->select('kpi_results.employee_id', 'kpi_results.kpi_template_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
             ->first();
         abort_unless($result, 422, 'Sales KPI review not found.');
 
@@ -1067,7 +1068,7 @@ class KpiReviewController extends Controller
             ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
             ->where('kpi_results.id', $resultId)
             ->where('kpi_templates.code', 'DRIVER-V1')
-            ->select('kpi_results.employee_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
+            ->select('kpi_results.employee_id', 'kpi_results.kpi_template_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
             ->first();
         abort_unless($result, 422, 'Driver KPI review not found.');
 
@@ -1112,8 +1113,8 @@ class KpiReviewController extends Controller
             ->join('kpi_periods', 'kpi_results.kpi_period_id', '=', 'kpi_periods.id')
             ->join('kpi_templates', 'kpi_results.kpi_template_id', '=', 'kpi_templates.id')
             ->where('kpi_results.id', $resultId)
-            ->where('kpi_templates.code', 'OFFICE-STAFF-V1')
-            ->select('kpi_results.employee_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
+            ->whereIn('kpi_templates.code', ['OFFICE-STAFF-V1', 'ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1'])
+            ->select('kpi_results.employee_id', 'kpi_results.kpi_template_id', 'kpi_periods.period_start', 'kpi_periods.period_end')
             ->first();
         abort_unless($result, 422, 'Office KPI review not found.');
 
@@ -1125,7 +1126,8 @@ class KpiReviewController extends Controller
             ->whereBetween('attendance_at', [$start, $end])
             ->distinct()
             ->count(DB::raw('DATE(attendance_at)'));
-        $this->updateSourceMetric($resultId, 'OFF-ATTENDANCE', $attendanceDays, $attendanceDays, "{$attendanceDays} accepted attendance day(s)");
+        $metricCode = DB::table('kpi_template_metrics')->where('kpi_template_id', $result->kpi_template_id)->where('code', 'like', '%OFF-ATTENDANCE')->value('code');
+        $this->updateSourceMetric($resultId, $metricCode ?? 'OFF-ATTENDANCE', $attendanceDays, $attendanceDays, "{$attendanceDays} accepted attendance day(s)");
         $this->recalculate($resultId);
     }
 
@@ -1134,7 +1136,7 @@ class KpiReviewController extends Controller
         match ($templateCode) {
             'SALES-REP-V1' => $this->syncSalesActuals($resultId),
             'DRIVER-V1' => $this->syncDriverActuals($resultId),
-            'OFFICE-STAFF-V1' => $this->syncOfficeActuals($resultId),
+            'OFFICE-STAFF-V1', 'ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1' => $this->syncOfficeActuals($resultId),
             default => null,
         };
     }
@@ -1294,6 +1296,7 @@ class KpiReviewController extends Controller
         }
 
         return str_starts_with($code, 'SAL-')
+            || str_ends_with($code, '-OFF-ATTENDANCE')
             || in_array($code, ['DRV-ATTENDANCE', 'DRV-COMPLETION', 'OFF-ATTENDANCE'], true);
     }
 

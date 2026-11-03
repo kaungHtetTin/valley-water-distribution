@@ -29,13 +29,7 @@ class KpiDefaultTargetsSeeder extends Seeder
         'OFF-ATTENDANCE' => 26,
     ];
 
-    private const DEFAULT_TEMPLATE_BY_EMPLOYEE_TYPE = [
-        'sales' => 'SALES-REP-V1',
-        'sales_supervisor' => 'SALES-SUPERVISOR-V1',
-        'driver' => 'DRIVER-V1',
-        'warehouse' => 'STOREKEEPER-V1',
-        'office' => 'OFFICE-STAFF-V1',
-    ];
+    private const DEFAULT_TEMPLATE_BY_EMPLOYEE_TYPE = \App\Support\EmployeeTypes::KPI_TEMPLATES;
 
     public function run(): void
     {

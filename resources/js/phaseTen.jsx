@@ -1,3 +1,4 @@
+import { employeeTypeLabels } from './employeeTypes';
 import { FilterToolbar } from './ui/FilterToolbar';
 import { mobileText as mt } from './ui/mobileCopy.js';
 import { CustomerHome, SalesToday } from './MobileHomeSections';
@@ -15,7 +16,7 @@ const today = () => businessToday();
 const currentMonthStart = () => `${today().slice(0, 7)}-01`;
 const money = uiMoney;
 const number = (value) => new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 1 }).format(Number(value || 0));
-const titleCase = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const titleCase = (value) => employeeTypeLabels[value] || String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const errorText = (error) => error.response?.data?.message || 'Dashboard data could not be loaded.';
 const tr = (locale, en, my) => locale === 'my' ? my : en;
 
