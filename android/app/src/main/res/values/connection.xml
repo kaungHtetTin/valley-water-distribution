@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connection_opening">Opening %1$s</string>
+    <string name="connection_loading">Connecting to Valley. Please wait…</string>
+    <string name="connection_failed_title">Unable to open Valley</string>
+    <string name="connection_failed">Check your Wi-Fi or mobile data, then try again.</string>
+    <string name="connection_timeout">The page is taking too long to open. Check your connection, then try again.</string>
+    <string name="connection_secure_failed">A secure connection could not be established. Check your device date and network, then try again.</string>
+    <string name="connection_retry">Try again</string>
+</resources>

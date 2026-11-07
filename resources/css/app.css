@@ -1344,21 +1344,20 @@ button:disabled {
     --shadow: 0 12px 36px rgb(0 0 0 / 28%), 0 2px 8px rgb(0 0 0 / 18%);
 }
 
-/* Modern Windows-style scrollbars for the Office workspace. */
+/* Thin Office scrollbars, including Chromium in the Windows portable app. */
 .app-root[data-app='office'],
 :root:has(.app-root[data-app='office']) {
-    --scrollbar-thumb: #9ca3ad;
-    --scrollbar-thumb-hover: #727b87;
-    --scrollbar-track: rgb(226 232 240 / 72%);
+    --scrollbar-thumb: #7e929f;
+    --scrollbar-thumb-hover: #5e7b8c;
+    --scrollbar-track: transparent;
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
     scrollbar-width: thin;
 }
 
 .app-root[data-app='office'][data-theme='dark'],
 :root:has(.app-root[data-app='office'][data-theme='dark']) {
-    --scrollbar-thumb: #657181;
-    --scrollbar-thumb-hover: #8994a3;
-    --scrollbar-track: rgb(35 45 58 / 78%);
+    --scrollbar-thumb: #5b7181;
+    --scrollbar-thumb-hover: #879ba8;
 }
 
 .app-root[data-app='office'] *,
@@ -1369,13 +1368,13 @@ button:disabled {
 
 .app-root[data-app='office'] *::-webkit-scrollbar,
 :root:has(.app-root[data-app='office'])::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+    width: 6px;
+    height: 6px;
 }
 
 .app-root[data-app='office'] *::-webkit-scrollbar-track,
 :root:has(.app-root[data-app='office'])::-webkit-scrollbar-track {
-    border-radius: 8px;
+    border-radius: 999px;
     background: var(--scrollbar-track);
 }
 
@@ -1383,22 +1382,54 @@ button:disabled {
 :root:has(.app-root[data-app='office'])::-webkit-scrollbar-thumb {
     min-width: 36px;
     min-height: 36px;
-    border: 3px solid transparent;
-    border-radius: 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
     background: var(--scrollbar-thumb);
     background-clip: padding-box;
 }
 
 .app-root[data-app='office'] *::-webkit-scrollbar-thumb:hover,
 :root:has(.app-root[data-app='office'])::-webkit-scrollbar-thumb:hover {
-    border-width: 2px;
     background-color: var(--scrollbar-thumb-hover);
+}
+
+.app-root[data-app='office'] *::-webkit-scrollbar-button,
+:root:has(.app-root[data-app='office'])::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 .app-root[data-app='office'] *::-webkit-scrollbar-corner,
 :root:has(.app-root[data-app='office'])::-webkit-scrollbar-corner {
     background: var(--scrollbar-track);
 }
+
+/* Non-auto standard scrollbar properties override WebKit styling in modern Chromium.
+   Keep Firefox's thin fallback, and let Chromium use the explicit 6px design. */
+@supports selector(::-webkit-scrollbar) {
+    :root:has(.app-root[data-app='office']),
+    :root:has(.app-root[data-app='office']) * {
+        scrollbar-color: auto;
+        scrollbar-width: auto;
+    }
+}
+
+.office-page-loading {
+    display: grid;
+    min-height: calc(100dvh - var(--admin-topbar-height));
+    place-items: center;
+}
+
+.office-page-loading-body {
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    width: min(100%, 360px);
+    color: var(--color-muted);
+}
+
+.office-page-loading-body .skeleton-lines { width: 100%; }
 
 .sidebar {
     position: fixed;

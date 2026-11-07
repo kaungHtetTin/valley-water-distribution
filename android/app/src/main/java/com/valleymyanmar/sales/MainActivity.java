@@ -3,6 +3,15 @@ package com.valleymyanmar.sales;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.net.http.SslError;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceResponse;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.WebResourceRequest;
@@ -13,6 +22,14 @@ import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 
 public class MainActivity extends BridgeActivity {
+    private final Handler connectionHandler = new Handler(Looper.getMainLooper());
+    private View connectionOverlay;
+    private Runnable readinessProbe;
+    private Runnable connectionTimeout;
+    private int connectionGeneration;
+    private boolean connectionFailed;
+    private boolean documentCommitted;
+
     public static boolean trusted(String value) {
         if (value == null) return false;
         Uri uri = Uri.parse(value);
@@ -34,6 +51,13 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(state);
         if (bridge == null) return;
         WebView web = bridge.getWebView();
+        web.setBackgroundColor(android.graphics.Color.WHITE);
+        connectionOverlay = getLayoutInflater().inflate(R.layout.native_connection_overlay, null);
+        addContentView(connectionOverlay, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        connectionOverlay.findViewById(R.id.connection_retry).setOnClickListener(button -> {
+            beginLoading(web);
+            web.loadUrl(BuildConfig.SERVER_BASE + "/" + BuildConfig.APP_SLUG);
+        });
         web.getSettings().setAllowFileAccess(false);
         web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -53,7 +77,30 @@ public class MainActivity extends BridgeActivity {
                     view.loadUrl(BuildConfig.SERVER_BASE + "/" + BuildConfig.APP_SLUG);
                     return;
                 }
+                beginLoading(view);
                 super.onPageStarted(view, value, favicon);
+            }
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    android.util.Log.w("ValleyConnection", "Page load failed with code " + error.getErrorCode());
+                    showConnectionError(R.string.connection_failed);
+                }
+                else super.onReceivedError(view, request, error);
+            }
+            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                if (request.isForMainFrame()) {
+                    android.util.Log.w("ValleyConnection", "Page returned HTTP " + response.getStatusCode());
+                    showConnectionError(R.string.connection_failed);
+                }
+                else super.onReceivedHttpError(view, request, response);
+            }
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.cancel();
+                showConnectionError(R.string.connection_secure_failed);
+            }
+            @Override public void onPageCommitVisible(WebView view, String url) {
+                super.onPageCommitVisible(view, url);
+                documentCommitted = true;
             }
         });
         web.setWebChromeClient(new BridgeWebChromeClient(bridge) {
@@ -69,7 +116,68 @@ public class MainActivity extends BridgeActivity {
             }
         });
         ValleyMessagingService.createChannel(this);
+        beginLoading(web);
         openNotification(getIntent());
+    }
+
+    private void beginLoading(WebView web) {
+        if (connectionOverlay == null) return;
+        cancelConnectionChecks();
+        final int generation = ++connectionGeneration;
+        connectionFailed = false;
+        documentCommitted = false;
+        connectionOverlay.setVisibility(View.VISIBLE);
+        ((TextView) connectionOverlay.findViewById(R.id.connection_title)).setText(getString(R.string.connection_opening, getString(R.string.app_name)));
+        ((TextView) connectionOverlay.findViewById(R.id.connection_message)).setText(R.string.connection_loading);
+        connectionOverlay.findViewById(R.id.connection_progress).setVisibility(View.VISIBLE);
+        connectionOverlay.findViewById(R.id.connection_retry).setVisibility(View.GONE);
+        connectionTimeout = () -> showConnectionError(R.string.connection_timeout);
+        connectionHandler.postDelayed(connectionTimeout, 30000);
+        readinessProbe = () -> {
+            if (isFinishing() || connectionFailed || generation != connectionGeneration) return;
+            if (!documentCommitted) {
+                connectionHandler.postDelayed(readinessProbe, 200);
+                return;
+            }
+            // Wait for React to render the real interface, not just an empty HTML document.
+            web.evaluateJavascript("(function(){var r=document.getElementById('root');return !!(r&&r.children.length&&r.getBoundingClientRect().height>0)})()", rendered -> {
+                if (connectionFailed || generation != connectionGeneration || isFinishing()) return;
+                if ("true".equals(rendered)) {
+                    // Confirm the WebView compositor has a frame ready before uncovering it.
+                    web.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
+                        @Override public void onComplete(long requestId) {
+                            if (!connectionFailed && generation == connectionGeneration && !isFinishing()) {
+                                cancelConnectionChecks();
+                                connectionOverlay.setVisibility(View.GONE);
+                            }
+                        }
+                    });
+                } else connectionHandler.postDelayed(readinessProbe, 200);
+            });
+        };
+        connectionHandler.post(readinessProbe);
+    }
+
+    private void showConnectionError(int message) {
+        if (connectionOverlay == null || isFinishing()) return;
+        connectionFailed = true;
+        cancelConnectionChecks();
+        connectionOverlay.setVisibility(View.VISIBLE);
+        ((TextView) connectionOverlay.findViewById(R.id.connection_title)).setText(R.string.connection_failed_title);
+        ((TextView) connectionOverlay.findViewById(R.id.connection_message)).setText(message);
+        connectionOverlay.findViewById(R.id.connection_progress).setVisibility(View.GONE);
+        connectionOverlay.findViewById(R.id.connection_retry).setVisibility(View.VISIBLE);
+    }
+
+    private void cancelConnectionChecks() {
+        if (readinessProbe != null) connectionHandler.removeCallbacks(readinessProbe);
+        if (connectionTimeout != null) connectionHandler.removeCallbacks(connectionTimeout);
+    }
+
+    @Override public void onDestroy() {
+        connectionGeneration++;
+        cancelConnectionChecks();
+        super.onDestroy();
     }
 
     @Override protected void onNewIntent(Intent intent) {

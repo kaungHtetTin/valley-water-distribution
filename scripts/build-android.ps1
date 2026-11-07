@@ -46,7 +46,7 @@ foreach ($appSlug in @('sales', 'supervisor', 'driver')) {
     $variantFolder = $variant.ToLowerInvariant()
     $apk = "android\app\build\outputs\apk\$appSlug\$variantFolder\app-$appSlug-$variantFolder.apk"
     $appName = (Get-Culture).TextInfo.ToTitleCase($appSlug)
-    $destination = Join-Path $outputDirectory "Valley-$appName-1.0.1-$variantFolder.apk"
+    $destination = Join-Path $outputDirectory "Valley-$appName-1.0.3-$variantFolder.apk"
     Copy-Item -LiteralPath $apk -Destination $destination -Force
     Write-Output $destination
 }

@@ -8,7 +8,8 @@
         "android:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1 -DebugBuild",
         "office:dev": "electron native/electron",
         "office:build": "node scripts/build-office.mjs",
-        "test:native": "node --test tests/native/*.test.cjs"
+        "test:native": "node --test tests/native/*.test.cjs",
+        "test:office-shell": "node scripts/test-office-shell.mjs"
     },
     "devDependencies": {
         "@capacitor/cli": "^8.6.0",

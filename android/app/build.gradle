@@ -8,8 +8,8 @@ android {
         applicationId "com.valleymyanmar.sales"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.0.1"
+        versionCode 4
+        versionName "1.0.3"
         buildConfigField 'String', 'SERVER_BASE', '"https://www.valleymyanmar.com/public"'
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

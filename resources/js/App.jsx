@@ -1116,6 +1116,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                     />
                 </header>
 
+                <Suspense fallback={<OfficePageLoading locale={locale} />}>
                 {activeResource ? (
                     <MasterDataWorkspace resourceKey={activeResource} locale={locale} canManage={canManageMasterData} detailId={resolveOfficeMasterDetailId(pathname, activeResource)} onNavigate={navigate} />
                 ) : activeView === 'profile-settings' ? (
@@ -1244,9 +1245,20 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : (
                     <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? 'owner' : user.role === 'Sales Supervisor' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
                 )}
+                </Suspense>
             </main>
         </>
     );
+}
+
+function OfficePageLoading({ locale }) {
+    return <section className="page office-page-loading" role="status" aria-live="polite" aria-busy="true">
+        <div className="office-page-loading-body">
+            <RotateCcw className="spin" size={24} aria-hidden="true" />
+            <strong>{locale === 'my' ? 'စာမျက်နှာကို ဖွင့်နေပါသည်…' : 'Loading page…'}</strong>
+            <div className="skeleton-lines" aria-hidden="true"><span /><span /><span /></div>
+        </div>
+    </section>;
 }
 
 const shellFilterSelector = [
