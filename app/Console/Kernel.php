@@ -15,6 +15,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
+        $schedule->command('valley:push-alerts')->everyMinute()->withoutOverlapping()->onOneServer()
+            ->when(fn () => filled(config('native.firebase_credentials')));
         $schedule->command('valley:backup')->dailyAt('02:00')->withoutOverlapping()->onOneServer();
         $schedule->call(fn () => app(KpiReviewController::class)->ensureMonthlyReviews(now()->format('Y-m'), refreshExisting: true))
             ->name('generate-monthly-kpi-reviews')

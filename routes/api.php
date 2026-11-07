@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->get('/user', [AppAuthController::class, 'user']);
 
+Route::post('/native/tracking', [\App\Http\Controllers\Api\NativeDeviceController::class, 'track'])
+    ->withoutMiddleware('throttle:api')->middleware('throttle:native-tracking');
+
 Route::get('/phase-zero', [PhaseZeroController::class, 'show']);
 Route::post('/phase-zero/login', [PhaseZeroController::class, 'validateDemoLogin'])->middleware('throttle:10,1');
 Route::get('/public/attendance/{token}', [PublicAttendanceController::class, 'show'])->middleware('throttle:60,1');

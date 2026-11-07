@@ -1,0 +1,6 @@
+.native-device-settings { padding: 20px; grid-column: 1 / -1; }
+.native-device-settings h2, .native-permission-row strong { display: flex; align-items: center; gap: 8px; }
+.native-permission-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; }
+.native-permission-row p { max-width: 720px; font-size: 13px; line-height: 1.6; margin: 8px 0; }
+.native-permission-row .button { flex-shrink: 0; }
+@media (max-width: 640px) { .native-permission-row { align-items: flex-start; flex-direction: column; gap: 8px; } }

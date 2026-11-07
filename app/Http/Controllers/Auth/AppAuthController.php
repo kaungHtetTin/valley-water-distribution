@@ -170,6 +170,7 @@ class AppAuthController extends Controller
             ])->save();
 
             event(new PasswordReset($user));
+            \App\Models\NativeDevice::where('user_id', $user->id)->delete();
         });
 
         if ($status !== Password::PASSWORD_RESET) {
@@ -264,6 +265,7 @@ class AppAuthController extends Controller
 
     public function logout(Request $request)
     {
+        \App\Models\NativeDevice::where('session_hash', hash('sha256', $request->session()->getId()))->delete();
         Auth::logout();
 
         $request->session()->invalidate();

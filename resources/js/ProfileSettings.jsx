@@ -1,4 +1,5 @@
 import { mobileText as mt } from './ui/mobileCopy.js';
+import { NativeDeviceSettings } from './NativeAppRuntime';
 import { Camera, Crop, KeyRound, Save, ShieldCheck, UserRound, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -263,6 +264,7 @@ export function ProfileSettingsScreen({ user, onUserUpdated, title }) {
             </div>
 
             <div className="profile-settings-grid">
+                <NativeDeviceSettings user={user} />
                 <form className="master-panel profile-settings-card" onSubmit={updateProfile}>
                     <header className="profile-settings-card-heading">
                         <span className="profile-settings-icon"><UserRound size={17} /></span>

@@ -17,3 +17,11 @@ yarn-error.log
 /.idea
 /.vscode
 /artifacts/
+/android/.gradle/
+/android/.idea/
+/android/local.properties
+/android/**/build/
+/android/app/src/*/google-services.json
+/native/secrets/
+*.jks
+*.keystore

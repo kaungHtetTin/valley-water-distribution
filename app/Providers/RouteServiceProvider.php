@@ -45,6 +45,10 @@ class RouteServiceProvider extends ServiceProvider
      */
     protected function configureRateLimiting()
     {
+        RateLimiter::for('native-tracking', fn (Request $request) => [
+            Limit::perMinute(600)->by('native-ip:'.$request->ip()),
+            Limit::perMinute(12)->by('native-token:'.hash('sha256', (string) $request->bearerToken())),
+        ]);
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });

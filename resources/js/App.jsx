@@ -1,4 +1,6 @@
 import { PublicWelcome, ProductCatalog } from './PublicApp';
+import { NativeAppRuntime } from './NativeAppRuntime';
+import { disconnectNativeDevice, isNativeAndroid } from './nativeRuntime';
 import { setFormattingLocale } from './ui/format.js';
 import { ConfirmationHost } from './ui/ConfirmDialog';
 import { useOverlayAccessibility } from './ui/useOverlayAccessibility';
@@ -772,7 +774,7 @@ function App() {
                 try { product ||= window.sessionStorage.getItem('valley:public-product'); window.sessionStorage.removeItem('valley:public-product'); } catch {}
                 navigate(product && /^\d+$/.test(product) ? `${selectedApp.path}/new-order?product=${product}` : `${selectedApp.path}/home`);
             }
-            if (user.default_app && user.default_app !== activeApp) {
+            if (user.default_app && user.default_app !== activeApp && !isNativeAndroid() && !window.valleyDesktop) {
                 window.location.assign(appConfig[user.default_app].path);
             }
         } catch (error) {
@@ -839,6 +841,7 @@ function App() {
     };
 
     const handleLogout = async () => {
+        await disconnectNativeDevice().catch(() => {});
         await window.axios.post(authRoute('logout', '/api/auth/logout'));
         clearPageState();
         setAuth({ loading: false, user: null, errors: {}, message: '' });
@@ -888,6 +891,7 @@ function App() {
 
     return (
         <div className="app-root" data-theme={theme} data-density="compact" data-app={activeApp} data-locale={locale} style={rootStyle}>
+            {!auth.loading && <NativeAppRuntime user={auth.user} app={activeApp} />}
             {!online && <div className="offline-banner" role="status"><TriangleAlert size={15} />You are offline. Existing screen data remains visible; saving is paused until the connection returns.</div>}
             {attendanceToken ? (
                 <PublicAttendanceScreen token={attendanceToken} locale={locale} setLocale={handleLocaleChange} />

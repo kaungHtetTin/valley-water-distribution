@@ -1,3 +1,4 @@
+import { isNativeAndroid, nativePrint } from './nativeRuntime';
 const printingApi = () => window.ValleyRuntime?.api?.printSettings || '/api/settings/printing';
 
 const escapeHtml = (value) => String(value ?? '')
@@ -87,6 +88,23 @@ const renderHtml = ({ company, setting, document }) => {
 };
 
 export async function printConfiguredDocument(type, document, settingOverrides = {}) {
+    if (isNativeAndroid()) {
+        try {
+            const [settingsResponse, resolvedDocument] = await Promise.all([
+                window.axios.get(printingApi()),
+                typeof document === 'function' ? document() : Promise.resolve(document),
+            ]);
+            const { data } = settingsResponse;
+            const setting = data.data.documents?.[type];
+            if (!setting) throw new Error('Printing settings are unavailable for this document.');
+            const resolvedSetting = { ...setting, ...settingOverrides };
+            await nativePrint(renderHtml({ company: data.data.company, setting: resolvedSetting, document: resolvedDocument }));
+            return { company: data.data.company, setting: resolvedSetting };
+        } catch (error) {
+            window.alert(error.response?.data?.message || error.message || 'Unable to print this document.');
+            return null;
+        }
+    }
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
         window.alert('Allow pop-ups to print this document.');

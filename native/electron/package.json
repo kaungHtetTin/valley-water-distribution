@@ -1,0 +1,7 @@
+{
+  "name": "valley-office",
+  "version": "1.0.1",
+  "description": "Valley Office desktop application",
+  "author": "Valley Water Distribution",
+  "main": "main.cjs"
+}

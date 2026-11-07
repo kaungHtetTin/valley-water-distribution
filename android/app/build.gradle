@@ -1,0 +1,91 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.valleymyanmar.sales"
+    compileSdk = rootProject.ext.compileSdkVersion
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId "com.valleymyanmar.sales"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 2
+        versionName "1.0.1"
+        buildConfigField 'String', 'SERVER_BASE', '"https://www.valleymyanmar.com/public"'
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    flavorDimensions 'app'
+    productFlavors {
+        sales {
+            dimension 'app'
+            applicationId 'com.valleymyanmar.sales'
+            resValue 'string', 'app_name', 'Valley Sales'
+            resValue 'string', 'title_activity_main', 'Valley Sales'
+            buildConfigField 'String', 'APP_SLUG', '"sales"'
+        }
+        supervisor {
+            dimension 'app'
+            applicationId 'com.valleymyanmar.supervisor'
+            resValue 'string', 'app_name', 'Valley Supervisor'
+            resValue 'string', 'title_activity_main', 'Valley Supervisor'
+            buildConfigField 'String', 'APP_SLUG', '"supervisor"'
+        }
+        driver {
+            dimension 'app'
+            applicationId 'com.valleymyanmar.driver'
+            resValue 'string', 'app_name', 'Valley Driver'
+            resValue 'string', 'title_activity_main', 'Valley Driver'
+            buildConfigField 'String', 'APP_SLUG', '"driver"'
+        }
+    }
+    signingConfigs {
+        release {
+            if (System.getenv('VALLEY_ANDROID_KEYSTORE')) {
+                storeFile file(System.getenv('VALLEY_ANDROID_KEYSTORE'))
+                storePassword System.getenv('VALLEY_ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('VALLEY_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('VALLEY_ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:34.4.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    implementation 'com.google.android.gms:play-services-location:21.3.0'
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// Each flavor needs its own Firebase Android app configuration. Builds remain usable
+// without Firebase; the app reports push as unconfigured until these files are supplied.
+if (['sales', 'supervisor', 'driver'].every { file("src/${it}/google-services.json").exists() }) {
+    apply plugin: 'com.google.gms.google-services'
+}

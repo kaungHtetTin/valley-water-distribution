@@ -1245,8 +1245,9 @@ class MasterDataController extends Controller
             return $query->orderBy($definition[1])->get($columns);
         })->all();
 
-        $options['routes'] = DB::table('routes')->where('is_active', true)->orderBy('name')
-            ->get(['id', 'name as label', 'area_id']);
+        $options['routes'] = DB::table('routes')->leftJoin('areas', 'routes.area_id', '=', 'areas.id')
+            ->where('routes.is_active', true)->orderBy('routes.name')
+            ->get(['routes.id', 'routes.name as label', 'routes.area_id', 'areas.name as area_name']);
 
         $options['vehicles'] = DB::table('vehicles')->where('is_active', true)->orderBy('code')->get(['id', 'code', 'plate_no'])
             ->map(fn ($vehicle) => ['id' => $vehicle->id, 'label' => $vehicle->code.' · '.$vehicle->plate_no]);

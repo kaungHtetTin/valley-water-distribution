@@ -1,0 +1,15 @@
+{
+  "appId": "com.valleymyanmar.driver",
+  "appName": "Valley Driver",
+  "webDir": "native/web",
+  "server": {
+    "url": "https://www.valleymyanmar.com/public/driver",
+    "cleartext": false,
+    "errorPath": "error.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false,
+    "appendUserAgent": " ValleyNative/1 driver"
+  }
+}

@@ -1,4 +1,5 @@
 import { FilterToolbar } from './ui/FilterToolbar';
+import { isNativeAndroid, nativeBridge } from './nativeRuntime';
 import { mobileText as mt } from './ui/mobileCopy.js';
 import { driverRoute } from './ui/driverNavigation.js';
 import { currentLocale, TIME_ZONE, businessToday, formatMoney as uiMoney, formatDate as uiDate, formatDateTime as uiDateTime } from './ui/format.js';
@@ -823,6 +824,14 @@ export function MobileDriverGpsScreen({ onBack } = {}) {
                 recorded_at: new Date(position.timestamp).toISOString(),
             };
             setGps((current) => ({ ...current, state: tripState.trip ? 'sharing' : 'ready', position: point, error: '' }));
+            if (isNativeAndroid()) {
+                nativeBridge.status().then((status) => active && setGps((current) => ({
+                    ...current, state: status.trackingRunning ? 'live' : 'ready',
+                    uploadedAt: status.lastUpload ? new Date(status.lastUpload).toISOString() : null,
+                    error: status.trackingError || '',
+                }))).catch(() => {});
+                return;
+            }
             const now = Date.now();
             if (!tripState.trip || uploadInFlight || now - lastUpload.current < 15000) return;
             uploadInFlight = true;
@@ -961,6 +970,11 @@ export function MobileDriverExecutionScreen({ mode, locale = 'en', pathname = wi
     useEffect(() => {
         if (historyMode || (detail.trip?.status || detail.delivery?.status) !== 'on_route') {
             setSharing({ state: 'idle', message: '' });
+            return undefined;
+        }
+        if (isNativeAndroid()) {
+            setSharing({ state: 'ready', message: 'Manage background trip tracking in Profile & Security > Device permissions.' });
+            window.dispatchEvent(new Event('valley-native-sync'));
             return undefined;
         }
         if (!navigator.geolocation) {

@@ -645,7 +645,14 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
     const employeeForm = resourceKey === 'employees';
     const visibleFields = definition.fields.filter((field) => (!employeeForm || values.employee_type || field.name === 'employee_type')
         && (!field.show_when || (Array.isArray(field.show_when) ? field.show_when.includes(values[field.depends_on]) : values[field.depends_on] === field.show_when)));
-    const formOptions = employeeForm ? { ...options, vehicles: (options.vehicles || []).filter((vehicle) => !vehicle.assigned_driver_id || String(vehicle.assigned_driver_id) === String(values.id)) } : options;
+    const formOptions = employeeForm ? {
+        ...options,
+        routes: (options.routes || []).map((route) => ({
+            ...route,
+            label: route.area_name ? `${route.area_name} - ${route.label}` : route.label,
+        })),
+        vehicles: (options.vehicles || []).filter((vehicle) => !vehicle.assigned_driver_id || String(vehicle.assigned_driver_id) === String(values.id)),
+    } : options;
     const employeeTypeHelp = {
         ...Object.fromEntries(employeeTypes.map((type) => [type, type === 'manager' ? 'General Manager. Enter employment details and salary; no separate employee login is needed.' : 'Enter employment details and salary; no separate employee login is needed.'])),
         office: locale === 'my' ? 'ရုံးဝင်ရောက်ခွင့် အခန်းကဏ္ဍနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Set the office access role and employment details.',

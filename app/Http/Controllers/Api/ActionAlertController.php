@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Illuminate\Http\Request;
@@ -19,6 +20,11 @@ class ActionAlertController extends Controller
         $app = $validated['app'];
         $user = $request->user();
 
+        return ApiResponse::success('Action alerts loaded.', $this->forUser($user, $app));
+    }
+
+    public function forUser(User $user, string $app): array
+    {
         abort_unless($user && AppAccess::canAccess($user, $app), 403, 'This application is outside your access scope.');
 
         $items = match ($app) {
@@ -31,11 +37,11 @@ class ActionAlertController extends Controller
 
         $items = collect($items)->filter(fn ($item) => $item['count'] > 0)->values();
 
-        return ApiResponse::success('Action alerts loaded.', [
+        return [
             'app' => $app,
             'total' => (int) $items->sum('count'),
             'items' => $items,
-        ]);
+        ];
     }
 
     private function officeAlerts(string $role): array

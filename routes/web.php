@@ -75,6 +75,12 @@ Route::prefix('api/auth')->group(function () {
 Route::get('/api/public/products', \App\Http\Controllers\Api\PublicCatalogController::class)
     ->middleware('throttle:60,1');
 
+// Keep registration credentials out of the general mutation audit payload.
+Route::middleware(['auth', 'throttle:20,1'])->prefix('api/native/devices')->group(function () {
+    Route::post('/', [\App\Http\Controllers\Api\NativeDeviceController::class, 'store']);
+    Route::delete('/{installationId}', [\App\Http\Controllers\Api\NativeDeviceController::class, 'destroy'])->whereUuid('installationId');
+});
+
 Route::middleware(['auth', 'audit.api'])->prefix('api')->group(function () {
     Route::get('/action-alerts', [ActionAlertController::class, 'index']);
     Route::get('/settings/company', [CompanySettingsController::class, 'show']);

@@ -1,0 +1,15 @@
+{
+  "appId": "com.valleymyanmar.supervisor",
+  "appName": "Valley Supervisor",
+  "webDir": "native/web",
+  "server": {
+    "url": "https://www.valleymyanmar.com/public/supervisor",
+    "cleartext": false,
+    "errorPath": "error.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false,
+    "appendUserAgent": " ValleyNative/1 supervisor"
+  }
+}

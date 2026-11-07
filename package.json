@@ -2,16 +2,35 @@
     "private": true,
     "scripts": {
         "dev": "vite",
-        "build": "vite build"
+        "build": "vite build",
+        "native:prepare": "cap sync android && node scripts/prepare-native.mjs",
+        "android:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1",
+        "android:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1 -DebugBuild",
+        "office:dev": "electron native/electron",
+        "office:build": "node scripts/build-office.mjs",
+        "test:native": "node --test tests/native/*.test.cjs"
     },
     "devDependencies": {
+        "@capacitor/cli": "^8.6.0",
         "axios": "^1.1.2",
+        "electron": "43.8.3",
+        "electron-builder": "^26.18.0",
         "laravel-vite-plugin": "^3.2.0",
         "lodash": "^4.17.19",
         "postcss": "^8.1.14",
         "vite": "^8.3.1"
     },
+    "overrides": {
+        "app-builder-lib": {
+            "minimatch": "^11.0.1"
+        },
+        "@electron/universal": {
+            "minimatch": "^11.0.1"
+        }
+    },
     "dependencies": {
+        "@capacitor/android": "^8.6.0",
+        "@capacitor/core": "^8.6.0",
         "@vitejs/plugin-react": "^6.1.1",
         "leaflet": "^1.9.4",
         "lucide-react": "^1.31.0",
