@@ -80,22 +80,32 @@ return new class extends Migration
     {
         $values = (array) $source;
         unset($values['id']);
-        $templateId = DB::table('kpi_templates')->insertGetId(array_replace($values, [
+        // An imported database may already contain the new templates. Keep their
+        // IDs and configured values so profiles and historical results stay valid.
+        $templateId = DB::table('kpi_templates')->where('code', $code)->value('id');
+        $templateId ??= DB::table('kpi_templates')->insertGetId(array_replace($values, [
             'code' => $code, 'name' => EmployeeTypes::LABELS[$type], 'employee_type' => $type,
         ]));
         $metricIds = [];
         foreach (DB::table('kpi_template_metrics')->where('kpi_template_id', $source->id)->get() as $metric) {
             $values = (array) $metric;
             unset($values['id']);
-            $metricIds[$metric->id] = DB::table('kpi_template_metrics')->insertGetId(array_replace($values, [
-                'kpi_template_id' => $templateId, 'code' => strtoupper($type).'-'.$metric->code,
-            ]));
+            $metricCode = strtoupper($type).'-'.$metric->code;
+            $metricIds[$metric->id] = DB::table('kpi_template_metrics')
+                ->where('kpi_template_id', $templateId)->where('code', $metricCode)->value('id')
+                ?? DB::table('kpi_template_metrics')->insertGetId(array_replace($values, [
+                    'kpi_template_id' => $templateId, 'code' => $metricCode,
+                ]));
         }
-        foreach (DB::table('kpi_bonus_rules')->where('kpi_template_id', $source->id)->get() as $rule) {
-            $values = (array) $rule;
-            unset($values['id']);
-            DB::table('kpi_bonus_rules')->insert(array_replace($values, ['kpi_template_id' => $templateId]));
+        // Existing payout bands may be customized; only seed an empty ruleset.
+        if (! DB::table('kpi_bonus_rules')->where('kpi_template_id', $templateId)->exists()) {
+            foreach (DB::table('kpi_bonus_rules')->where('kpi_template_id', $source->id)->get() as $rule) {
+                $values = (array) $rule;
+                unset($values['id']);
+                DB::table('kpi_bonus_rules')->insert(array_replace($values, ['kpi_template_id' => $templateId]));
+            }
         }
+
         return [$templateId, $metricIds];
     }
 

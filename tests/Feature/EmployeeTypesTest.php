@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Company;
 use App\Models\User;
 use App\Support\EmployeeTypes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class EmployeeTypesTest extends TestCase
@@ -46,7 +48,7 @@ class EmployeeTypesTest extends TestCase
         }
         $this->postJson('/api/master-data/employees', ['name' => 'Legacy', 'employee_type' => 'office'])
             ->assertUnprocessable()->assertJsonValidationErrors('employee_type');
-        $company = \App\Models\Company::oldest('id')->firstOrFail();
+        $company = Company::oldest('id')->firstOrFail();
         $salaries = array_intersect_key($company->default_base_salaries, EmployeeTypes::LABELS);
         $salaries['accountant'] = 650000;
         $this->putJson('/api/settings/company', ['name' => $company->name, 'default_base_salaries' => $salaries])
@@ -89,11 +91,19 @@ class EmployeeTypesTest extends TestCase
         $this->assertSame($originalPassword, $office->fresh()->password);
     }
 
-    public function test_migration_classifies_office_staff_and_preserves_salary_permissions_and_kpi_targets(): void
+    public static function existingTemplates(): array
+    {
+        return ['new templates' => [false], 'existing templates' => [true]];
+    }
+
+    #[DataProvider('existingTemplates')]
+    public function test_migration_classifies_office_staff_and_preserves_salary_permissions_and_kpi_targets(bool $existingTemplates): void
     {
         $this->seed();
         // Recreate pre-migration office templates and staff against the current schema.
-        DB::table('kpi_templates')->whereIn('code', ['ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1', 'SALE-HELPER-V1'])->delete();
+        if (! $existingTemplates) {
+            DB::table('kpi_templates')->whereIn('code', ['ACCOUNTANT-V1', 'MANAGER-V1', 'HR-V1', 'SALE-HELPER-V1'])->delete();
+        }
         $templateId = DB::table('kpi_templates')->where('code', 'OFFICE-STAFF-V1')->value('id');
         DB::table('kpi_templates')->where('id', $templateId)->update(['employee_type' => 'office']);
         $metricId = DB::table('kpi_template_metrics')->where('kpi_template_id', $templateId)->value('id');
@@ -133,6 +143,28 @@ class EmployeeTypesTest extends TestCase
             $this->assertEquals(70000, $profile->target_bonus);
             $this->assertDatabaseHas('kpi_templates', ['id' => $profile->kpi_template_id, 'employee_type' => $type]);
             $this->assertDatabaseHas('kpi_staff_target_items', ['kpi_staff_profile_id' => $profile->id, 'target_value' => 29]);
+        }
+    }
+
+    public function test_migration_reuses_existing_helper_template_without_overwriting_settings_or_duplicating_children(): void
+    {
+        $this->seed();
+        $templateId = DB::table('kpi_templates')->where('code', 'SALE-HELPER-V1')->value('id');
+        DB::table('kpi_templates')->where('id', $templateId)->update(['name' => 'Custom helper', 'target_bonus' => 85000, 'is_active' => false]);
+        $metricId = DB::table('kpi_template_metrics')->where('kpi_template_id', $templateId)->value('id');
+        DB::table('kpi_template_metrics')->where('id', $metricId)->update(['default_target' => 42]);
+        DB::table('kpi_bonus_rules')->where('kpi_template_id', $templateId)->update(['payout_percent' => 65]);
+        $before = [];
+        foreach (['kpi_templates', 'kpi_template_metrics', 'kpi_bonus_rules'] as $table) {
+            $before[$table] = DB::table($table)->orderBy('id')->get()->toJson();
+        }
+
+        $migration = require database_path('migrations/2026_11_03_000001_define_employee_types.php');
+        $migration->up();
+        $migration->up();
+
+        foreach ($before as $table => $rows) {
+            $this->assertSame($rows, DB::table($table)->orderBy('id')->get()->toJson(), $table);
         }
     }
 }
