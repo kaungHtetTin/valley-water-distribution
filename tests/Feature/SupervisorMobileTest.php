@@ -26,14 +26,14 @@ class SupervisorMobileTest extends TestCase
 
     public function test_sales_supervisor_can_sign_in_and_view_only_the_assigned_team(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $this->postJson('/api/auth/login', [
             'email' => 'sales.supervisor@valley.test',
             'password' => 'password',
             'app' => 'supervisor',
         ])->assertOk()
-            ->assertJsonPath('data.user.role', 'Sales Supervisor')
+            ->assertJsonPath('data.user.role', 'Sale Manager')
             ->assertJsonPath('data.user.default_app', 'supervisor')
             ->assertJsonFragment(['supervisor.team.view']);
 
@@ -48,7 +48,7 @@ class SupervisorMobileTest extends TestCase
 
     public function test_supervisor_can_submit_own_outdoor_expense_for_office_review(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
         $this->actingAs($supervisor);
         $this->getJson('/api/mobile/finance/meta')->assertOk()
@@ -81,7 +81,7 @@ class SupervisorMobileTest extends TestCase
 
     public function test_supervisor_can_view_assigned_representative_customer_visits_by_date(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
         $this->actingAs($supervisor);
         $member = DB::table('employees')->where('code', 'SAL-001')->first();
@@ -109,18 +109,18 @@ class SupervisorMobileTest extends TestCase
 
     public function test_non_supervisor_and_unlinked_supervisor_profiles_are_rejected(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $this->actingAs($sales)->getJson('/api/mobile/supervisor')->assertForbidden();
 
-        $sales->update(['role' => 'Sales Supervisor']);
+        $sales->update(['role' => 'Sale Manager']);
         $this->actingAs($sales->fresh())->getJson('/api/mobile/supervisor/team')->assertNotFound();
     }
 
     public function test_supervisor_cannot_view_a_representative_outside_their_team(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
         $warehouseEmployeeId = DB::table('employees')->where('code', 'WH-001')->value('id');
 
@@ -131,7 +131,7 @@ class SupervisorMobileTest extends TestCase
 
     public function test_supervisor_can_view_monthly_and_yearly_kpi_for_a_team_member(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $owner = User::where('email', 'owner@valley.test')->firstOrFail();
         $templateId = DB::table('kpi_templates')->where('code', 'SALES-REP-V1')->value('id');
         $salesEmployeeId = DB::table('employees')->where('code', 'SAL-001')->value('id');
@@ -158,7 +158,7 @@ class SupervisorMobileTest extends TestCase
 
     public function test_a_sales_representative_can_belong_to_only_one_supervisor(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
         $existingSupervisorId = DB::table('employees')->where('code', 'SUP-001')->value('id');
         $salesOneId = DB::table('employees')->where('code', 'SAL-001')->value('id');

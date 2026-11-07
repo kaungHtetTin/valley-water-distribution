@@ -563,10 +563,10 @@ class DemoSeeder extends Seeder
         }
 
         $users = [
-            ['name' => 'Office Demo', 'email' => 'office@valley.test', 'phone' => '09 420 000 002', 'role' => 'Office Staff', 'employee_id' => DB::table('employees')->where('code', 'EMP-001')->value('id')],
+            ['name' => 'Office Demo', 'email' => 'office@valley.test', 'phone' => '09 420 000 002', 'role' => 'Other', 'employee_id' => DB::table('employees')->where('code', 'EMP-001')->value('id')],
             ['name' => 'Customer Demo', 'email' => 'client@valley.test', 'phone' => '09 420 000 003', 'role' => 'Customer', 'customer_id' => DB::table('customers')->where('code', 'CUS-0001')->value('id')],
-            ['name' => 'Sales Demo', 'email' => 'sales@valley.test', 'phone' => '09 420 000 004', 'role' => 'Sales Representative', 'employee_id' => DB::table('employees')->where('code', 'SAL-001')->value('id')],
-            ['name' => 'Sales Supervisor Demo', 'email' => 'sales.supervisor@valley.test', 'phone' => '09 420 300 001', 'role' => 'Sales Supervisor', 'employee_id' => DB::table('employees')->where('code', 'SUP-001')->value('id')],
+            ['name' => 'Sales Demo', 'email' => 'sales@valley.test', 'phone' => '09 420 000 004', 'role' => 'Sale Representative', 'employee_id' => DB::table('employees')->where('code', 'SAL-001')->value('id')],
+            ['name' => 'Sales Supervisor Demo', 'email' => 'sales.supervisor@valley.test', 'phone' => '09 420 300 001', 'role' => 'Sale Manager', 'employee_id' => DB::table('employees')->where('code', 'SUP-001')->value('id')],
             ['name' => 'Driver Demo', 'email' => 'driver@valley.test', 'phone' => '09 420 000 005', 'role' => 'Driver', 'employee_id' => $driverEmployeeId],
         ];
 

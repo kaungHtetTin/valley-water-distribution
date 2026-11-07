@@ -56,7 +56,7 @@ class DashboardController extends Controller
         $user = $request->user();
         $app = match ($user->role) {
             'Customer' => 'client',
-            'Sales Representative' => 'sales',
+            'Sale Representative' => 'sales',
             'Driver' => 'driver',
             default => null,
         };

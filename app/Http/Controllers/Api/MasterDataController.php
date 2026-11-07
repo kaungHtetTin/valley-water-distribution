@@ -42,6 +42,8 @@ class MasterDataController extends Controller
             'salary_defaults' => $key === 'employees'
                 ? (Company::query()->oldest('id')->first()?->default_base_salaries ?? SalaryDefaults::AMOUNTS)
                 : null,
+            'account_roles' => $key === 'employees' ? EmployeeTypes::ROLES : null,
+            'login_types' => $key === 'employees' ? EmployeeTypes::LOGIN_TYPES : null,
         ])->values();
 
         return ApiResponse::success('Master data setup loaded.', [
@@ -720,6 +722,12 @@ class MasterDataController extends Controller
         abort_unless(DB::table($config['table'])->where('id', $id)->exists(), 404);
         $previousRoleName = $resource === 'roles' ? DB::table('roles')->where('id', $id)->value('name') : null;
         $previousEmployeeType = $resource === 'employees' ? DB::table('employees')->where('id', $id)->value('employee_type') : null;
+        if ($resource === 'employees' && ! $request->exists('email') && in_array($request->input('employee_type'), EmployeeTypes::LOGIN_TYPES, true)) {
+            $linkedEmail = User::query()->where('employee_id', $id)->value('email');
+            if ($linkedEmail) {
+                $request->merge(['email' => $linkedEmail]);
+            }
+        }
         $this->authorizeEmployeeAccountChange($request, $resource, $id);
         $validated = $request->validate($this->rules($resource, $id));
         if ($resource === 'employees' && $validated['employee_type'] !== 'sales') {
@@ -756,7 +764,7 @@ class MasterDataController extends Controller
                 $this->syncRolePermissions($resource, $id, $permissionIds);
             }
             $record = (array) DB::table($config['table'])->find($id);
-            $this->syncLoginAccount($resource, $id, $record, $password);
+            $this->syncLoginAccount($resource, $id, $record, $password, $previousEmployeeType !== ($validated['employee_type'] ?? null));
             if ($resource === 'employees' && ($hasVehicleAssignment || $validated['employee_type'] !== 'driver')) {
                 $this->syncAssignedVehicle($id, $validated['employee_type'] === 'driver' ? $assignedVehicleId : null);
             }
@@ -962,7 +970,7 @@ class MasterDataController extends Controller
                 'access_role' => ['prohibited'],
                 'phone' => ['nullable', 'string', 'max:40'],
                 'email' => [Rule::prohibitedIf(! $employeeLogin), $employeeLogin ? $emailPresence : 'nullable', 'required_with:password', 'email', 'max:150', $unique('employees', 'email'), $accountEmail],
-                'password' => [Rule::prohibitedIf(! $employeeLogin), ...$password],
+                'password' => [Rule::prohibitedIf(! $employeeLogin), Rule::requiredIf($employeeLogin && ! $linkedUser && request()->filled('email')), ...$password],
                 'password_confirmation' => [Rule::prohibitedIf(! $employeeLogin), 'nullable', 'string', 'max:72'],
                 'hire_date' => ['nullable', 'date'],
                 'base_salary' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99', 'decimal:0,2'],
@@ -982,7 +990,7 @@ class MasterDataController extends Controller
                 'name' => ['required', 'string', 'max:100', $unique('roles', 'name')],
                 'description' => ['nullable', 'string', 'max:500'],
                 'guard_name' => ['required', Rule::in(['web'])],
-                'allowed_apps' => ['required', 'array', 'min:1'],
+                'allowed_apps' => ['present', 'array'],
                 'allowed_apps.*' => ['string', Rule::in(AppAccess::APPS)],
                 'permission_ids' => ['sometimes', 'array'],
                 'permission_ids.*' => ['integer', 'exists:permissions,id'],
@@ -1117,18 +1125,21 @@ class MasterDataController extends Controller
         }
     }
 
-    private function syncLoginAccount(string $resource, int $recordId, array $record, ?string $password): void
+    private function syncLoginAccount(string $resource, int $recordId, array $record, ?string $password, bool $employeeTypeChanged = false): void
     {
         if (! in_array($resource, ['customers', 'employees'], true)) {
             return;
         }
 
-        if ($resource === 'employees' && ! in_array($record['employee_type'], EmployeeTypes::LOGIN_TYPES, true)) {
-            return;
-        }
-
         $linkColumn = $resource === 'customers' ? 'customer_id' : 'employee_id';
         $user = User::query()->where($linkColumn, $recordId)->first();
+        if ($resource === 'employees' && ! in_array($record['employee_type'], EmployeeTypes::LOGIN_TYPES, true)) {
+            if ($user && $employeeTypeChanged) {
+                $user->update(['role' => $this->employeeRole($record['employee_type'])]);
+                $user->tokens()->delete();
+            }
+            return;
+        }
         if (! $user && ! $password) {
             return;
         }
@@ -1137,7 +1148,7 @@ class MasterDataController extends Controller
             'name' => $resource === 'customers' ? $record['contact_name'] : $record['name'],
             'email' => $record['email'],
             'phone' => $record['phone'] ?? null,
-            'role' => $resource === 'customers' ? 'Customer' : $this->employeeRole($record['employee_type']),
+            'role' => $resource === 'customers' ? 'Customer' : ($user && ! $employeeTypeChanged ? $user->role : $this->employeeRole($record['employee_type'])),
             'customer_id' => $resource === 'customers' ? $recordId : null,
             'employee_id' => $resource === 'employees' ? $recordId : null,
         ];
@@ -1155,12 +1166,7 @@ class MasterDataController extends Controller
 
     private function employeeRole(string $employeeType): string
     {
-        return match ($employeeType) {
-            'sales' => 'Sales Representative',
-            'sales_supervisor' => 'Sales Supervisor',
-            'driver' => 'Driver',
-            default => 'Office Staff',
-        };
+        return EmployeeTypes::ROLES[$employeeType];
     }
 
     private function needsGeneratedCode(string $resource, array $values): bool
@@ -1213,7 +1219,9 @@ class MasterDataController extends Controller
             $vehicle = DB::table('vehicles')->where('assigned_driver_id', $item['id'])->orderBy('id')->first(['id', 'code', 'plate_no']);
             $item['assigned_vehicle_id'] = $vehicle?->id;
             $item['assigned_vehicle'] = $vehicle ? $vehicle->code.' · '.$vehicle->plate_no : null;
-            $item['access_role'] = User::query()->where('employee_id', $item['id'])->value('role');
+            $account = User::query()->where('employee_id', $item['id'])->first(['role', 'email']);
+            $item['access_role'] = $account?->role;
+            $item['email'] = $account?->email ?? ($item['email'] ?? null);
         }
 
         return $item;

@@ -437,14 +437,14 @@ class KpiReviewController extends Controller
     public function mobile(Request $request)
     {
         $user = $request->user();
-        abort_unless(in_array($user?->role, ['Sales Representative', 'Sales Supervisor', 'Driver'], true), 403);
+        abort_unless(in_array($user?->role, ['Sale Representative', 'Sale Manager', 'Driver'], true), 403);
         abort_unless($user?->employee_id, 404, 'Employee profile is not linked to this account.');
 
         $this->authorizePermission(
             $request,
             match ($user->role) {
                 'Driver' => 'driver.payroll.view',
-                'Sales Supervisor' => 'supervisor.kpi.view',
+                'Sale Manager' => 'supervisor.kpi.view',
                 default => 'sales.payroll.view',
             }
         );
@@ -871,7 +871,7 @@ class KpiReviewController extends Controller
         $result = DB::table('kpi_results')->where('id', $id)->first();
         abort_unless($result, 404);
         abort_unless($result->status === 'submitted', 409, 'Only submitted KPI reviews can be approved.');
-        if ($request->user()?->role === 'Finance Manager') {
+        if ($request->user()?->role === 'Manager') {
             abort_if($result->submitted_by === $request->user()->id, 409, 'The KPI review submitter cannot approve their own review.');
         }
 

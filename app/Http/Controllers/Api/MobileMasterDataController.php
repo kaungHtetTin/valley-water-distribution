@@ -31,7 +31,7 @@ class MobileMasterDataController extends Controller
         } else {
             $permission = match ($user->role) {
                 'Driver' => 'driver.profile.view',
-                'Sales Supervisor' => 'supervisor.profile.view',
+                'Sale Manager' => 'supervisor.profile.view',
                 default => 'sales.profile.view',
             };
             $this->authorizePermission($request, $permission);
@@ -135,7 +135,7 @@ class MobileMasterDataController extends Controller
     public function salesVisits(Request $request)
     {
         $this->authorizePermission($request, 'sales.customers.view');
-        abort_unless($request->user()->role === 'Sales Representative', 403);
+        abort_unless($request->user()->role === 'Sale Representative', 403);
 
         $employee = DB::table('employees')->find($request->user()->employee_id);
         abort_unless($employee, 404, 'Sales employee record not found.');
@@ -202,7 +202,7 @@ class MobileMasterDataController extends Controller
     public function updateSalesVisit(Request $request, int $customerId)
     {
         $this->authorizePermission($request, 'sales.customers.view');
-        abort_unless($request->user()->role === 'Sales Representative', 403);
+        abort_unless($request->user()->role === 'Sale Representative', 403);
 
         $validated = $request->validate([
             'status' => ['sometimes', 'in:completed'],
@@ -445,7 +445,7 @@ class MobileMasterDataController extends Controller
         $user = $request->user();
         $permission = match ($user->role) {
             'Driver' => 'driver.attendance.view',
-            'Sales Supervisor' => 'supervisor.attendance.view',
+            'Sale Manager' => 'supervisor.attendance.view',
             default => 'sales.attendance.view',
         };
         $this->authorizePermission($request, $permission);
@@ -722,10 +722,10 @@ class MobileMasterDataController extends Controller
     private function authorizeMobileAttendance(Request $request): void
     {
         $role = $request->user()->role;
-        abort_unless(in_array($role, ['Driver', 'Sales Representative', 'Sales Supervisor'], true), 403);
+        abort_unless(in_array($role, ['Driver', 'Sale Representative', 'Sale Manager'], true), 403);
         $permission = match ($role) {
             'Driver' => 'driver.attendance.view',
-            'Sales Supervisor' => 'supervisor.attendance.view',
+            'Sale Manager' => 'supervisor.attendance.view',
             default => 'sales.attendance.view',
         };
         $this->authorizePermission($request, $permission);

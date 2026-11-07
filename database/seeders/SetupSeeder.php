@@ -90,14 +90,16 @@ class SetupSeeder extends Seeder
 
         $roles = [
             'Owner' => ['description' => 'Full system access for the business owner.', 'apps' => ['office']],
-            'Office Staff' => ['description' => 'Office dashboard and operational data entry.', 'apps' => ['office']],
+            'Other' => ['description' => 'Office dashboard and operational data entry.', 'apps' => ['office']],
             'HR' => ['description' => 'Employee records, attendance, KPI preparation, and payroll drafts.', 'apps' => ['office']],
             'Accountant' => ['description' => 'Financial records, supplier payments, cash handovers, and payroll payment.', 'apps' => ['office']],
-            'Finance Manager' => ['description' => 'Financial review and approval, KPI approval, payroll approval, and profit and loss.', 'apps' => ['office']],
+            'Manager' => ['description' => 'Financial review and approval, KPI approval, payroll approval, and profit and loss.', 'apps' => ['office']],
             'Customer' => ['description' => 'Client mobile app access.', 'apps' => ['client']],
-            'Sales Representative' => ['description' => 'Sales mobile app access.', 'apps' => ['sales']],
-            'Sales Supervisor' => ['description' => 'Mobile team oversight for assigned sales representatives.', 'apps' => ['supervisor']],
+            'Sale Representative' => ['description' => 'Sales mobile app access.', 'apps' => ['sales']],
+            'Sale Manager' => ['description' => 'Mobile team oversight for assigned sales representatives.', 'apps' => ['supervisor']],
             'Driver' => ['description' => 'Driver mobile delivery app access.', 'apps' => ['driver']],
+            'Storekeeper' => ['description' => 'Office inventory viewing, stock receiving, and stock issue.', 'apps' => ['office']],
+            'Sale Helper' => ['description' => 'Supporting sales employee; no app access by default.', 'apps' => []],
         ];
 
         foreach ($roles as $name => $role) {
@@ -114,8 +116,10 @@ class SetupSeeder extends Seeder
         }
 
         $rolePermissions = [
+            'Storekeeper' => ['office.inventory.view', 'office.inventory.manage'],
+            'Sale Helper' => [],
             'Owner' => DB::table('permissions')->pluck('name')->all(),
-            'Office Staff' => [
+            'Other' => [
                 'office.dashboard.view', 'office.customers.view', 'office.orders.view', 'office.orders.manage',
                 'office.invoices.view', 'office.invoices.manage', 'office.inventory.view', 'office.inventory.manage',
                 'office.deliveries.view', 'office.deliveries.manage', 'office.master-data.view', 'office.master-data.manage',
@@ -134,7 +138,7 @@ class SetupSeeder extends Seeder
                 'office.finance.suppliers.view', 'office.finance.suppliers.pay',
                 'office.finance.books.view', 'office.payroll.view', 'office.payroll.drafts.pay',
             ],
-            'Finance Manager' => [
+            'Manager' => [
                 'office.attendance.view', 'office.attendance.approve-full',
                 'office.finance.collections.view', 'office.finance.collections.review',
                 'office.finance.receivables.view', 'office.finance.expenses.view', 'office.finance.expenses.review',
@@ -146,12 +150,12 @@ class SetupSeeder extends Seeder
                 'client.home.view', 'client.orders.view', 'client.orders.create', 'client.deliveries.view',
                 'client.profile.view', 'client.finance.view',
             ],
-            'Sales Representative' => [
+            'Sale Representative' => [
                 'sales.home.view', 'sales.profile.view', 'sales.orders.view', 'sales.orders.create',
                 'sales.customers.view', 'sales.customers.create', 'sales.attendance.view', 'sales.payroll.view',
                 'sales.finance.view', 'sales.expenses.view', 'sales.expenses.create',
             ],
-            'Sales Supervisor' => [
+            'Sale Manager' => [
                 'supervisor.home.view', 'supervisor.team.view', 'supervisor.profile.view',
                 'supervisor.orders.view',
                 'supervisor.attendance.view', 'supervisor.kpi.view',

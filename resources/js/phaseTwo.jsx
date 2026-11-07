@@ -425,7 +425,7 @@ export function AttendanceRecordsScreen({ locale, user, detailId = null, onNavig
     const [refreshKey, setRefreshKey] = useState(0);
     const listPath = `${window.ValleyRuntime?.routes?.office || '/office'}/attendance/records`;
     const [approving, setApproving] = useState(null);
-    const canApprove = ['Owner', 'Finance Manager', 'Manager'].includes(user?.role)
+    const canApprove = ['Owner', 'Manager'].includes(user?.role)
         && user?.permissions?.includes('office.attendance.approve-full');
     const approvalLabel = locale === 'my' ? 'အပြည့်အဝ ရုံးတက်အဖြစ် လက်ခံမည်' : 'Accept as full attendance';
     const approveFull = async (record) => {

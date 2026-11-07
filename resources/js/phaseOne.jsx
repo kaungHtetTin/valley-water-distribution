@@ -643,6 +643,9 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
     const [saving, setSaving] = useState(false);
     const dialogRef = useRef(null);
     const employeeForm = resourceKey === 'employees';
+    const canSetAccountPassword = definition.fields.some((field) => field.name === 'password');
+    const loginEnabled = (definition.login_types || []).includes(values.employee_type);
+    const accountRole = values.access_role || definition.account_roles?.[values.employee_type];
     const visibleFields = definition.fields.filter((field) => (!employeeForm || values.employee_type || field.name === 'employee_type')
         && (!field.show_when || (Array.isArray(field.show_when) ? field.show_when.includes(values[field.depends_on]) : values[field.depends_on] === field.show_when)));
     const formOptions = employeeForm ? {
@@ -654,7 +657,7 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
         vehicles: (options.vehicles || []).filter((vehicle) => !vehicle.assigned_driver_id || String(vehicle.assigned_driver_id) === String(values.id)),
     } : options;
     const employeeTypeHelp = {
-        ...Object.fromEntries(employeeTypes.map((type) => [type, type === 'manager' ? 'General Manager. Enter employment details and salary; no separate employee login is needed.' : 'Enter employment details and salary; no separate employee login is needed.'])),
+        ...Object.fromEntries(employeeTypes.map((type) => [type, 'Enter employment details and salary.'])),
         office: locale === 'my' ? 'ရုံးဝင်ရောက်ခွင့် အခန်းကဏ္ဍနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Set the office access role and employment details.',
         sales: locale === 'my' ? 'အရောင်းလမ်းကြောင်းနှင့် ဝန်ထမ်းအချက်အလက် သတ်မှတ်ပါ။' : 'Assign a sales route and enter employment details.',
         sales_supervisor: locale === 'my' ? 'ကြီးကြပ်သူ အချက်အလက် ထည့်ပါ။ အဖွဲ့ဝင်များကို အသေးစိတ်စာမျက်နှာတွင် သတ်မှတ်နိုင်သည်။' : 'Enter Sale Manager details. Assign team members from the employee detail page.',
@@ -731,6 +734,13 @@ function MasterForm({ definition, resourceKey, options, editing, locale, onClose
                         ))}
                     </div>
                     {employeeForm && <p className="employee-type-help" aria-live="polite">{employeeTypeHelp[values.employee_type] || (locale === 'my' ? 'ဝန်ထမ်းအမျိုးအစားကို အရင်ရွေးပါ။ သက်ဆိုင်ရာ ဖြည့်စွက်ရန် အချက်များ ပေါ်လာမည်။' : 'Select an employee type first to show the relevant fields.')}</p>}
+                    {employeeForm && values.employee_type && <p className="employee-type-help" aria-live="polite">
+                        {loginEnabled
+                            ? canSetAccountPassword
+                                ? `Account role: ${accountRole}. Enter an email, password, and password confirmation to create a login. Leave both email and password blank for an employee without an account. For an existing account, leave the password blank to keep it.`
+                                : `Account role: ${accountRole}. Ask a user access administrator to create or update login credentials.`
+                            : 'This employee type has no login creation. Changing an existing account to Sale Helper removes its previous app role.'}
+                    </p>}
                     {message && <div className="inline-error"><AlertCircle size={15} /> {message}</div>}
                 </div>
                 <footer>
@@ -1011,7 +1021,7 @@ const printingPreviewSamples = {
     stock_transfer: { facts: [['From', 'Yangon Warehouse'], ['To', 'Mandalay Warehouse'], ['Date', 'Sep 28, 2026'], ['Reference', 'TRF-0001']], columns: ['Product', 'Requested', 'Issued', 'Received'], rows: [['Valley Water 1 Liter', '100', '100', '100'], ['Valley Water 3 Liter', '50', '50', '50']], total: ['Transferred units', '150'] },
     stock_adjustment: { facts: [['Warehouse', 'Yangon Warehouse'], ['Date', 'Sep 28, 2026'], ['Reason', 'Closing count'], ['Reference', 'ADJ-0001']], columns: ['Product', 'System', 'Counted', 'Variance'], rows: [['Valley Water 1 Liter', '100', '98', '-2'], ['Valley Water 3 Liter', '50', '51', '+1']], total: ['Net variance', '-1'] },
     expense_payment: { facts: [['Paid to', 'ABC Fuel Station'], ['Date', 'Sep 28, 2026'], ['Category', 'Vehicle fuel'], ['Method', 'Cash']], columns: ['Description', 'Vehicle', 'Reference', 'Amount'], rows: [['Diesel fuel', 'A001', 'EXP-0001', '120,000']], total: ['Payment total', '120,000'] },
-    employee_payslip: { facts: [['Employee', 'Sales Demo'], ['Month', 'September 2026'], ['Role', 'Sales Representative'], ['Payment', 'Bank']], columns: ['Earning', 'Amount', 'Deduction', 'Amount'], rows: [['Basic salary', '350,000', 'Attendance', '10,000'], ['KPI bonus', '40,000', 'Advance', '20,000']], total: ['Net pay', '360,000'] },
+    employee_payslip: { facts: [['Employee', 'Sales Demo'], ['Month', 'September 2026'], ['Role', 'Sale Representative'], ['Payment', 'Bank']], columns: ['Earning', 'Amount', 'Deduction', 'Amount'], rows: [['Basic salary', '350,000', 'Attendance', '10,000'], ['KPI bonus', '40,000', 'Advance', '20,000']], total: ['Net pay', '360,000'] },
 };
 
 function PrintingSettingsScreen({ canManage = true }) {

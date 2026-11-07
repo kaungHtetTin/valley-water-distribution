@@ -214,7 +214,7 @@ class PayrollController extends Controller
 
         abort_unless($payroll->status === 'draft', 409, 'Only draft payrolls can be approved.');
         abort_unless($payroll->items()->exists(), 409, 'Payroll must have at least one item before approval.');
-        if ($request->user()?->role === 'Finance Manager') {
+        if ($request->user()?->role === 'Manager') {
             abort_if($payroll->generated_by === $request->user()->id, 409, 'The payroll preparer cannot approve their own draft.');
         }
 

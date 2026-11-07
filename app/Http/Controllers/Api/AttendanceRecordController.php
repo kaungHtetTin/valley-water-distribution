@@ -14,7 +14,7 @@ class AttendanceRecordController extends Controller
     public function approveFull(Request $request, int $id)
     {
         $this->authorizePermission($request);
-        abort_unless(in_array($request->user()->role, ['Owner', 'Finance Manager', 'Manager'], true)
+        abort_unless(in_array($request->user()->role, ['Owner', 'Manager'], true)
             && in_array('office.attendance.approve-full', AppAccess::permissionsForRole($request->user()->role), true), 403);
 
         DB::transaction(function () use ($request, $id) {

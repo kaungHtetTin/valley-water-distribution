@@ -15,7 +15,7 @@ class SupervisorMobileController extends Controller
     public function overview(Request $request)
     {
         $user = $request->user();
-        abort_unless($user?->role === 'Sales Supervisor', 403, 'This workspace is only available to sales supervisors.');
+        abort_unless($user?->role === 'Sale Manager', 403, 'This workspace is only available to sales supervisors.');
         abort_unless(in_array('supervisor.home.view', AppAccess::permissionsForRole($user->role), true), 403);
         abort_unless($user->employee_id, 404, 'Employee profile is not linked to this account.');
 
@@ -55,7 +55,7 @@ class SupervisorMobileController extends Controller
     public function team(Request $request)
     {
         $user = $request->user();
-        abort_unless($user?->role === 'Sales Supervisor', 403, 'This workspace is only available to sales supervisors.');
+        abort_unless($user?->role === 'Sale Manager', 403, 'This workspace is only available to sales supervisors.');
         abort_unless(in_array('supervisor.team.view', AppAccess::permissionsForRole($user->role), true), 403);
         $supervisorId = $this->supervisorEmployeeId($user->employee_id);
 
@@ -67,7 +67,7 @@ class SupervisorMobileController extends Controller
     public function representative(Request $request, int $employee)
     {
         $user = $request->user();
-        abort_unless($user?->role === 'Sales Supervisor', 403, 'This workspace is only available to sales supervisors.');
+        abort_unless($user?->role === 'Sale Manager', 403, 'This workspace is only available to sales supervisors.');
         abort_unless(in_array('supervisor.team.view', AppAccess::permissionsForRole($user->role), true), 403);
         abort_unless(in_array('supervisor.kpi.view', AppAccess::permissionsForRole($user->role), true), 403);
         $supervisorId = $this->supervisorEmployeeId($user->employee_id);
@@ -165,7 +165,7 @@ class SupervisorMobileController extends Controller
     public function representativeVisits(Request $request, int $employee)
     {
         $user = $request->user();
-        abort_unless($user?->role === 'Sales Supervisor', 403);
+        abort_unless($user?->role === 'Sale Manager', 403);
         abort_unless(in_array('supervisor.team.view', AppAccess::permissionsForRole($user->role), true), 403);
         $supervisorId = $this->supervisorEmployeeId($user->employee_id);
         $representative = DB::table('employees')->where('id', $employee)
@@ -180,7 +180,7 @@ class SupervisorMobileController extends Controller
     private function acquisitionSupervisor(Request $request): int
     {
         $user = $request->user();
-        abort_unless($user?->role === 'Sales Supervisor', 403);
+        abort_unless($user?->role === 'Sale Manager', 403);
         $permissions = AppAccess::permissionsForRole($user->role);
         abort_unless(in_array('supervisor.team.view', $permissions, true) && in_array('supervisor.customers.review', $permissions, true), 403);
         return $this->supervisorEmployeeId($user->employee_id);

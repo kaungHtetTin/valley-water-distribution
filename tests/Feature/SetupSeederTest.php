@@ -20,8 +20,8 @@ class SetupSeederTest extends TestCase
         $this->assertDatabaseCount('users', 1);
         $this->assertDatabaseHas('users', ['role' => 'Owner']);
         $this->assertDatabaseCount('companies', 1);
-        $this->assertDatabaseCount('roles', 9);
-        foreach (['Owner', 'Office Staff', 'HR', 'Accountant', 'Finance Manager', 'Customer', 'Sales Representative', 'Sales Supervisor', 'Driver'] as $role) {
+        $this->assertDatabaseCount('roles', 11);
+        foreach (['Owner', 'Other', 'HR', 'Accountant', 'Manager', 'Customer', 'Sale Representative', 'Sale Manager', 'Driver', 'Storekeeper', 'Sale Helper'] as $role) {
             $this->assertDatabaseHas('roles', ['name' => $role]);
         }
         $this->assertGreaterThan(0, DB::table('permissions')->count());
@@ -39,7 +39,7 @@ class SetupSeederTest extends TestCase
         $this->seed(SetupSeeder::class);
 
         $owner = DB::table('users')->where('role', 'Owner')->first();
-        $officeRoleId = DB::table('roles')->where('name', 'Office Staff')->value('id');
+        $officeRoleId = DB::table('roles')->where('name', 'Other')->value('id');
         $removedPermissionId = DB::table('permissions')->where('name', 'office.orders.manage')->value('id');
         DB::table('permission_role')
             ->where('role_id', $officeRoleId)

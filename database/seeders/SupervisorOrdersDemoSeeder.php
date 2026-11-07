@@ -39,7 +39,7 @@ class SupervisorOrdersDemoSeeder extends Seeder
                 if (! $user) {
                     $user = User::create([
                         'name' => $member->name, 'email' => $member->email, 'phone' => $member->phone,
-                        'employee_id' => $member->id, 'role' => 'Sales Representative',
+                        'employee_id' => $member->id, 'role' => 'Sale Representative',
                         'locale' => 'en', 'password' => Hash::make('password'),
                     ]);
                 }

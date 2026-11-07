@@ -38,7 +38,7 @@ class UatController extends Controller
             'test_accounts' => [
                 ['app' => 'Office', 'email' => 'owner@valley.test', 'role' => 'Owner'],
                 ['app' => 'Client', 'email' => 'client@valley.test', 'role' => 'Customer'],
-                ['app' => 'Sales', 'email' => 'sales@valley.test', 'role' => 'Sales Representative'],
+                ['app' => 'Sales', 'email' => 'sales@valley.test', 'role' => 'Sale Representative'],
                 ['app' => 'Driver', 'email' => 'driver@valley.test', 'role' => 'Driver'],
             ],
         ]);
@@ -133,7 +133,7 @@ class UatController extends Controller
     {
         return [
             'modules' => collect(self::MODULES)->map(fn ($value) => ['value' => $value, 'label' => str($value)->replace('_', ' ')->title()->toString()]),
-            'users' => DB::table('users')->whereIn('role', ['Owner', 'Office Staff'])->orderBy('name')->get(['id', 'name', 'role']),
+            'users' => DB::table('users')->whereIn('role', ['Owner', 'Other'])->orderBy('name')->get(['id', 'name', 'role']),
         ];
     }
 

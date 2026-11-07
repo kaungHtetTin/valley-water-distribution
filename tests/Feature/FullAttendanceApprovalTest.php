@@ -26,7 +26,7 @@ class FullAttendanceApprovalTest extends TestCase
 
     public function test_owner_approval_clears_fine_and_refreshes_existing_payroll_draft(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $record = $this->record();
         $owner = User::where('role', 'Owner')->firstOrFail();
         $this->actingAs($owner);
@@ -52,9 +52,9 @@ class FullAttendanceApprovalTest extends TestCase
 
     public function test_finance_manager_can_approve_but_cannot_replace_original_approver(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $record = $this->record();
-        $manager = User::factory()->create(['role' => 'Finance Manager']);
+        $manager = User::factory()->create(['role' => 'Manager']);
         $this->actingAs($manager);
         $url = '/api/attendance/records/'.$record->id.'/approve-full';
         $this->postJson($url)->assertOk();
@@ -66,10 +66,10 @@ class FullAttendanceApprovalTest extends TestCase
 
     public function test_lower_roles_are_denied_even_if_the_permission_is_assigned_and_rejected_records_stay_rejected(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $record = $this->record('rejected');
         $permissionId = DB::table('permissions')->where('name', 'office.attendance.approve-full')->value('id');
-        foreach (['HR', 'Office Staff', 'Accountant', 'Sales Supervisor', 'Driver', 'Sales Representative', 'Customer'] as $role) {
+        foreach (['HR', 'Other', 'Accountant', 'Sale Manager', 'Driver', 'Sale Representative', 'Customer'] as $role) {
             DB::table('permission_role')->updateOrInsert([
                 'role_id' => DB::table('roles')->where('name', $role)->value('id'), 'permission_id' => $permissionId,
             ]);

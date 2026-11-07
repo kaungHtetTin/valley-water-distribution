@@ -16,7 +16,19 @@ class EmployeeTypes
         'other' => 'Other',
     ];
 
-    public const LOGIN_TYPES = ['sales', 'sales_supervisor', 'driver'];
+    public const LOGIN_TYPES = ['sales', 'sales_supervisor', 'driver', 'warehouse', 'accountant', 'manager', 'hr', 'other'];
+
+    public const ROLES = [
+        'sale_helper' => 'Sale Helper',
+        'sales' => 'Sale Representative',
+        'warehouse' => 'Storekeeper',
+        'accountant' => 'Accountant',
+        'manager' => 'Manager',
+        'sales_supervisor' => 'Sale Manager',
+        'hr' => 'HR',
+        'driver' => 'Driver',
+        'other' => 'Other',
+    ];
 
     public const KPI_TEMPLATES = [
         'sale_helper' => 'SALE-HELPER-V1',

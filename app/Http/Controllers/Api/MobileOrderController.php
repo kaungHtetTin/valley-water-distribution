@@ -336,7 +336,7 @@ class MobileOrderController extends Controller
             return ['app' => 'client', 'customer_id' => $user->customer_id, 'route_id' => null];
         }
 
-        if ($user->role === 'Sales Supervisor') {
+        if ($user->role === 'Sale Manager') {
             abort_unless($action === 'view', 403, 'Supervisor orders are read-only.');
             $this->authorizePermission($request, 'supervisor.orders.view');
             abort_unless(DB::table('employees')->where('id', $user->employee_id)

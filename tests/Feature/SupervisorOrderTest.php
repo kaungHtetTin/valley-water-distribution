@@ -17,7 +17,7 @@ class SupervisorOrderTest extends TestCase
         if (! $sales) {
             $employee = DB::table('employees')->where('email', $email)->first();
             $sales = User::factory()->create(['email' => $email, 'name' => $employee->name,
-                'role' => 'Sales Representative', 'employee_id' => $employee->id]);
+                'role' => 'Sale Representative', 'employee_id' => $employee->id]);
         }
         $routeId = DB::table('employees')->where('id', $sales->employee_id)->value('assigned_route_id');
         $this->actingAs($sales);
@@ -37,7 +37,7 @@ class SupervisorOrderTest extends TestCase
 
     public function test_supervisor_sees_orders_from_both_team_routes_and_only_their_authors(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $first = $this->createOrder();
         $second = $this->createOrder('nandar@valley.test');
         // A client/office order on the same route must not become a team order.
@@ -60,7 +60,7 @@ class SupervisorOrderTest extends TestCase
 
     public function test_supervisor_filters_team_orders_and_gets_matching_summaries(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $order = $this->createOrder();
         $this->createOrder('nandar@valley.test', ['save_as' => 'draft', 'order_date' => '2026-10-01']);
         $this->actingAs($this->supervisor());
@@ -87,7 +87,7 @@ class SupervisorOrderTest extends TestCase
 
     public function test_supervisor_order_details_include_items_invoice_and_delivery_progress(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $invoiceOrderId = DB::table('orders')->where('code', 'ORD-202608-0002')->value('id');
         $deliveryOrderId = DB::table('orders')->where('code', 'ORD-202608-0003')->value('id');
@@ -104,7 +104,7 @@ class SupervisorOrderTest extends TestCase
 
     public function test_supervisor_cannot_mutate_orders_and_needs_permission_and_linked_profile(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $order = $this->createOrder();
         $supervisor = $this->supervisor();
         $this->actingAs($supervisor)->postJson('/api/mobile/orders', [])->assertForbidden();

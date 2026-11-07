@@ -20,7 +20,7 @@ class AppAuthTest extends TestCase
 
     public function test_user_can_sign_in_to_their_allowed_app()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $response = $this->postJson('/api/auth/login', [
             'email' => 'driver@valley.test',
@@ -44,7 +44,7 @@ class AppAuthTest extends TestCase
 
     public function test_user_can_sign_in_with_their_phone_number(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
 
         $this->postJson('/api/auth/login', [
@@ -60,7 +60,7 @@ class AppAuthTest extends TestCase
 
     public function test_duplicate_phone_number_cannot_select_an_ambiguous_account(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
         User::factory()->create(['phone' => $user->phone]);
 
@@ -77,7 +77,7 @@ class AppAuthTest extends TestCase
 
     public function test_user_cannot_sign_in_to_the_wrong_app()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $response = $this->postJson('/api/auth/login', [
             'email' => 'driver@valley.test',
@@ -101,7 +101,7 @@ class AppAuthTest extends TestCase
     public function test_active_user_can_request_a_password_reset_link(): void
     {
         Notification::fake();
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
 
         $this->postJson('/api/auth/forgot-password', ['email' => $user->email])
@@ -118,7 +118,7 @@ class AppAuthTest extends TestCase
     public function test_password_reset_request_does_not_reveal_unknown_accounts(): void
     {
         Notification::fake();
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $response = $this->postJson('/api/auth/forgot-password', ['email' => 'unknown@valley.test'])
             ->assertOk()
@@ -130,7 +130,7 @@ class AppAuthTest extends TestCase
 
     public function test_user_can_reset_password_with_a_valid_token(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
         $token = Password::broker()->createToken($user);
 
@@ -149,7 +149,7 @@ class AppAuthTest extends TestCase
 
     public function test_inactive_user_cannot_use_a_password_reset_token(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
         $token = Password::broker()->createToken($user);
         DB::table('employees')->where('id', $user->employee_id)->update(['is_active' => false]);
@@ -168,7 +168,7 @@ class AppAuthTest extends TestCase
 
     public function test_inactive_employee_cannot_sign_in(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
         DB::table('employees')->where('id', $user->employee_id)->update(['is_active' => false]);
 
@@ -186,7 +186,7 @@ class AppAuthTest extends TestCase
 
     public function test_inactive_employee_existing_session_is_terminated(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'sales@valley.test')->firstOrFail();
         DB::table('employees')->where('id', $user->employee_id)->update(['is_active' => false]);
 
@@ -200,7 +200,7 @@ class AppAuthTest extends TestCase
 
     public function test_inactive_customer_existing_session_is_terminated(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'client@valley.test')->firstOrFail();
         DB::table('customers')->where('id', $user->customer_id)->update(['is_active' => false]);
 
@@ -214,7 +214,7 @@ class AppAuthTest extends TestCase
 
     public function test_unlinked_owner_account_remains_active(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'owner@valley.test')->firstOrFail();
 
         $this->actingAs($user)
@@ -225,7 +225,7 @@ class AppAuthTest extends TestCase
 
     public function test_disabling_a_role_terminates_existing_sessions(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'driver@valley.test')->firstOrFail();
         DB::table('roles')->where('name', 'Driver')->update(['is_active' => false]);
 
@@ -239,7 +239,7 @@ class AppAuthTest extends TestCase
 
     public function test_sales_access_matches_the_mobile_field_workflow()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
         $permissions = $this->getJson('/api/auth/user')
@@ -261,7 +261,7 @@ class AppAuthTest extends TestCase
 
     public function test_current_user_endpoint_returns_role_access_payload()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         $this->actingAs(User::where('email', 'client@valley.test')->first());
 
@@ -278,7 +278,7 @@ class AppAuthTest extends TestCase
     public function test_logout_clears_the_session()
     {
         $this->actingAs(User::factory()->create([
-            'role' => 'Office Staff',
+            'role' => 'Other',
             'locale' => 'en',
         ]));
 
@@ -289,7 +289,7 @@ class AppAuthTest extends TestCase
 
     public function test_user_can_persist_locale_preference()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'sales@valley.test')->firstOrFail();
 
         $this->actingAs($user)
@@ -323,7 +323,7 @@ class AppAuthTest extends TestCase
 
     public function test_all_app_users_can_upload_profile_photos_without_a_storage_symlink()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $directory = storage_path('framework/testing/profile-photos');
         config([
             'uploads.profile_photos_path' => $directory,
@@ -352,7 +352,7 @@ class AppAuthTest extends TestCase
 
     public function test_profile_photo_endpoint_rejects_an_uncompressed_file_over_500_kb()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $user = User::where('email', 'sales@valley.test')->firstOrFail();
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=').str_repeat("\0", 501 * 1024);
 
@@ -367,7 +367,7 @@ class AppAuthTest extends TestCase
 
     public function test_shared_profile_photo_is_served_only_to_its_authenticated_owner(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $directory = storage_path('framework/testing/shared-profile-photos');
         $filename = 'test-profile.png';
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
@@ -427,7 +427,7 @@ class AppAuthTest extends TestCase
 
     public function test_custom_role_app_access_is_data_driven()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
 
         DB::table('roles')->insert([
             'name' => 'Field Supervisor',

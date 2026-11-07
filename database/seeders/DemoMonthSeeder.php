@@ -48,7 +48,7 @@ class DemoMonthSeeder extends Seeder
         $staff = [
             ['EMP-HR-DEMO', 'May Hnin', 'hr@valley.test', 'HR'],
             ['EMP-ACC-DEMO', 'Ko Aung', 'accountant@valley.test', 'Accountant'],
-            ['EMP-FM-DEMO', 'Daw Thida', 'finance.manager@valley.test', 'Finance Manager'],
+            ['EMP-FM-DEMO', 'Daw Thida', 'finance.manager@valley.test', 'Manager'],
         ];
         foreach ($staff as [$code, $name, $email, $role]) {
             DB::table('employees')->insert([

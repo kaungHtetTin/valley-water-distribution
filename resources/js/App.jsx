@@ -558,10 +558,10 @@ const metrics = [
 ];
 
 const rows = [
-    ['Office Staff', 'Office dashboard', 'Ready', 'Dashboard shell'],
+    ['Other', 'Office dashboard', 'Ready', 'Dashboard shell'],
     ['Customer', 'Client home', 'Ready', 'Mobile client shell'],
-    ['Sales Representative', 'Sales KPI report', 'Ready', 'Performance dashboard'],
-    ['Sales Supervisor', 'Supervisor team', 'Ready', 'Mobile team workspace'],
+    ['Sale Representative', 'Sales KPI report', 'Ready', 'Performance dashboard'],
+    ['Sale Manager', 'Supervisor team', 'Ready', 'Mobile team workspace'],
     ['Driver', 'Driver delivery', 'Ready', 'Delivery placeholder'],
 ];
 
@@ -1007,7 +1007,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
     const visibleOfficeNavGroups = officeNavGroups
         .map((group) => ({
             ...group,
-            items: group.items.map((id) => officeNavItems.find((item) => item.id === id)).filter((item) => item && (hasPermission(user, officeRolePermissions[item.id] || item.permission) || (['Owner', 'Office Staff'].includes(user.role) && hasPermission(user, item.permission) && !['roles', 'permissions', 'employees', 'suppliers', 'operations-report'].includes(item.id)))),
+            items: group.items.map((id) => officeNavItems.find((item) => item.id === id)).filter((item) => item && (hasPermission(user, officeRolePermissions[item.id] || item.permission) || (['Owner', 'Other'].includes(user.role) && hasPermission(user, item.permission) && !['roles', 'permissions', 'employees', 'suppliers', 'operations-report'].includes(item.id)))),
         }))
         .filter((group) => group.items.length > 0);
     const visibleOfficeNav = visibleOfficeNavGroups.flatMap((group) => group.items);
@@ -1122,7 +1122,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'profile-settings' ? (
                     <ProfileSettingsScreen user={user} onUserUpdated={onUserUpdated} />
                 ) : activeView === 'dashboard-kpis' ? (
-                    <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? resolveKpiDashboardKind(pathname) : user.role === 'Sales Supervisor' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
+                    <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? resolveKpiDashboardKind(pathname) : user.role === 'Sale Manager' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
                 ) : activeView === 'uat-readiness' ? (
                     <UatReadinessScreen locale={locale} canManage={canManageUat} />
                 ) : activeView === 'business-setup' ? (
@@ -1243,7 +1243,7 @@ function OfficeApp({ t, user, onLogout, locale, setLocale, theme, setTheme, path
                 ) : activeView === 'operations-report' ? (
                     <OperationsReportScreen locale={locale} />
                 ) : (
-                    <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? 'owner' : user.role === 'Sales Supervisor' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
+                    <OfficeKpiDashboard kind={hasPermission(user, 'office.finance.profit-loss.view') ? 'owner' : user.role === 'Sale Manager' ? 'sales' : 'stock'} canViewOperationsReport={hasPermission(user, 'office.reports.operations.view')} locale={locale} onNavigate={navigate} />
                 )}
                 </Suspense>
             </main>

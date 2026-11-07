@@ -34,11 +34,11 @@ class CustomerAcquisitionApprovalTest extends TestCase
 
     public function test_common_page_lists_team_registrations_and_enforces_team_scope(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
         $secondId = DB::table('employees')->where('code', 'SAL-002')->value('id');
-        $second = User::factory()->create(['role' => 'Sales Representative', 'employee_id' => $secondId]);
+        $second = User::factory()->create(['role' => 'Sale Representative', 'employee_id' => $secondId]);
         $firstCustomer = $this->register($sales);
         $secondCustomer = $this->register($second);
         $url = '/api/mobile/supervisor/new-customers';
@@ -62,7 +62,7 @@ class CustomerAcquisitionApprovalTest extends TestCase
 
     public function test_only_supervisor_approved_registrations_earn_acquisition_points(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $owner = User::where('email', 'owner@valley.test')->firstOrFail();
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
@@ -89,7 +89,7 @@ class CustomerAcquisitionApprovalTest extends TestCase
 
     public function test_approval_is_limited_to_own_team_and_registration_creator(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();
         $customer = $this->register($sales);
@@ -104,7 +104,7 @@ class CustomerAcquisitionApprovalTest extends TestCase
 
     public function test_final_kpi_approval_cannot_use_stale_unapproved_acquisition_points(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $owner = User::where('email', 'owner@valley.test')->firstOrFail();
         $this->register($sales);
@@ -119,7 +119,7 @@ class CustomerAcquisitionApprovalTest extends TestCase
 
     public function test_late_approval_credits_join_month_and_preserves_finalized_reviews(): void
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class, \Database\Seeders\KpiDefaultTargetsSeeder::class]);
         $sales = User::where('email', 'sales@valley.test')->firstOrFail();
         $owner = User::where('email', 'owner@valley.test')->firstOrFail();
         $supervisor = User::where('email', 'sales.supervisor@valley.test')->firstOrFail();

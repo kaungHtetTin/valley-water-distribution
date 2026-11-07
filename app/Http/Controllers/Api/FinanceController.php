@@ -117,7 +117,7 @@ class FinanceController extends Controller
     {
         $this->authorizePermission($request, ['office.finance.collections.review', self::MANAGE_PERMISSION]);
         abort_unless($collection->status === 'submitted', 409, 'Only submitted collections can be reviewed.');
-        if ($request->user()?->role === 'Finance Manager') {
+        if ($request->user()?->role === 'Manager') {
             abort_if($collection->submitted_by === $request->user()->id, 409, 'The collection submitter cannot review their own record.');
         }
         $validated = $request->validate(['status' => ['required', Rule::in(['approved', 'rejected'])], 'notes' => ['nullable', 'string', 'max:500']]);
@@ -379,7 +379,7 @@ class FinanceController extends Controller
     {
         $this->authorizePermission($request, ['office.finance.expenses.review', self::MANAGE_PERMISSION]);
         abort_unless($expense->status === 'submitted', 409, 'Only submitted expenses can be reviewed.');
-        if ($request->user()?->role === 'Finance Manager') {
+        if ($request->user()?->role === 'Manager') {
             abort_if($expense->submitted_by === $request->user()->id, 409, 'The expense submitter cannot review their own record.');
         }
         $validated = $request->validate(['status' => ['required', Rule::in(['approved', 'rejected'])], 'notes' => ['nullable', 'string', 'max:500']]);
@@ -1050,8 +1050,8 @@ class FinanceController extends Controller
             return ['app' => 'client', 'customer_id' => $user->customer_id, 'employee_id' => null, 'route_id' => null];
         }
         $app = match ($user->role) {
-            'Sales Representative' => 'sales',
-            'Sales Supervisor' => 'supervisor',
+            'Sale Representative' => 'sales',
+            'Sale Manager' => 'supervisor',
             'Driver' => 'driver',
             default => abort(403),
         };

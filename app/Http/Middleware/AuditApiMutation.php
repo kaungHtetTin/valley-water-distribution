@@ -57,7 +57,7 @@ class AuditApiMutation
         if (str_contains($request->path(), '/mobile/')) {
             return match ($role) {
                 'Customer' => 'client',
-                'Sales Representative' => 'sales',
+                'Sale Representative' => 'sales',
                 'Driver' => 'driver',
                 default => 'mobile',
             };

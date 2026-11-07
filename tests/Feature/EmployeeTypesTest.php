@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Support\EmployeeTypes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -14,7 +15,7 @@ class EmployeeTypesTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_all_nine_types_have_forms_and_matching_kpi_profiles_without_granting_department_access(): void
+    public function test_all_nine_types_have_forms_and_matching_kpi_profiles_and_account_roles(): void
     {
         $this->seed();
         $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
@@ -38,7 +39,11 @@ class EmployeeTypesTest extends TestCase
             $profile = DB::table('kpi_staff_profiles')->where('employee_id', $id)->first();
             $this->assertNotNull($profile, $type);
             $this->assertDatabaseHas('kpi_templates', ['id' => $profile->kpi_template_id, 'employee_type' => $type]);
-            if (in_array($type, ['accountant', 'hr', 'manager', 'sale_helper', 'other', 'warehouse'], true)) {
+            if (in_array($type, EmployeeTypes::LOGIN_TYPES, true)) {
+                $account = User::where('employee_id', $id)->firstOrFail();
+                $this->assertSame(EmployeeTypes::ROLES[$type], $account->role);
+                $this->assertTrue(Hash::check('Password123!', $account->password));
+            } else {
                 $this->assertDatabaseMissing('users', ['employee_id' => $id]);
                 $this->postJson('/api/master-data/employees', [
                     'name' => 'Invalid login', 'employee_type' => $type,
@@ -63,7 +68,7 @@ class EmployeeTypesTest extends TestCase
         }
     }
 
-    public function test_non_login_employee_updates_preserve_separately_managed_office_accounts(): void
+    public function test_employee_updates_sync_existing_office_accounts_and_preserve_blank_passwords(): void
     {
         $this->seed();
         $owner = User::where('email', 'owner@valley.test')->firstOrFail();
@@ -80,15 +85,15 @@ class EmployeeTypesTest extends TestCase
         $this->putJson('/api/master-data/employees/'.$id, [
             'name' => 'Updated employee', 'employee_type' => 'accountant', 'base_salary' => 700000,
         ])->assertOk();
-        $this->assertSame('Office account', $office->fresh()->name);
+        $this->assertSame('Updated employee', $office->fresh()->name);
         $this->assertSame('accountant@office.test', $office->fresh()->email);
         $this->assertSame('Accountant', $office->fresh()->role);
         $this->assertSame($originalPassword, $office->fresh()->password);
         $this->putJson('/api/master-data/employees/'.$id, [
             'name' => 'Updated employee', 'employee_type' => 'accountant',
             'password' => 'ChangedPassword123!', 'password_confirmation' => 'ChangedPassword123!',
-        ])->assertUnprocessable()->assertJsonValidationErrors('password');
-        $this->assertSame($originalPassword, $office->fresh()->password);
+        ])->assertOk();
+        $this->assertTrue(Hash::check('ChangedPassword123!', $office->fresh()->password));
     }
 
     public static function existingTemplates(): array
@@ -107,7 +112,7 @@ class EmployeeTypesTest extends TestCase
         $templateId = DB::table('kpi_templates')->where('code', 'OFFICE-STAFF-V1')->value('id');
         DB::table('kpi_templates')->where('id', $templateId)->update(['employee_type' => 'office']);
         $metricId = DB::table('kpi_template_metrics')->where('kpi_template_id', $templateId)->value('id');
-        foreach (['Accountant' => 'accountant', 'HR' => 'hr', 'Finance Manager' => 'other', 'Office Staff' => 'other'] as $role => $type) {
+        foreach (['Accountant' => 'accountant', 'HR' => 'hr', 'Manager' => 'other', 'Other' => 'other'] as $role => $type) {
             $id = DB::table('employees')->insertGetId([
                 'code' => 'OLD-'.str_replace(' ', '-', $role), 'name' => $role,
                 'employee_type' => 'office', 'is_active' => true,
@@ -134,7 +139,7 @@ class EmployeeTypesTest extends TestCase
         $draftMetricId = DB::table('kpi_template_metrics')->where('kpi_template_id', $draftTemplateId)->where('code', 'ACCOUNTANT-OFF-ATTENDANCE')->value('id');
         $this->assertDatabaseHas('kpi_results', ['id' => $reviewIds['draft'], 'kpi_template_id' => $draftTemplateId]);
         $this->assertDatabaseHas('kpi_result_items', ['kpi_result_id' => $reviewIds['draft'], 'kpi_template_metric_id' => $draftMetricId, 'target_value' => 29, 'actual_value' => 27]);
-        foreach (['Accountant' => 'accountant', 'HR' => 'hr', 'Finance Manager' => 'other', 'Office Staff' => 'other'] as $role => $type) {
+        foreach (['Accountant' => 'accountant', 'HR' => 'hr', 'Manager' => 'other', 'Other' => 'other'] as $role => $type) {
             $employee = DB::table('employees')->where('name', $role)->first();
             $this->assertSame($type, $employee->employee_type);
             $this->assertEquals(450000, $employee->base_salary);
