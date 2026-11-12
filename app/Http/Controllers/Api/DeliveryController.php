@@ -579,7 +579,7 @@ class DeliveryController extends Controller
         $validated = $request->validate([
             'final_sale' => ['nullable', 'boolean'],
             'status' => ['required', Rule::in(['delivered', 'partially_delivered', 'failed'])],
-            'items' => ['required', 'array'],
+            'items' => [$finalSaleRequest && $request->input('status') === 'failed' ? 'present' : 'required', 'array'],
             'items.*.id' => ['nullable', 'integer', 'distinct'],
             'items.*.product_id' => ['nullable', 'integer', 'exists:products,id'],
             'items.*.item_type' => ['nullable', Rule::in(['sale', 'foc'])],
@@ -589,9 +589,9 @@ class DeliveryController extends Controller
             'items.*.delivered_quantity' => ['required', 'numeric', 'min:0'],
             'items.*.returned_quantity' => ['nullable', 'numeric', 'min:0'],
             'items.*.damaged_quantity' => ['required', 'numeric', 'min:0'],
-            'notes' => ['nullable', 'string', 'max:500'],
+            'notes' => [$finalSaleRequest && $request->input('status') === 'failed' ? 'required' : 'nullable', 'string', 'max:500'],
             'modification_note' => ['nullable', 'string', 'max:500'],
-            'settlement_method' => [$requiresSettlement ? 'required_unless:status,failed' : 'nullable', Rule::in(['credit', 'cash_driver', 'cash_office', 'bank_office'])],
+            'settlement_method' => ['nullable', $requiresSettlement ? 'required_unless:status,failed' : 'sometimes', Rule::in(['credit', 'cash_driver', 'cash_office', 'bank_office'])],
             'payment_reference' => ['nullable', 'string', 'max:100', 'required_if:settlement_method,bank_office'],
         ]);
 
@@ -601,6 +601,26 @@ class DeliveryController extends Controller
             abort_unless($lockedDelivery->status === 'on_route', 409, 'This delivery is no longer active.');
             $deliveryItems = $lockedDelivery->items()->lockForUpdate()->get()->keyBy('id');
             $finalSaleMode = $finalSaleRequest;
+            if ($finalSaleMode && ! $lockedDelivery->trip_id) {
+                // Legacy single-stop deliveries also need an explicit stock handover.
+                $loadedByProduct = $deliveryItems->groupBy('product_id')
+                    ->map(fn ($items) => (float) $items->sum('loaded_quantity'))->all();
+                $this->reconcileDeliveryIssues($lockedDelivery, $loadedByProduct, $userId, Carbon::now());
+                $trip = DeliveryTrip::create([
+                    'code' => $this->nextTripCode(Carbon::parse($lockedDelivery->planned_date)),
+                    'warehouse_id' => $lockedDelivery->warehouse_id,
+                    'route_id' => $lockedDelivery->route_id,
+                    'driver_id' => $lockedDelivery->driver_id,
+                    'vehicle_id' => $lockedDelivery->vehicle_id,
+                    'planned_date' => $lockedDelivery->planned_date,
+                    'status' => 'on_route',
+                    'orders_count' => 1,
+                    'total_quantity' => $lockedDelivery->total_quantity,
+                    'notes' => $lockedDelivery->notes,
+                    'created_by' => $userId,
+                ]);
+                $lockedDelivery->update(['trip_id' => $trip->id, 'stop_sequence' => 1]);
+            }
             $orderModified = false;
             if ($finalSaleMode) {
                 [$deliveryItems, $loadedByProduct, $returnedByProduct, $damagedByProduct, $orderModified] = $this->synchronizeFinalSaleItems($lockedDelivery, $deliveryItems, $validated['items'], array_key_exists('order_discount', $validated) ? (float) $validated['order_discount'] : null);
@@ -981,14 +1001,6 @@ class DeliveryController extends Controller
         $existingInvoiceOutstanding = $order->payment_type === 'credit'
             ? max((float) $invoice->total - (float) DB::table('collections')->where('invoice_id', $invoice->id)->where('status', 'approved')->sum('amount'), 0)
             : 0.0;
-        if ($validated['status'] === 'failed') {
-            $order->update(['customer_id' => $customerId]);
-            $invoice->update(['customer_id' => $customerId]);
-            $delivery->update(['customer_id' => $customerId, 'settlement_method' => null, 'settlement_amount' => 0, 'settled_at' => null]);
-
-            return;
-        }
-
         $originalInvoiceItems = $invoice->items->keyBy('id');
         $usedInvoiceItemIds = [];
         $originalSubtotal = (float) $invoice->subtotal;

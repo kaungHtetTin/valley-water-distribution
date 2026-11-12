@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Support\ApiResponse;
 use App\Support\AppAccess;
 use Carbon\Carbon;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,9 @@ class OperationsReportController extends Controller
         $section = $request->validate([
             'section' => ['nullable', 'in:route_sales,customer_sales,product_sales,expenses,payroll,drivers,stock'],
         ])['section'] ?? 'route_sales';
+        if ($section === 'customer_sales') {
+            return $this->exportCustomerSalesItems($filters);
+        }
         $report = $this->buildReport($filters);
         $rows = collect($report['breakdowns'][$section] ?? []);
         $headers = $rows->isEmpty() ? ['message'] : array_keys((array) $rows->first());
@@ -48,12 +52,9 @@ class OperationsReportController extends Controller
         }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
-    private function buildReport(array $filters): array
+    private function salesInvoiceQuery(array $filters): Builder
     {
-        $from = $filters['date_from'];
-        $to = $filters['date_to'];
-
-        $invoiceQuery = DB::table('invoices')
+        return DB::table('invoices')
             ->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')
             ->leftJoin('customers', 'invoices.customer_id', '=', 'customers.id')
             ->leftJoin('routes', function ($join) {
@@ -61,10 +62,71 @@ class OperationsReportController extends Controller
             })
             ->leftJoin('users', 'orders.created_by', '=', 'users.id')
             ->where('invoices.status', '!=', 'cancelled')
-            ->whereBetween('invoices.invoice_date', [$from, $to])
+            ->whereBetween('invoices.invoice_date', [$filters['date_from'], $filters['date_to']])
             ->when($filters['route_id'], fn ($query, $id) => $query->whereRaw('COALESCE(invoices.route_id, orders.route_id, customers.route_id) = ?', [$id]))
             ->when($filters['customer_id'], fn ($query, $id) => $query->where('invoices.customer_id', $id))
-            ->when($filters['employee_id'], fn ($query, $id) => $query->where('users.employee_id', $id));
+            ->when($filters['employee_id'], fn ($query, $id) => $query->where('users.employee_id', $id))
+            ->when($filters['warehouse_id'] || $filters['driver_id'] || $filters['vehicle_id'], function ($query) use ($filters) {
+                $query->whereExists(function ($deliveries) use ($filters) {
+                    $deliveries->selectRaw('1')->from('deliveries')
+                        ->whereColumn('deliveries.invoice_id', 'invoices.id')
+                        ->where('deliveries.status', '!=', 'cancelled')
+                        ->when($filters['warehouse_id'], fn ($query, $id) => $query->where('deliveries.warehouse_id', $id))
+                        ->when($filters['driver_id'], fn ($query, $id) => $query->where('deliveries.driver_id', $id))
+                        ->when($filters['vehicle_id'], fn ($query, $id) => $query->where('deliveries.vehicle_id', $id));
+                });
+            });
+    }
+
+    private function exportCustomerSalesItems(array $filters): StreamedResponse
+    {
+        $columns = [
+            'customer_code' => 'Customer code', 'shop_name' => 'Shop name',
+            'order_code' => 'Order code', 'order_date' => 'Order date', 'order_source' => 'Order source',
+            'created_by' => 'Order created by', 'created_by_user_id' => 'Creator user ID',
+            'created_by_role' => 'Creator role', 'created_by_employee_code' => 'Creator employee code',
+            'invoice_code' => 'Invoice code', 'invoice_date' => 'Invoice date', 'invoice_status' => 'Invoice status',
+            'route_code' => 'Route code', 'route_name' => 'Route name',
+            'product_sku' => 'Product SKU', 'product_name' => 'Product name',
+            'item_type' => 'Item type', 'unit' => 'Unit', 'quantity' => 'Quantity',
+            'unit_price' => 'Unit price (MMK)', 'discount_amount' => 'Line discount (MMK)', 'line_total' => 'Line total (MMK)',
+        ];
+        $items = $this->salesInvoiceQuery($filters)
+            ->join('invoice_items', 'invoice_items.invoice_id', '=', 'invoices.id')
+            ->leftJoin('employees as creators', 'users.employee_id', '=', 'creators.id')
+            ->select([
+                'customers.code as customer_code', DB::raw('COALESCE(invoices.recipient_name, customers.shop_name, orders.recipient_name) as shop_name'),
+                'orders.code as order_code', 'orders.order_date', 'orders.source_app as order_source',
+                'users.name as created_by', 'orders.created_by as created_by_user_id', 'users.role as created_by_role', 'creators.code as created_by_employee_code',
+                'invoices.code as invoice_code', 'invoices.invoice_date', 'invoices.status as invoice_status',
+                'routes.code as route_code', 'routes.name as route_name',
+                'invoice_items.product_sku', 'invoice_items.product_name', 'invoice_items.item_type', 'invoice_items.unit',
+                'invoice_items.quantity', 'invoice_items.unit_price', 'invoice_items.discount_amount', 'invoice_items.line_total',
+            ])->orderBy('invoices.invoice_date')->orderBy('invoices.id')->orderBy('invoice_items.id');
+        $filename = "valley-customer_sales-items-{$filters['date_from']}-{$filters['date_to']}.csv";
+
+        return response()->streamDownload(function () use ($columns, $items) {
+            $output = fopen('php://output', 'wb');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, array_values($columns), ',', '"', '');
+            foreach ($items->cursor() as $item) {
+                $row = array_map(function ($key) use ($item) {
+                    $value = $item->{$key};
+                    // Keep customer and product text as text when opened in Excel.
+                    return is_string($value) && preg_match('/^[=+@\-\t\r]/', $value) ? "'".$value : $value;
+                }, array_keys($columns));
+                fputcsv($output, $row, ',', '"', '');
+            }
+            fclose($output);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    private function buildReport(array $filters): array
+    {
+        $from = $filters['date_from'];
+        $to = $filters['date_to'];
+
+        $invoiceQuery = $this->salesInvoiceQuery($filters);
 
         $invoiceRows = (clone $invoiceQuery)->get([
             'invoices.id', 'invoices.invoice_date', 'invoices.total', 'invoices.customer_id',
@@ -141,15 +203,8 @@ class OperationsReportController extends Controller
             ->when($filters['route_id'], fn ($query, $id) => $query->where('route_id', $id))
             ->count();
 
-        $productSales = DB::table('invoice_items')
-            ->join('invoices', 'invoice_items.invoice_id', '=', 'invoices.id')
-            ->leftJoin('orders', 'invoices.order_id', '=', 'orders.id')
-            ->leftJoin('users', 'orders.created_by', '=', 'users.id')
-            ->where('invoices.status', '!=', 'cancelled')
-            ->whereBetween('invoices.invoice_date', [$from, $to])
-            ->when($filters['route_id'], fn ($query, $id) => $query->where('invoices.route_id', $id))
-            ->when($filters['customer_id'], fn ($query, $id) => $query->where('invoices.customer_id', $id))
-            ->when($filters['employee_id'], fn ($query, $id) => $query->where('users.employee_id', $id))
+        $productSales = (clone $invoiceQuery)
+            ->join('invoice_items', 'invoice_items.invoice_id', '=', 'invoices.id')
             ->groupBy('invoice_items.product_id', 'invoice_items.product_sku', 'invoice_items.product_name')
             ->orderByDesc(DB::raw('SUM(invoice_items.line_total)'))
             ->get([

@@ -815,13 +815,14 @@ class FinanceController extends Controller
             ? DB::table('deliveries')->join('customers', 'deliveries.customer_id', '=', 'customers.id')->where('deliveries.driver_id', $scope['employee_id'])->whereIn('deliveries.status', ['assigned', 'loading', 'on_route'])->orderByDesc('deliveries.id')->get(['deliveries.id', 'deliveries.code', 'deliveries.customer_id', 'customers.shop_name'])
             : collect();
         $deliveryByCustomer = $deliveries->keyBy('customer_id');
-        $customerQuery = DB::table('customers')->where('customers.is_active', true);
-        if ($scope['app'] === 'driver') {
-            $customerQuery->whereIn('customers.id', $deliveries->pluck('customer_id'));
-        } elseif ($scope['route_id']) {
-            $customerQuery->where('customers.route_id', $scope['route_id']);
-        } else {
-            $customerQuery->whereRaw('1 = 0');
+        $customerQuery = DB::table('customers');
+        if ($scope['app'] !== 'driver') {
+            $customerQuery->where('customers.is_active', true);
+            if ($scope['route_id']) {
+                $customerQuery->where('customers.route_id', $scope['route_id']);
+            } else {
+                $customerQuery->whereRaw('1 = 0');
+            }
         }
         $customers = $customerQuery->orderBy('customers.shop_name')->get(['customers.id', 'customers.code', 'customers.shop_name', 'customers.contact_name', 'customers.phone', 'customers.address'])->map(function ($customer) use ($deliveryByCustomer) {
             $delivery = $deliveryByCustomer->get($customer->id);
@@ -832,7 +833,7 @@ class FinanceController extends Controller
             $customer->active_delivery_code = $delivery?->code;
 
             return $customer;
-        })->filter(fn ($customer) => $customer->collectible > 0)->values();
+        })->filter(fn ($customer) => $scope['app'] === 'driver' || $customer->collectible > 0)->values();
 
         return ApiResponse::success('Field finance setup loaded.', ['app' => $scope['app'], 'customers' => $customers, 'deliveries' => $deliveries, 'expense_categories' => ['meals', 'travel', 'fuel', 'communication', 'other']]);
     }
@@ -842,22 +843,17 @@ class FinanceController extends Controller
         abort_unless($request->user()?->role === 'Driver', 403, 'Cash collection is a Driver operation.');
         $scope = $this->mobileScope($request, 'create', 'collections');
         $validated = $request->validate(['customer_id' => ['required', 'integer', 'exists:customers,id'], 'delivery_id' => ['nullable', 'integer', 'exists:deliveries,id'], 'collection_date' => ['required', 'date'], 'amount' => ['required', 'numeric', 'gt:0'], 'payment_method' => ['nullable', Rule::in(['cash'])], 'reference_no' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:500']]);
-        $assignedCustomer = $scope['route_id'] && DB::table('customers')->where('id', $validated['customer_id'])->where('route_id', $scope['route_id'])->where('is_active', true)->exists();
         $activeDelivery = $scope['app'] === 'driver'
             ? DB::table('deliveries')->where('driver_id', $scope['employee_id'])->where('customer_id', $validated['customer_id'])->whereIn('status', ['assigned', 'loading', 'on_route'])->latest('id')->first()
             : null;
-        abort_unless($assignedCustomer || $activeDelivery, 403, 'Customer is outside the assigned route.');
         if (! empty($validated['delivery_id'])) {
-            abort_unless($scope['app'] === 'driver' && $activeDelivery && (int) $activeDelivery->id === (int) $validated['delivery_id'], 403, 'Delivery is outside the assigned route.');
+            abort_unless(DB::table('deliveries')->where('id', $validated['delivery_id'])->where('driver_id', $scope['employee_id'])->where('customer_id', $validated['customer_id'])->exists(), 403, 'Delivery does not belong to this driver and customer.');
         } elseif ($activeDelivery) {
             $validated['delivery_id'] = $activeDelivery->id;
         }
         $validated['payment_method'] = 'cash';
         $collection = DB::transaction(function () use ($request, $scope, $validated) {
             DB::table('customers')->where('id', $validated['customer_id'])->lockForUpdate()->first();
-            $outstanding = $this->customerOutstanding((int) $validated['customer_id']);
-            $pending = (float) DB::table('collections')->where('customer_id', $validated['customer_id'])->where('status', 'submitted')->sum('amount');
-            abort_if((float) $validated['amount'] > max($outstanding - $pending, 0), 422, 'Collection exceeds the customer balance available to collect.');
 
             return Collection::create($validated + ['code' => $this->nextCode('COL', 'collections', 'collection_date', Carbon::parse($validated['collection_date'])), 'employee_id' => $scope['employee_id'], 'source_app' => $scope['app'], 'status' => 'submitted', 'submitted_by' => $request->user()->id]);
         });
@@ -886,6 +882,11 @@ class FinanceController extends Controller
 
     private function validateCollectionScope(array $data): void
     {
+        // Driver balance receipts may include advance payments above the amount due.
+        if (($data['source_app'] ?? null) === 'driver' && $data['payment_method'] === 'cash' && empty($data['invoice_id'])) {
+            return;
+        }
+
         if (! empty($data['invoice_id'])) {
             abort_unless(DB::table('invoices')->where('id', $data['invoice_id'])->where('customer_id', $data['customer_id'])->exists(), 422, 'Invoice does not belong to the selected customer.');
 

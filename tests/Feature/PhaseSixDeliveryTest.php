@@ -13,7 +13,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_office_can_assign_an_issued_invoice_for_delivery()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $invoiceId = DB::table('invoices')->where('code', 'INV-202608-0001')->value('id');
@@ -145,7 +145,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_delivery_api_requires_delivery_permission()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $this->getJson('/api/deliveries')->assertUnauthorized();
         $this->getJson('/api/deliveries/meta')->assertUnauthorized();
         $this->postJson('/api/deliveries', [])->assertUnauthorized();
@@ -160,7 +160,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_office_can_edit_and_cancel_a_trip_before_loading_starts()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail());
 
         $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
@@ -193,7 +193,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_driver_can_view_tasks_and_confirm_the_fixed_approved_load()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
 
         $list = $this->getJson('/api/mobile/deliveries')
@@ -302,7 +302,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_fixed_loading_is_idempotent_and_insufficient_stock_rolls_back()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
 
         $deliveryId = DB::table('deliveries')->where('code', 'DEL-202608-0001')->value('id');
@@ -343,7 +343,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_driver_can_hold_several_loaded_trips_but_start_only_one_route()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $driver = User::where('email', 'driver@valley.test')->firstOrFail();
         $deliveries = DB::table('deliveries')
             ->whereIn('code', ['DEL-202608-0001', 'DEL-202608-0002'])
@@ -395,7 +395,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_non_driver_cannot_access_driver_delivery_api()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $deliveryId = DB::table('deliveries')->value('id');
 
         $this->getJson('/api/mobile/deliveries')->assertUnauthorized();
@@ -409,7 +409,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_only_customer_can_view_mobile_delivery_status_in_their_scope()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $deliveryId = DB::table('deliveries')->where('code', 'DEL-202608-0001')->value('id');
 
         $this->actingAs(User::where('email', 'sales@valley.test')->firstOrFail());
@@ -437,7 +437,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_delivery_status_api_rejects_unauthorized_apps()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $deliveryId = DB::table('deliveries')->value('id');
 
         $this->getJson('/api/mobile/delivery-status')->assertUnauthorized();
@@ -452,7 +452,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_driver_can_share_active_route_location_and_office_can_track_it()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $driver = User::where('email', 'driver@valley.test')->firstOrFail();
         $deliveryId = DB::table('deliveries')->where('code', 'DEL-202608-0001')->value('id');
         $itemId = DB::table('delivery_items')->where('delivery_id', $deliveryId)->value('id');
@@ -513,7 +513,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_location_tracking_endpoints_enforce_app_permissions()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $deliveryId = DB::table('deliveries')->value('id');
 
         $this->getJson('/api/deliveries/live-map')->assertUnauthorized();
@@ -527,7 +527,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_driver_can_record_delivered_and_failed_terminal_results()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
 
         $deliveredId = DB::table('deliveries')->where('code', 'DEL-202608-0002')->value('id');
@@ -567,7 +567,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_delivery_cash_handed_to_driver_creates_customer_and_driver_holding()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         DB::table('companies')->update(['default_customer_credit_limit' => 650000]);
         $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
         $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
@@ -628,7 +628,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_driver_credit_is_automatic_within_limit_and_due_from_stock_issue()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         DB::table('companies')->update(['delivery_credit_due_days' => 14]);
         $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
         $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
@@ -661,7 +661,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_direct_bank_payment_posts_to_office_without_driver_holding()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
         $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
         DB::table('orders')->where('id', $delivery->order_id)->update(['payment_type' => 'unsettled']);
@@ -692,7 +692,7 @@ class PhaseSixDeliveryTest extends TestCase
 
     public function test_driver_can_make_the_final_sale_with_sale_and_foc_lines_without_approval()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
         $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
         DB::table('deliveries')->where('id', $delivery->id)->update([
@@ -771,9 +771,126 @@ class PhaseSixDeliveryTest extends TestCase
             ->assertJsonPath('data.order.driver_modification_note', 'Customer bought fewer bottles; two bottles were promotional FOC.');
     }
 
+    public static function singleStopTripTypes(): array
+    {
+        return ['legacy standalone delivery' => [false], 'planned single-stop trip' => [true]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('singleStopTripTypes')]
+    public function test_driver_can_fully_return_a_delivery_without_a_sale_or_customer_debt(bool $plannedTrip)
+    {
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
+        $delivery = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
+        $item = DB::table('delivery_items')->where('delivery_id', $delivery->id)->first();
+        if ($plannedTrip) {
+            $tripId = DB::table('delivery_trips')->insertGetId([
+                'code' => 'TRIP-SINGLE-RETURN', 'warehouse_id' => $delivery->warehouse_id, 'route_id' => $delivery->route_id,
+                'driver_id' => $delivery->driver_id, 'vehicle_id' => $delivery->vehicle_id, 'planned_date' => $delivery->planned_date,
+                'status' => 'assigned', 'orders_count' => 1, 'total_quantity' => 18, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('deliveries')->where('id', $delivery->id)->update(['trip_id' => $tripId]);
+        }
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/confirm-loading")->assertOk();
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/start-route")->assertOk();
+        DB::table('orders')->where('id', $delivery->order_id)->update(['payment_type' => 'credit']);
+        $balanceBefore = (float) DB::table('stock_balances')->where('warehouse_id', $delivery->warehouse_id)->where('product_id', $item->product_id)->value('quantity');
+        $credit = app(\App\Services\CustomerCreditService::class);
+        $creditBefore = $credit->summary($delivery->customer_id)['credit_sales_amount'];
+        $invoiceTotal = (float) DB::table('invoices')->where('id', $delivery->invoice_id)->value('total');
+        $collectionCount = DB::table('collections')->where('delivery_id', $delivery->id)->count();
+        $payload = ['final_sale' => true, 'status' => 'failed', 'items' => [], 'notes' => 'Shop refused the entire delivery', 'settlement_method' => null, 'payment_reference' => null, 'modification_note' => null, 'order_discount' => 0];
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", array_replace($payload, ['notes' => '']))
+            ->assertUnprocessable()->assertJsonValidationErrors('notes');
+        foreach (['delivered', 'partially_delivered'] as $status) {
+            $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", array_replace($payload, ['status' => $status, 'settlement_method' => 'credit']))
+                ->assertUnprocessable()->assertJsonValidationErrors('items');
+            $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", array_replace($payload, [
+                'status' => $status,
+                'items' => [['id' => $item->id, 'delivered_quantity' => 1, 'damaged_quantity' => 0]],
+            ]))->assertUnprocessable()->assertJsonValidationErrors('settlement_method');
+        }
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", array_replace($payload, ['items' => [[
+            'id' => $item->id, 'delivered_quantity' => 1, 'damaged_quantity' => 0,
+        ]]]))->assertUnprocessable();
+        $this->assertDatabaseHas('deliveries', ['id' => $delivery->id, 'status' => 'on_route']);
+        $completion = $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", $payload)->assertOk()
+            ->assertJsonPath('data.delivery.status', 'failed')
+            ->assertJsonPath('data.delivery.delivered_quantity', 0)
+            ->assertJsonPath('data.delivery.returned_quantity', 18)
+            ->assertJsonPath('data.trip.status', 'on_route')
+            ->assertJsonPath('data.delivery.settlement_method', null)
+            ->assertJsonPath('data.delivery.settlement_amount', 0);
+        $this->assertDatabaseHas('orders', ['id' => $delivery->order_id, 'status' => 'failed', 'total' => 0, 'payment_type' => 'unsettled', 'credit_due_date' => null]);
+        $this->assertDatabaseHas('invoices', ['id' => $delivery->invoice_id, 'status' => 'failed', 'total' => 0, 'due_date' => null]);
+        $this->assertEquals($collectionCount, DB::table('collections')->where('delivery_id', $delivery->id)->count());
+        $this->assertDatabaseMissing('financial_transactions', ['reference_type' => 'invoice', 'reference_id' => $delivery->invoice_id, 'category' => 'cash_sale']);
+        $this->assertEquals($creditBefore - $invoiceTotal, $credit->summary($delivery->customer_id)['credit_sales_amount']);
+        $balanceAfter = (float) DB::table('stock_balances')->where('warehouse_id', $delivery->warehouse_id)->where('product_id', $item->product_id)->value('quantity');
+        $this->assertEquals($balanceBefore, $balanceAfter);
+        $tripId = $completion->json('data.delivery.trip_id');
+        $this->assertNotNull($tripId);
+        $this->getJson('/api/mobile/deliveries')->assertOk()->assertJsonFragment(['trip_id' => $tripId, 'status' => 'on_route']);
+        $history = $this->getJson('/api/mobile/deliveries?scope=history')->assertOk();
+        $this->assertNotContains($delivery->id, array_column($history->json('data.items'), 'id'));
+        $this->getJson("/api/mobile/deliveries/{$delivery->id}")->assertOk()
+            ->assertJsonPath('data.trip.status', 'on_route')->assertJsonPath('data.stock.0.returned_quantity', 18);
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete", $payload)->assertConflict();
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete-trip")->assertOk()->assertJsonPath('data.trip.status', 'failed');
+        $this->assertEquals($balanceBefore + 18, (float) DB::table('stock_balances')->where('warehouse_id', $delivery->warehouse_id)->where('product_id', $item->product_id)->value('quantity'));
+        $this->getJson('/api/mobile/deliveries?scope=history')->assertOk()->assertJsonFragment(['trip_id' => $tripId, 'status' => 'failed']);
+        $this->postJson("/api/mobile/deliveries/{$delivery->id}/complete-trip")->assertConflict();
+        $this->assertEquals(1, DB::table('stock_movements')->where('reference_type', 'delivery_trip')->where('reference_id', $tripId)->where('movement_type', 'delivery_return')->count());
+    }
+
+    public static function fullReturnTripOutcomes(): array
+    {
+        return ['all shops refuse' => [0], 'next shop buys some returned stock' => [6]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fullReturnTripOutcomes')]
+    public function test_full_returns_keep_stock_on_vehicle_until_trip_closeout_and_restore_it_once(int $soldQuantity)
+    {
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
+        $stops = DB::table('deliveries')->whereIn('code', ['DEL-202608-0001', 'DEL-202608-0002'])->orderBy('code')->get();
+        $first = $stops->first();
+        $firstItem = DB::table('delivery_items')->where('delivery_id', $first->id)->first();
+        $tripId = DB::table('delivery_trips')->insertGetId([
+            'code' => 'TRIP-FULL-RETURN', 'warehouse_id' => $first->warehouse_id, 'route_id' => $first->route_id,
+            'driver_id' => $first->driver_id, 'vehicle_id' => $first->vehicle_id, 'planned_date' => '2026-09-01',
+            'status' => 'assigned', 'orders_count' => 2, 'total_quantity' => 24, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach ($stops as $index => $stop) {
+            $quantity = $index === 0 ? 18 : 6;
+            DB::table('deliveries')->where('id', $stop->id)->update(['trip_id' => $tripId, 'stop_sequence' => $index + 1, 'status' => 'assigned', 'loaded_quantity' => 0]);
+            DB::table('delivery_items')->where('delivery_id', $stop->id)->update(['planned_quantity' => $quantity, 'loaded_quantity' => 0]);
+        }
+        $this->actingAs(User::where('email', 'driver@valley.test')->firstOrFail());
+        $this->postJson("/api/mobile/deliveries/{$first->id}/confirm-loading")->assertOk();
+        $this->postJson("/api/mobile/deliveries/{$first->id}/start-route")->assertOk();
+        $balanceBefore = (float) DB::table('stock_balances')->where('warehouse_id', $first->warehouse_id)->where('product_id', $firstItem->product_id)->value('quantity');
+        $payload = ['final_sale' => true, 'status' => 'failed', 'items' => [], 'notes' => 'Shop refused all goods'];
+        $this->postJson("/api/mobile/deliveries/{$first->id}/complete", $payload)->assertOk();
+        $this->assertDatabaseHas('deliveries', ['id' => $stops->last()->id, 'status' => 'on_route', 'loaded_quantity' => 24]);
+        $this->postJson("/api/mobile/deliveries/{$first->id}/complete-trip")->assertConflict();
+        $nextPayload = $soldQuantity > 0 ? [
+            'final_sale' => true, 'status' => 'partially_delivered', 'settlement_method' => 'cash_driver',
+            'items' => [['product_id' => $firstItem->product_id, 'item_type' => 'sale', 'delivered_quantity' => $soldQuantity, 'damaged_quantity' => 0]],
+        ] : $payload;
+        $this->postJson("/api/mobile/deliveries/{$stops->last()->id}/complete", $nextPayload)->assertOk()
+            ->assertJsonPath('data.delivery.returned_quantity', 24 - $soldQuantity);
+        $this->assertDatabaseMissing('stock_movements', ['reference_type' => 'delivery_trip', 'reference_id' => $tripId, 'movement_type' => 'delivery_return']);
+        $this->assertEquals($balanceBefore, (float) DB::table('stock_balances')->where('warehouse_id', $first->warehouse_id)->where('product_id', $firstItem->product_id)->value('quantity'));
+        $this->postJson("/api/mobile/deliveries/{$first->id}/complete-trip")->assertOk()->assertJsonPath('data.trip.status', $soldQuantity > 0 ? 'partially_delivered' : 'failed');
+        $this->assertEquals($balanceBefore + 24 - $soldQuantity, (float) DB::table('stock_balances')->where('warehouse_id', $first->warehouse_id)->where('product_id', $firstItem->product_id)->value('quantity'));
+        $this->postJson("/api/mobile/deliveries/{$first->id}/complete-trip")->assertConflict();
+        $this->assertEquals(1, DB::table('stock_movements')->where('reference_type', 'delivery_trip')->where('reference_id', $tripId)->where('movement_type', 'delivery_return')->count());
+    }
+
     public function test_final_sale_can_use_remaining_product_stock_from_the_same_loaded_trip()
     {
-        $this->seed();
+        $this->seed([\Database\Seeders\SetupSeeder::class, \Database\Seeders\DemoSeeder::class]);
         $first = DB::table('deliveries')->where('code', 'DEL-202608-0001')->first();
         $second = DB::table('deliveries')->where('code', 'DEL-202608-0002')->first();
         $firstItem = DB::table('delivery_items')->where('delivery_id', $first->id)->first();

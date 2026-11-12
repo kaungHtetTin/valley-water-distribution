@@ -1,4 +1,6 @@
 export const reportCopy = {
+    'Item CSV': 'ပစ္စည်းအလိုက် CSV',
+    'Export one row per invoice item using the applied filters.': 'သုံးထားသောစစ်ထုတ်မှုများအတိုင်း ဘောင်ချာရှိပစ္စည်းတစ်ခုစီကို CSV တစ်ကြောင်းစီဖြင့် ထုတ်ယူရန်။',
     'All': 'အားလုံး',
     'REPORTING': 'အစီရင်ခံခြင်း',
     'Operations report': 'လုပ်ငန်းဆိုင်ရာ အစီရင်ခံစာ',

@@ -1,4 +1,4 @@
-import { isNativeAndroid, nativePrint } from './nativeRuntime';
+import { isNativeAndroid, nativePrint } from './nativeRuntime.js';
 const printingApi = () => window.ValleyRuntime?.api?.printSettings || '/api/settings/printing';
 
 const escapeHtml = (value) => String(value ?? '')

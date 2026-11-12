@@ -4,7 +4,7 @@ The apps connect to `https://www.valleymyanmar.com/public` over HTTPS. They need
 
 ## Packages
 
-Current release: **1.0.3** for Sales, Supervisor, Driver, and Office. Android uses version code **4** and the existing release signing key.
+Current Android release: **1.0.5** for Driver (version code **6**), and **1.0.4** for Sales and Supervisor (version code **5**), using the existing release signing key. Office remains at **1.0.3**.
 
 | App | Package ID | Platform |
 | --- | --- | --- |
@@ -18,6 +18,8 @@ Keep Android System WebView / Google Chrome and Google Play services updated, es
 App logos come from `logos/logo_office.png`, `logos/logo_sale_representative.png`, `logos/logo_sale_supervisor.png`, and `logos/logo_driver.png`. The build scripts regenerate the Windows multi-resolution ICO and each Android flavor's launcher, adaptive, and splash images from these source files. The Android assets preserve the full artwork with padding to keep text inside launcher masks. Version 1.0.1 uses Android version code 2 and the existing release signing key, allowing installation over version 1.0.0.
 
 Android version 1.0.2 (version code 3) adds a native opening screen, a 30-second startup timeout, and a connection-error screen with Retry. It waits for React to render and for a WebView frame to be ready before removing the native opening screen. Network and certificate failures never bypass HTTPS validation. This avoids an unexplained black/white screen during slow or failed website loading.
+
+Android version 1.0.4 fixes a crash after the opening screen on physical devices. Capacitor invokes native plugin methods on its worker thread, but Android requires `WebView.getUrl()` on the UI thread. All ValleyNative methods now check the trusted page on the UI thread before dispatching native work back to the Capacitor worker. The previous startup `disconnect()` call violated this requirement and terminated Sales and Supervisor on the connected Android 15 phone.
 
 The frontend is served by Laravel, including its runtime URLs, cookies, and CSRF protection. Updating the web server updates the interface in the installed applications. New native features and changes to native permissions require a new APK/EXE. The Capacitor bridge is restricted to the trusted server; release WebView debugging, cleartext connections, and mixed content are disabled.
 
@@ -34,6 +36,8 @@ npm run test:native
 ```
 
 `npm run android:build` synchronizes Capacitor, generates the three flavor configurations, and signs release APKs. It writes the APKs into `artifacts/android/`. `npm run android:debug` creates separately signed test APKs. Remove a debug install before installing a release with the same package ID.
+
+Use `npm run android:build -- -App driver` to rebuild only Driver. APK filenames use the version from the built Gradle metadata. Driver 1.0.5 accompanies the web update for full delivery refusals, required return reasons, zero sale totals, and trip return-stock closeout. Rebuild all web apps with `npm run build`; deploy the Laravel changes and `public/build/` for the updated driver workflow to appear in the installed app.
 
 The Office portable executable is written into `artifacts/windows/`. It runs with the current user's permissions. Sessions and settings stay in the user's Windows application-data directory; moving the EXE does not move those sessions. Downloads use a Save dialog. Existing document printing uses the Windows print dialog. Notifications work while Office is running and are opt-in under Profile & Security.
 
@@ -88,7 +92,9 @@ Push notifications use the existing scoped action queues: Sales draft orders, Su
 
 ## Release checks
 
-Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-android-startup.ps1 -Serial emulator-5556 -Version 1.0.3` against an already running disposable emulator. The script refuses physical-device serials. It installs all three signed release APKs, checks the live login screens and input fields, tests disconnected launch and Retry recovery, and saves screenshots/XML/report data under `artifacts/verification/android-1.0.3/`. It does not log in or claim to verify authenticated business flows, GPS, or Firebase delivery.
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-android-startup.ps1 -Serial emulator-5556 -Version 1.0.4` against an already running disposable emulator. The script refuses physical-device serials. It installs all three signed release APKs, checks the live login screens and input fields, tests disconnected launch and Retry recovery, and saves screenshots/XML/report data under `artifacts/verification/android-1.0.4/`. It does not log in or claim to verify authenticated business flows, GPS, or Firebase delivery.
+
+For startup crash regression checks on an authorized connected phone, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-android-device-startup.ps1 -Serial <device-serial> -Version 1.0.4 -AllowPhysicalDevice`. This updates the three apps in place and checks three cold launches per app, the login inputs, and process survival without fatal exceptions. Reaching the signed-out React screen exercises the startup flow that calls native `disconnect`; release builds omit Capacitor method-call logs. It saves screenshots, UI XML, process logs, and a report under `artifacts/verification/android-1.0.4-device/`. It preserves app data and device connectivity, and requires the apps to be signed out. It does not test authenticated workflows.
 
 - Verify all APK signatures and package IDs with Android `apksigner` and `aapt`; check minimum SDK 26 and target SDK 36.
 - Check device permissions in denied, permanently denied, approximate-only, precise, and location-disabled states.

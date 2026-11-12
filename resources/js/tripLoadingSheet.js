@@ -17,7 +17,7 @@ export function buildTripLoadingDocument({ delivery, trip, stock = [], stops = [
             ['Driver', identity(delivery.driver_code, delivery.driver_name)],
             ['Vehicle', identity(delivery.vehicle_code, delivery.plate_no)],
             ['Stops', stops.length],
-            ['Status', String(trip?.status || delivery.status || '').replaceAll('_', ' ')],
+            ['Status', (trip?.status || delivery.status) === 'failed' ? 'Fully returned' : String(trip?.status || delivery.status || '').replaceAll('_', ' ')],
         ],
         columns: ['Product', 'SKU', 'Unit', 'Quantity to load'],
         rows: products.map((item) => [item.product_name, item.product_sku, item.unit, quantity(item.planned_quantity)]),

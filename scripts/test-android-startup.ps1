@@ -1,4 +1,4 @@
-param([string]$Serial = 'emulator-5556', [string]$Version = '1.0.3')
+param([string]$Serial = 'emulator-5556', [string]$Version = '1.0.4')
 $ErrorActionPreference = 'Stop'
 if ($Serial -notmatch '^emulator-\d+$') { throw 'This automated test only runs on an emulator, never on a connected phone.' }
 $projectDirectory = Split-Path -Parent $PSScriptRoot

@@ -1,4 +1,4 @@
-param([switch]$DebugBuild)
+param([switch]$DebugBuild, [ValidateSet('all', 'sales', 'supervisor', 'driver')][string]$App = 'all')
 $ErrorActionPreference = 'Stop'
 $env:DEBUG = $null
 $projectDirectory = Split-Path -Parent $PSScriptRoot
@@ -35,18 +35,23 @@ if (-not $DebugBuild) {
     }
 }
 $variant = if ($DebugBuild) { 'Debug' } else { 'Release' }
+$appSlugs = if ($App -eq 'all') { @('sales', 'supervisor', 'driver') } else { @($App) }
+$buildTasks = @($appSlugs | ForEach-Object { ":app:assemble$((Get-Culture).TextInfo.ToTitleCase($_))$variant" })
 Push-Location -LiteralPath 'android'
 try {
-    & .\gradlew.bat ":app:assemble$variant" --console plain --no-daemon
+    & .\gradlew.bat @buildTasks --console plain --no-daemon
     if ($LASTEXITCODE -ne 0) { throw 'Android build failed.' }
 } finally { Pop-Location }
 $outputDirectory = Join-Path $projectDirectory 'artifacts\android'
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-foreach ($appSlug in @('sales', 'supervisor', 'driver')) {
+foreach ($appSlug in $appSlugs) {
     $variantFolder = $variant.ToLowerInvariant()
     $apk = "android\app\build\outputs\apk\$appSlug\$variantFolder\app-$appSlug-$variantFolder.apk"
     $appName = (Get-Culture).TextInfo.ToTitleCase($appSlug)
-    $destination = Join-Path $outputDirectory "Valley-$appName-1.0.3-$variantFolder.apk"
+    $metadata = Get-Content -LiteralPath "android\app\build\outputs\apk\$appSlug\$variantFolder\output-metadata.json" -Raw | ConvertFrom-Json
+    $appVersion = $metadata.elements[0].versionName
+    if (-not $appVersion) { throw "Missing built version for $appSlug." }
+    $destination = Join-Path $outputDirectory "Valley-$appName-$appVersion-$variantFolder.apk"
     Copy-Item -LiteralPath $apk -Destination $destination -Force
     Write-Output $destination
 }

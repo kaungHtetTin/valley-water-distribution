@@ -8,8 +8,8 @@ android {
         applicationId "com.valleymyanmar.sales"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.0.3"
+        versionCode 5
+        versionName "1.0.4"
         buildConfigField 'String', 'SERVER_BASE', '"https://www.valleymyanmar.com/public"'
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -37,6 +37,8 @@ android {
         driver {
             dimension 'app'
             applicationId 'com.valleymyanmar.driver'
+            versionCode 6
+            versionName "1.0.5"
             resValue 'string', 'app_name', 'Valley Driver'
             resValue 'string', 'title_activity_main', 'Valley Driver'
             buildConfigField 'String', 'APP_SLUG', '"driver"'

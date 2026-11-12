@@ -28,6 +28,24 @@ test('current final sale prints editable quantities, FOC and capped order discou
     assert.ok(document.facts.some(([label, value]) => label === 'Record' && value.includes('unsaved')));
 });
 
+test('full return draft ignores stale sale quantities and prints every loaded unit as returned', () => {
+    const document = buildDriverDeliveryDocument({ ...data, finalSaleMode: true, resultStatus: 'failed',
+        results: { 1: { delivered_quantity: 12, returned_quantity: 0, damaged_quantity: 0 } },
+        finalLines: [{ sale_quantity: 12, unit_price: 3000 }], settlement: { method: 'cash_driver' },
+    });
+    assert.deepEqual(document.rows[0].slice(1), ['12', '0', '12', '0']);
+    assert.deepEqual(document.total, ['Total delivered units', '0']);
+    assert.ok(!document.facts.some(([label]) => label === 'Settlement'));
+});
+
+test('saved return voucher includes goods with no delivered quantity', () => {
+    const document = buildDriverDeliveryDocument({ ...data, stop: { ...data.stop, status: 'failed', items: [
+        { ...data.stop.items[0], delivered_quantity: 0, returned_quantity: 12, damaged_quantity: 0 },
+    ] } });
+    assert.deepEqual(document.rows[0].slice(1), ['12', '0', '12', '0']);
+    assert.deepEqual(document.total, ['Total delivered units', '0']);
+});
+
 function setup(t) {
     const writes = [];
     const popup = { opener: {}, document: { open() {}, write(html) { writes.push(html); }, close() {} } };

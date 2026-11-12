@@ -1,6 +1,11 @@
 import { currentLocale } from './format.js';
 
 export const mobileCopy = {
+    'Fully returned': 'အပြည့်ပြန်အပ်ပြီး',
+    'Full return / delivery refused': 'အပြည့်ပြန်အပ် / ဆိုင်မှလက်မခံ',
+    'Return reason': 'ပြန်အပ်ရသည့်အကြောင်းရင်း',
+    'Confirm full return': 'အပြည့်ပြန်အပ်မှု အတည်ပြုရန်',
+    'No goods will be sold and no payment will be collected. Stock stays on the vehicle for the remaining stops. Confirm the remaining stock returned at the office when ending the trip.': 'ပစ္စည်းရောင်းချခြင်းနှင့် ငွေကောက်ခံခြင်း မရှိပါ။ ကျန်ဆိုင်များသို့ ပို့ဆောင်ရန် ပစ္စည်းများကို ယာဉ်ပေါ်တွင် ဆက်ထားမည်။ ခရီးစဉ်အဆုံးတွင် ကျန်ပစ္စည်းများကို ရုံးသို့ပြန်အပ်ကြောင်း အတည်ပြုပါ။',
     'Complete delivery': 'ပို့ဆောင်မှုအတည်ပြုရန်',
     'on route': 'ပို့ဆောင်နေသည်', 'assigned': 'တာဝန်ပေးပြီး', 'loading': 'ကုန်တင်နေသည်', 'delivered': 'ပို့ပြီး', 'partially delivered': 'တစ်စိတ်တစ်ပိုင်းပို့ပြီး', 'failed': 'မအောင်မြင်', 'planned': 'စီစဉ်ထားသည်', 'cancelled': 'ပယ်ဖျက်ပြီး', 'Approved': 'အတည်ပြုပြီး', 
     'Stop': 'ပို့ဆောင်နေရာ', '· Final sale': '· နောက်ဆုံးအရောင်း', 'Save final sale': 'ပို့ဆောင်မှုအတည်ပြုရန်', 'Saving…': 'သိမ်းနေသည်…', 'Driver signature': 'ယာဉ်မောင်းလက်မှတ်', 'Customer signature': 'ဖောက်သည်လက်မှတ်', 'Saving...': 'သိမ်းနေသည်…',

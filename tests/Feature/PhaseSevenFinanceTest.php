@@ -72,18 +72,27 @@ class PhaseSevenFinanceTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_driver_can_collect_cash_from_an_assigned_route_customer_without_a_delivery()
+    public function test_driver_can_search_all_customers_and_collect_cash_without_eligibility_restrictions()
     {
         $this->seed();
+        $this->seed(\Database\Seeders\DemoSeeder::class);
         $driver = User::where('email', 'driver@valley.test')->firstOrFail();
         $routeCustomerId = DB::table('customers')->where('code', 'CUS-0001')->value('id');
         $outsideCustomerId = DB::table('customers')->where('code', 'CUS-0004')->value('id');
+        DB::table('employees')->where('id', $driver->employee_id)->update(['assigned_route_id' => null]);
+        DB::table('customers')->where('id', $outsideCustomerId)->update(['is_active' => false]);
+        DB::table('invoices')->where('customer_id', $outsideCustomerId)->update(['status' => 'cancelled']);
+        DB::table('deliveries')->where('driver_id', $driver->employee_id)->update(['status' => 'delivered']);
 
         $this->actingAs($driver);
         $this->getJson('/api/mobile/finance/meta')
             ->assertOk()
             ->assertJsonPath('data.app', 'driver')
+            ->assertJsonCount(DB::table('customers')->count(), 'data.customers')
+            ->assertJsonFragment(['code' => 'CUS-0004'])
             ->assertJsonFragment(['code' => 'CUS-0001', 'outstanding' => 30000]);
+        $outsideCustomer = collect($this->getJson('/api/mobile/finance/meta')->assertOk()->json('data.customers'))->firstWhere('id', $outsideCustomerId);
+        $this->assertEquals(0, $outsideCustomer['collectible']);
         $created = $this->postJson('/api/mobile/finance/collections', [
             'customer_id' => $routeCustomerId,
             'collection_date' => '2026-08-17',
@@ -97,7 +106,7 @@ class PhaseSevenFinanceTest extends TestCase
             'collection_date' => '2026-08-17',
             'amount' => 29000,
             'payment_method' => 'cash',
-        ])->assertUnprocessable();
+        ])->assertCreated();
 
         $this->postJson('/api/mobile/finance/collections', [
             'customer_id' => $routeCustomerId,
@@ -111,7 +120,22 @@ class PhaseSevenFinanceTest extends TestCase
             'collection_date' => '2026-08-17',
             'amount' => 1000,
             'payment_method' => 'cash',
-        ])->assertForbidden();
+        ])->assertCreated();
+
+        $this->getJson('/api/mobile/finance/meta')->assertOk()
+            ->assertJsonCount(DB::table('customers')->count(), 'data.customers');
+        $receipts = DB::table('collections')->where('employee_id', $driver->employee_id)
+            ->where('source_app', 'driver')->where('status', 'submitted')->get();
+        $this->actingAs(User::where('email', 'owner@valley.test')->firstOrFail())
+            ->postJson("/api/finance/cash-handovers/{$driver->employee_id}/receive", [
+                'collection_ids' => $receipts->pluck('id')->all(),
+                'received_amount' => $receipts->sum('amount'),
+            ])->assertOk();
+        foreach ($receipts as $receipt) {
+            $this->assertDatabaseHas('collections', ['id' => $receipt->id, 'status' => 'approved']);
+            $this->assertDatabaseHas('financial_transactions', ['reference_type' => 'collection', 'reference_id' => $receipt->id, 'amount' => $receipt->amount]);
+        }
+        $this->assertEquals(1000, app(\App\Services\CustomerCreditService::class)->customerCredit($routeCustomerId));
     }
 
     public function test_driver_expenses_are_reviewed_and_included_in_profit_and_loss()

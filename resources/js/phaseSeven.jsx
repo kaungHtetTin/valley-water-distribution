@@ -163,7 +163,7 @@ function MobileCollectionFields({ form, setForm, customers, selectedCustomer }) 
             }} />
         </Field>
         {selectedCustomer && <section className="mobile-collection-customer span-2" aria-label="Selected customer balance">
-            <span><small>Available to collect</small><strong>{money(collectible)}</strong></span>
+            <span><small>Outstanding balance</small><strong>{money(outstanding)}</strong></span>
             <span><small>{mt("Customer")}</small><strong>{selectedCustomer.contact_name || selectedCustomer.shop_name}</strong></span>
             <span><small>{mt("Phone")}</small><strong>{selectedCustomer.phone || '-'}</strong></span>
             {pending > 0 && <span className="wide mobile-collection-pending"><small>Awaiting Office review</small><strong>{money(pending)} of {money(outstanding)}</strong></span>}
@@ -173,7 +173,7 @@ function MobileCollectionFields({ form, setForm, customers, selectedCustomer }) 
         <Field label={mt("Collection date")}><input required type="date" value={form.collection_date} onChange={(event) => setForm((current) => ({ ...current, collection_date: event.target.value }))} /></Field>
         <Field label="Cash received (MMK)">
             <div className="mobile-collection-amount">
-                <input required type="number" inputMode="numeric" min="1" max={collectible || undefined} disabled={!selectedCustomer} value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
+                <input required type="number" inputMode="numeric" min="1" disabled={!selectedCustomer} value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
                 <button type="button" disabled={!collectible} onClick={() => setForm((current) => ({ ...current, amount: String(collectible) }))}>Full</button>
             </div>
         </Field>
@@ -210,9 +210,8 @@ function MobileFieldCollectionsScreen({ appId }) {
     const submit = (event) => {
         event.preventDefault();
         const amount = Number(form.amount || 0);
-        const collectible = Number(selectedCustomer?.collectible || 0);
-        if (!selectedCustomer || amount <= 0 || amount > collectible) {
-            setState((current) => ({ ...current, error: amount > collectible ? mt("Cash received cannot exceed the balance available to collect.") : mt("Select a customer and enter the cash received.") }));
+        if (!selectedCustomer || !Number.isFinite(amount) || amount <= 0) {
+            setState((current) => ({ ...current, error: mt("Select a customer and enter the cash received.") }));
             return;
         }
         setSaving(true);
@@ -220,7 +219,7 @@ function MobileFieldCollectionsScreen({ appId }) {
         window.axios.post(`${mobileBase()}/collections`, { ...form, payment_method: 'cash', delivery_id: form.delivery_id || null }).then(({ data }) => {
             const collection = data.data.collection;
             setState((current) => ({ ...current, collections: [collection, ...(current.collections || [])], summary: { ...current.summary, collections_amount: Number(current.summary?.collections_amount || 0) + Number(collection.amount || 0), pending_count: Number(current.summary?.pending_count || 0) + 1 } }));
-            setMeta((current) => ({ ...current, customers: current.customers.map((customer) => String(customer.id) === String(collection.customer_id) ? { ...customer, pending_collection: Number(customer.pending_collection || 0) + Number(collection.amount || 0), collectible: Math.max(0, Number(customer.collectible || 0) - Number(collection.amount || 0)) } : customer).filter((customer) => Number(customer.collectible || 0) > 0) }));
+            setMeta((current) => ({ ...current, customers: current.customers.map((customer) => String(customer.id) === String(collection.customer_id) ? { ...customer, pending_collection: Number(customer.pending_collection || 0) + Number(collection.amount || 0), collectible: Math.max(0, Number(customer.collectible || 0) - Number(collection.amount || 0)) } : customer) }));
             setOpen(false);
             setForm(emptyForm());
             setSuccess(data.message);
@@ -259,7 +258,7 @@ function MobileFieldCollectionsScreen({ appId }) {
 
     return <div className="mobile-master-stack mobile-finance mobile-field-collections">
         <div className="mobile-master-heading">
-            <div><p className="eyebrow">{mt("Field finance")}</p><h1>{mt("Cash collections")}</h1><span className="muted">{mt("Collect customer credit balances on your assigned route.")}</span></div>
+            <div><p className="eyebrow">{mt("Field finance")}</p><h1>{mt("Cash collections")}</h1><span className="muted">{mt("Search all customers and collect cash at any time.")}</span></div>
             <button className="button primary" type="button" onClick={() => { setSuccess(''); setState((current) => ({ ...current, error: '' })); setOpen(true); }}><Plus size={15} />{mt("Collect")}</button>
         </div>
         {success && <p className="inline-success"><BadgeCheck size={14} />{success}</p>}
